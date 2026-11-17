@@ -23,9 +23,12 @@ push sul branch `master`.
   stima tramite IP se il GPS non è disponibile).
 - Ricerca di partenza e arrivo con suggerimenti (Nominatim) e indirizzo della
   propria posizione.
-- Calcolo dei percorsi pedonali con OSRM: ogni percorso riceve un punteggio di
-  accessibilità in base agli ostacoli lungo il tragitto, e l'app prova anche una
-  deviazione che li eviti.
+- Calcolo dei percorsi con il profilo "sedia a rotelle" di OpenRouteService,
+  che evita gradini, pendenze e fondi sconnessi; gli ostacoli segnalati vengono
+  passati come zone da evitare. Senza chiave OpenRouteService (o se il servizio
+  non risponde) l'app usa il profilo pedonale di OSRM e prova una deviazione
+  intorno al primo ostacolo. Ogni percorso riceve un punteggio di accessibilità
+  in base agli ostacoli lungo il tragitto.
 - Segnalazione condivisa degli ostacoli su Cloud Firestore (collezione
   `segnalazioni`): basta tenere premuto sulla mappa. Toccando un ostacolo se ne
   vedono i dettagli e lo si può rimuovere.
@@ -42,8 +45,8 @@ lib/
   firebase_options.dart     configurazione Firebase (web)
   theme/app_theme.dart      colori e tema chiaro/scuro
   models/                   ostacoli, percorsi, schede informative
-  services/                 posizione, percorsi OSRM, Nominatim, Firestore,
-                            navigazione, sintesi vocale
+  services/                 posizione, percorsi (OpenRouteService e OSRM),
+                            Nominatim, Firestore, navigazione, sintesi vocale
   screens/                  login e mappa
   widgets/                  componenti dell'interfaccia
 ```
@@ -59,6 +62,42 @@ flutter pub get
 
 ```bash
 flutter run -d chrome
+```
+
+### Percorsi in sedia a rotelle (OpenRouteService)
+
+1. Crea un account gratuito su <https://openrouteservice.org/dev/#/signup> e
+   copia la chiave API.
+2. In locale, passala all'avvio:
+
+   ```bash
+   flutter run -d chrome --dart-define=ORS_API_KEY=la-tua-chiave
+   ```
+
+3. Per GitHub Pages, aggiungila come secret `ORS_API_KEY` in
+   **Settings → Secrets and variables → Actions** del repository. Il workflow la
+   usa alla prossima pubblicazione.
+
+La chiave finisce nel JavaScript pubblicato, quindi chiunque può leggerla: usa
+un account dedicato al progetto. Il piano gratuito ha un limite giornaliero di
+richieste; superato quello, l'app torna da sola a OSRM.
+
+## Regole di sicurezza di Firestore
+
+`firestore.rules` stabilisce chi può leggere e scrivere le segnalazioni:
+
+- solo gli utenti che hanno fatto accesso (anche come ospiti) le vedono;
+- una segnalazione si crea solo a proprio nome, con l'ora del server e con i
+  soli campi `lat`, `lng`, `type`, `timestamp`, `userId` validi;
+- le segnalazioni non si modificano;
+- chi ha un account può rimuovere qualsiasi segnalazione ("L'ostacolo non c'è
+  più"), un ospite solo le proprie;
+- il resto del database è chiuso.
+
+Per pubblicarle (sostituiscono le regole attuali del progetto):
+
+```bash
+firebase deploy --only firestore:rules
 ```
 
 ## Pubblicazione su Firebase Hosting

@@ -22,7 +22,11 @@ jobs:
       - run: flutter analyze --no-fatal-infos
       - run: flutter test
       - name: Build web for repository URL
-        run: flutter build web --release --pwa-strategy=none --base-href "/${{ github.event.repository.name }}/"
+        # ORS_API_KEY (facoltativo) attiva i percorsi in sedia a rotelle di
+        # OpenRouteService; senza il secret l'app usa OSRM.
+        env:
+          ORS_API_KEY: ${{ secrets.ORS_API_KEY }}
+        run: flutter build web --release --pwa-strategy=none --base-href "/${{ github.event.repository.name }}/" --dart-define=ORS_API_KEY="$ORS_API_KEY"
       - name: Version application entrypoints to prevent stale browser caches
         env:
           RELEASE_SHA: ${{ github.sha }}
