@@ -31,22 +31,34 @@ class ObstacleService {
   DocumentReference<Map<String, dynamic>> _limits(String userId) =>
       _firestore.collection('limiti').doc(userId);
 
+  /// Salva una segnalazione insieme all'ora in `limiti/{uid}`, come chiedono
+  /// le regole di firestore.rules. Se il database ha ancora regole più
+  /// vecchie che non conoscono `limiti` o `category`, la scrittura combinata
+  /// viene rifiutata: in quel caso si salva la segnalazione nel formato
+  /// originale. Con le regole nuove anche questo secondo tentativo viene
+  /// rifiutato, quindi il limite di frequenza resta valido.
   Future<void> add(LatLng position, String type, String userId) async {
+    final doc = _collection.doc();
+    final report = {
+      'lat': position.latitude,
+      'lng': position.longitude,
+      'type': type,
+      'timestamp': FieldValue.serverTimestamp(),
+      'userId': userId,
+    };
     final batch = _firestore.batch()
-      ..set(_collection.doc(), {
-        'lat': position.latitude,
-        'lng': position.longitude,
-        'type': type,
-        'category': obstacleCategoryOf(type),
-        'timestamp': FieldValue.serverTimestamp(),
-        'userId': userId,
-      })
+      ..set(doc, {...report, 'category': obstacleCategoryOf(type)})
       ..set(
         _limits(userId),
         {'lastReportAt': FieldValue.serverTimestamp()},
         SetOptions(merge: true),
       );
-    await batch.commit();
+    try {
+      await batch.commit();
+    } on FirebaseException catch (error) {
+      if (error.code != 'permission-denied') rethrow;
+      await doc.set(report);
+    }
   }
 
   /// Registra che [userId] ha visto l'ostacolo ancora al suo posto.
@@ -57,6 +69,8 @@ class ObstacleService {
     });
   }
 
+  /// Rimuove una segnalazione aggiornando `limiti/{uid}`; con regole più
+  /// vecchie che non conoscono `limiti` ripiega sulla sola rimozione.
   Future<void> remove(String id, String userId) async {
     final batch = _firestore.batch()
       ..delete(_collection.doc(id))
@@ -65,7 +79,12 @@ class ObstacleService {
         {'lastRemovalAt': FieldValue.serverTimestamp()},
         SetOptions(merge: true),
       );
-    await batch.commit();
+    try {
+      await batch.commit();
+    } on FirebaseException catch (error) {
+      if (error.code != 'permission-denied') rethrow;
+      await _collection.doc(id).delete();
+    }
   }
 
   void dispose() {
