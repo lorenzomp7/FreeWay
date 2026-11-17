@@ -132,9 +132,11 @@ Non esegue accessi o scritture su Firestore. Non verifica ancora percorsi,
 ricerca o navigazione: per questi restano i test Flutter esistenti e le prove
 esplorative con browser collegato.
 
-`FREEWAY_QA_URL` permette di verificare un altro URL invece della build locale.
+`FREEWAY_QA_URL` permette di verificare un altro URL invece della build locale,
+anche in un sottopercorso come `https://lorenzomp7.github.io/FreeWay`: i test
+aprono la pagina relativa all'URL indicato, non la radice del dominio.
 Il workflow `agent-qa.yml` esegue analisi, test Flutter e test browser sulle
-pull request e sui push a `main_chatgpt`, conservando report e tracce dei
+pull request e sui push a `main` e `main_chatgpt`, conservando report e tracce dei
 fallimenti. Non pubblica il sito e non richiede chiavi AI.
 
 ## Verifiche dell'integrazione
@@ -143,9 +145,10 @@ fallimenti. Non pubblica il sito e non richiede chiavi AI.
 - CLI Playwriter 0.12.0 e Gemini 0.68.0 avviati con `--version`.
 - Vibetest: import riuscito e protocollo MCP verificato con `initialize` e
   `tools/list`; nessuna chiamata al modello AI durante questa verifica.
-- Playwright riconosce i due casi desktop/mobile. L'avvio locale di Chromium
-  è bloccato dai permessi sui socket dell'ambiente; test web non superati né
-  dichiarati funzionanti. Il workflow può eseguirli su GitHub dopo il push.
+- Test browser Playwright superati su GitHub su desktop e telefono (prima
+  esecuzione del workflow `agent-qa.yml`, commit `c3ac909`). In locale l'app
+  si avvia solo se il browser raggiunge `www.gstatic.com`, da cui arrivano
+  Firebase e CanvasKit.
 - Container Use richiede Docker e un compilatore Go autentico, assenti
   nell'ambiente di verifica; configurato ma non collaudato in esecuzione.
 - Syncfusion resta un checkout opzionale di esempi, senza dipendenze nell'app.

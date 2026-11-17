@@ -2,7 +2,7 @@ name: Agent tools and browser QA
 on:
   pull_request:
   push:
-    branches: [main_chatgpt]
+    branches: [main, main_chatgpt]
   workflow_dispatch:
 permissions:
   contents: read

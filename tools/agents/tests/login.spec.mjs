@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 test('accesso visibile e utilizzabile con tastiera e schermo piccolo', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.getByRole('button', { name: 'Continua come ospite' })).toBeVisible();
   const email = page.getByRole('textbox', { name: /email/i });
   await expect(email).toBeVisible();
