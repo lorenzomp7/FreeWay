@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:freeway/models/obstacle.dart';
+import 'package:freeway/services/obstacle_service.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:freeway/widgets/obstacle_sheets.dart';
 
 Map<String, dynamic> report({Map<String, dynamic> extra = const {}}) => {
@@ -122,6 +124,36 @@ void main() {
         'timestamp': null,
       });
       expect(pending.isExpired(DateTime(2030)), isFalse);
+    });
+  });
+
+  group('findDuplicate', () {
+    Obstacle at(String id, double lat, double lng, String type) =>
+        Obstacle(id: id, position: LatLng(lat, lng), type: type);
+    const step = 'Gradino che rende impossibile il passaggio';
+    const car = 'Auto parcheggiata su scivolo o marciapiede';
+    final obstacles = [
+      at('far', 45.5420, 10.2200, step), // circa 220 m
+      at('other-type', 45.5400, 10.2201, car), // circa 8 m, tipo diverso
+      at('near', 45.5401, 10.2200, step), // circa 11 m
+      at('nearest', 45.54005, 10.2200, step), // circa 6 m
+    ];
+
+    test('trova la segnalazione uguale più vicina', () {
+      final found = findDuplicate(obstacles, const LatLng(45.5400, 10.2200), step);
+      expect(found?.id, 'nearest');
+    });
+
+    test('ignora tipi diversi e segnalazioni lontane', () {
+      expect(
+        findDuplicate(obstacles, const LatLng(45.5430, 10.2200), step),
+        isNull,
+      );
+      expect(
+        findDuplicate(obstacles, const LatLng(45.5400, 10.2200),
+            'Tornelli non accessibili'),
+        isNull,
+      );
     });
   });
 }

@@ -22,6 +22,7 @@ dependencies:
   http: ^1.3.0
   latlong2: ^0.9.1
   wakelock_plus: ^1.8.0
+  firebase_app_check: ^0.5.2
 
 dev_dependencies:
   flutter_test:
@@ -31,9 +32,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # logo.png serve solo a flutter_launcher_icons: l'app non lo carica.
   assets:
     - assets/banner.png
-    - assets/logo.png
 
 flutter_launcher_icons:
   image_path: assets/logo.png

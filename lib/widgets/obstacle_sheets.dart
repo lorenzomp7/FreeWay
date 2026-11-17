@@ -30,6 +30,49 @@ Future<ObstacleAction?> showObstacleDetailsSheet(
   );
 }
 
+/// Scelta davanti a una segnalazione uguale già presente lì vicino.
+enum DuplicateChoice { confirmExisting, reportAnyway }
+
+/// Avvisa che c'è già una segnalazione dello stesso tipo a [distance] metri.
+Future<DuplicateChoice?> showDuplicateDialog(
+  BuildContext context,
+  Obstacle existing,
+  double distance, {
+  required bool canConfirm,
+}) {
+  final when = existing.reportedAt == null
+      ? ''
+      : ' (${timeAgo(existing.reportedAt!)})';
+  return showDialog<DuplicateChoice>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Ostacolo già segnalato'),
+      content: Text(
+        'A ${distance.round()} m da qui c\'è già la segnalazione '
+        '"${existing.type}"$when. '
+        '${canConfirm ? 'Puoi confermarla invece di crearne una nuova.' : ''}',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Annulla'),
+        ),
+        TextButton(
+          onPressed: () =>
+              Navigator.of(context).pop(DuplicateChoice.reportAnyway),
+          child: const Text('Segnala comunque'),
+        ),
+        if (canConfirm)
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(context).pop(DuplicateChoice.confirmExisting),
+            child: const Text('Conferma quella'),
+          ),
+      ],
+    ),
+  );
+}
+
 /// Tempo trascorso da [date] in forma breve ("3 giorni fa").
 String timeAgo(DateTime date, {DateTime? now}) {
   final elapsed = (now ?? DateTime.now()).difference(date);

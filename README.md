@@ -7,14 +7,12 @@
 FREE WAY è una web app Flutter per trovare percorsi pedonali accessibili e
 segnalare barriere architettoniche. È un progetto di Enactus UniBs 2024 / 2025.
 
-Versione pubblicata: <https://progetto-rimosso.web.app/>
-
 ## Prova nel browser
 
-[Apri FREE WAY su GitHub Pages](https://lorenzomp7.github.io/EnactusProject/)
+[Apri FREE WAY su GitHub Pages](https://lorenzomp7.github.io/FreeWay/)
 
 Il workflow `.github/workflows/pages.yml` pubblica l'app su GitHub Pages a ogni
-push sul branch `master`.
+push sul branch `main`.
 
 ## Funzionalità
 
@@ -83,8 +81,8 @@ flutter run -d chrome
    ```
 
 3. Per GitHub Pages, aggiungila come secret `ORS_API_KEY` in
-   **Settings → Secrets and variables → Actions** del repository. Il workflow la
-   usa alla prossima pubblicazione.
+   **Settings → Secrets and variables → Actions** del repository. I workflow la
+   usano alla prossima pubblicazione.
 
 La chiave finisce nel JavaScript pubblicato, quindi chiunque può leggerla: usa
 un account dedicato al progetto. Il piano gratuito ha un limite giornaliero di
@@ -98,35 +96,60 @@ richieste; superato quello, l'app torna da sola a OSRM.
 - una segnalazione si crea solo a proprio nome, con l'ora del server e con i
   soli campi `lat`, `lng`, `type`, `category` (facoltativo), `timestamp`,
   `userId` validi;
+- ognuno può fare al massimo una segnalazione ogni 30 secondi e una rimozione
+  ogni 10 secondi (l'ora dell'ultima azione è nel documento `limiti/{uid}`,
+  aggiornato nella stessa scrittura);
 - l'unica modifica ammessa è "Confermo, c'è ancora": si aggiunge il proprio
   uid a `confirmedBy`, una sola volta e non sulle proprie segnalazioni;
 - chi ha un account può rimuovere qualsiasi segnalazione ("L'ostacolo non c'è
   più"), un ospite solo le proprie;
 - il resto del database è chiuso.
 
-Per pubblicarle (sostituiscono le regole attuali del progetto):
+Prima di segnalare, l'app avvisa se a meno di 25 m c'è già una segnalazione
+dello stesso tipo e propone di confermarla invece di duplicarla.
+
+### Test delle regole
+
+`firestore_tests/` prova le regole con l'emulatore di Firestore (servono
+Node.js 22 e Java 21):
 
 ```bash
-firebase deploy --only firestore:rules
+cd firestore_tests && npm ci && npm test
 ```
 
-## Pubblicazione su Firebase Hosting
+Il workflow `.github/workflows/rules-test.yml` esegue gli stessi test a ogni
+push su `main` e in ogni pull request.
+
+## Pubblicazione
+
+Il sito sta solo su GitHub Pages (vedi sopra). Firebase serve unicamente per
+login e segnalazioni (Authentication e Firestore). Le regole di Firestore si
+pubblicano a mano sul proprio progetto Firebase, solo quando cambiano:
 
 ```bash
-flutter build web --release
+firebase deploy --only firestore:rules --project ID-DEL-TUO-PROGETTO
 ```
 
-```bash
-firebase deploy --only hosting
-```
+### Firebase App Check (facoltativo)
 
-`firebase.json` pubblica la cartella `build/web` sul progetto `progetto-rimosso`.
+App Check fa accettare a Firestore solo le richieste che arrivano davvero
+dall'app, bloccando script e bot.
+
+1. Nella console Firebase apri **App Check**, registra l'app web con
+   **reCAPTCHA Enterprise** e crea una chiave del sito per i domini
+   `lorenzomp7.github.io` e `localhost`.
+2. Salva la chiave del sito come secret `RECAPTCHA_SITE_KEY` nel repository
+   (in locale: `--dart-define=RECAPTCHA_SITE_KEY=...`).
+3. Dopo la pubblicazione controlla in **App Check** che le richieste risultino
+   verificate, poi attiva l'**applicazione forzata** per Cloud Firestore.
+
+Senza la chiave l'app funziona come prima, senza App Check.
 
 ## Nota sull'origine del codice
 
 Il codice sorgente originale non era disponibile: questo codice è stato
-ricostruito dalla build compilata pubblicata su `progetto-rimosso.web.app`
-(senza source map). Logica, testi, colori, icone e layout sono stati ricavati dal
+ricostruito dalla build compilata della prima versione online (senza source
+map). Logica, testi, colori, icone e layout sono stati ricavati dal
 JavaScript compilato. Il risultato compila e la schermata di accesso è identica a
 quella pubblicata. Nomi di classi, variabili e file sono invece ricostruiti, e
 alcuni dettagli del tema (per esempio gli stili di pulsanti e campi non visibili

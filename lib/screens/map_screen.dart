@@ -11,6 +11,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/obstacle.dart';
 import '../models/route_option.dart';
+import '../services/geo_utils.dart';
 import '../services/geocoding_service.dart';
 import '../services/instruction_translator.dart';
 import '../services/location_service.dart';
@@ -430,13 +431,61 @@ class _MapScreenState extends State<MapScreen> {
 
   // --- Ostacoli ------------------------------------------------------------
 
+  /// Intervalli minimi imposti anche dalle regole di Firestore.
+  static const Duration _reportInterval = Duration(seconds: 30);
+  static const Duration _removalInterval = Duration(seconds: 10);
+  DateTime? _lastReportAt;
+  DateTime? _lastRemovalAt;
+
+  /// Secondi da attendere prima della prossima azione, o `null` se si può.
+  int? _secondsToWait(DateTime? last, Duration interval) {
+    if (last == null) return null;
+    final left = interval - DateTime.now().difference(last);
+    return left > Duration.zero ? left.inSeconds + 1 : null;
+  }
+
   Future<void> _reportObstacle(LatLng point) async {
+    final wait = _secondsToWait(_lastReportAt, _reportInterval);
+    if (wait != null) {
+      _showError(
+        'Puoi fare una segnalazione ogni 30 secondi: riprova tra $wait s.',
+        Icons.hourglass_bottom_rounded,
+      );
+      return;
+    }
     final type = await showReportObstacleSheet(context);
-    if (type == null) return;
+    if (type == null || !mounted) return;
     final userId = FirebaseAuth.instance.currentUser?.uid;
     if (userId == null) return;
+
+    final duplicate = findDuplicate(_obstacles, point, type);
+    if (duplicate != null) {
+      final canConfirm = duplicate.canBeConfirmedBy(userId);
+      final choice = await showDuplicateDialog(
+        context,
+        duplicate,
+        haversineDistance(duplicate.position, point),
+        canConfirm: canConfirm,
+      );
+      if (choice == null || !mounted) return;
+      if (choice == DuplicateChoice.confirmExisting) {
+        await _confirmObstacle(duplicate, userId);
+        return;
+      }
+    }
+
     try {
       await _obstacleService.add(point, type, userId);
+      _lastReportAt = DateTime.now();
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      _showError(
+        error.code == 'permission-denied'
+            ? 'Hai appena fatto una segnalazione: riprova tra qualche secondo.'
+            : 'Non è stato possibile salvare la segnalazione. Riprova.',
+        Icons.error_outline_rounded,
+      );
+      return;
     } catch (_) {
       if (!mounted) return;
       _showError(
@@ -499,8 +548,27 @@ class _MapScreenState extends State<MapScreen> {
       if (userId != null) await _confirmObstacle(obstacle, userId);
       return;
     }
+    if (userId == null) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if ((user?.isAnonymous ?? false) && !obstacle.isReportedBy(userId)) {
+      _showError(
+        'Per rimuovere le segnalazioni di altri utenti accedi con un account '
+        '(non come ospite).',
+        Icons.lock_outline_rounded,
+      );
+      return;
+    }
+    final wait = _secondsToWait(_lastRemovalAt, _removalInterval);
+    if (wait != null) {
+      _showError(
+        'Puoi rimuovere una segnalazione ogni 10 secondi: riprova tra $wait s.',
+        Icons.hourglass_bottom_rounded,
+      );
+      return;
+    }
     try {
-      await _obstacleService.remove(obstacle.id);
+      await _obstacleService.remove(obstacle.id, userId);
+      _lastRemovalAt = DateTime.now();
       if (!mounted) return;
       _showSnack(
         'Ostacolo rimosso dalla mappa.',
@@ -512,8 +580,7 @@ class _MapScreenState extends State<MapScreen> {
       if (!mounted) return;
       _showError(
         error.code == 'permission-denied'
-            ? 'Per rimuovere le segnalazioni di altri utenti accedi con '
-                'un account (non come ospite).'
+            ? 'Hai appena rimosso una segnalazione: riprova tra qualche secondo.'
             : "Non è stato possibile rimuovere l'ostacolo.",
         Icons.error_outline_rounded,
       );
