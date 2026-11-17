@@ -52,7 +52,7 @@ class SearchPanel extends StatelessWidget {
 
     final children = <Widget>[
       Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+        padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
         child: Row(
           children: [
             const RouteDots(),
@@ -81,7 +81,7 @@ class SearchPanel extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: 6),
             SwapButton(onTap: onSwap),
           ],
         ),
@@ -97,25 +97,31 @@ class SearchPanel extends StatelessWidget {
     }
 
     children.add(Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
       child: SizedBox(
         width: double.infinity,
         child: FilledButton.icon(
           onPressed: isCalculating || !canCalculate ? null : onCalculate,
           icon: isCalculating
               ? const SizedBox(
-                  width: 18,
-                  height: 18,
+                  width: 22,
+                  height: 22,
                   child: CircularProgressIndicator(
-                    strokeWidth: 2.2,
+                    strokeWidth: 2.5,
                     color: Colors.white,
                   ),
                 )
-              : const Icon(Icons.directions_walk_rounded, size: 20),
+              : const Icon(Icons.directions_walk_rounded, size: 24),
           label: Text(
             isCalculating ? 'Calcolo in corso…' : 'Calcola percorso pedonale',
           ),
-          style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(0, 56),
+            textStyle: Theme.of(context)
+                .textTheme
+                .labelLarge
+                ?.copyWith(fontSize: 16, color: Colors.white),
+          ),
         ),
       ),
     ));
@@ -141,17 +147,17 @@ class RouteDots extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     return SizedBox(
-      width: 14,
-      height: 88,
+      width: 16,
+      height: 112,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            width: 12,
-            height: 12,
+            width: 14,
+            height: 14,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: AppPalette.startGreen, width: 3),
+              border: Border.all(color: AppPalette.startGreen, width: 3.5),
             ),
           ),
           Expanded(
@@ -172,7 +178,7 @@ class RouteDots extends StatelessWidget {
           ),
           const Icon(
             Icons.location_on_rounded,
-            size: 16,
+            size: 20,
             color: AppPalette.primary,
           ),
         ],
@@ -204,18 +210,18 @@ class SearchField extends StatelessWidget {
     final colors = AppColors.of(context);
     final theme = Theme.of(context);
     return SizedBox(
-      height: 44,
+      height: 56,
       child: Row(
         children: [
           Expanded(
             child: TextField(
               controller: controller,
               onChanged: onChanged,
-              style: theme.textTheme.titleSmall,
+              style: theme.textTheme.titleMedium,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
                 hintText: hint,
-                hintStyle: theme.textTheme.bodyMedium
+                hintStyle: theme.textTheme.bodyLarge
                     ?.copyWith(color: colors.textTertiary),
                 isDense: true,
                 filled: false,
@@ -239,11 +245,11 @@ class SearchField extends StatelessWidget {
           ),
           if (isLoading)
             const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
+              padding: EdgeInsets.symmetric(horizontal: 10),
               child: SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
               ),
             )
           else
@@ -278,8 +284,8 @@ class SmallIconButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(6),
-          child: Icon(icon, color: AppColors.of(context).textTertiary, size: 18),
+          padding: const EdgeInsets.all(8),
+          child: Icon(icon, color: AppColors.of(context).textTertiary, size: 24),
         ),
       ),
     );
@@ -300,8 +306,8 @@ class SwapButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         onTap: onTap,
         child: Container(
-          width: 36,
-          height: 36,
+          width: 44,
+          height: 44,
           decoration: BoxDecoration(
             color: colors.surfaceMuted,
             shape: BoxShape.circle,
@@ -309,7 +315,7 @@ class SwapButton extends StatelessWidget {
           child: Icon(
             Icons.swap_vert_rounded,
             color: colors.textSecondary,
-            size: 20,
+            size: 24,
           ),
         ),
       ),
@@ -349,20 +355,20 @@ class SuggestionsList extends StatelessWidget {
           return InkWell(
             onTap: () => onSelect(place, isStart),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
               child: Row(
                 children: [
                   Container(
-                    width: 32,
-                    height: 32,
+                    width: 40,
+                    height: 40,
                     decoration: BoxDecoration(
                       color: colors.surfaceMuted,
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
                       Icons.place_outlined,
                       color: colors.textSecondary,
-                      size: 18,
+                      size: 22,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -375,14 +381,14 @@ class SuggestionsList extends StatelessWidget {
                           label.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: textTheme.titleSmall,
+                          style: textTheme.titleMedium,
                         ),
                         if (label.subtitle.isNotEmpty)
                           Text(
                             label.subtitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: textTheme.bodySmall,
+                            style: textTheme.bodyMedium,
                           ),
                       ],
                     ),
@@ -413,14 +419,14 @@ class CollapsedSearchBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
-    final style = Theme.of(context).textTheme.titleSmall;
+    final style = Theme.of(context).textTheme.titleMedium;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(999),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           decoration: BoxDecoration(
             color: colors.surface,
             border: Border.all(color: colors.border),
@@ -429,7 +435,7 @@ class CollapsedSearchBar extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const Icon(Icons.route_rounded, size: 18, color: AppPalette.primary),
+              const Icon(Icons.route_rounded, size: 24, color: AppPalette.primary),
               const SizedBox(width: 12),
               Expanded(
                 child: Row(
@@ -447,7 +453,7 @@ class CollapsedSearchBar extends StatelessWidget {
                       child: Icon(
                         Icons.arrow_forward_rounded,
                         color: colors.textTertiary,
-                        size: 14,
+                        size: 18,
                       ),
                     ),
                     Flexible(
@@ -462,7 +468,7 @@ class CollapsedSearchBar extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Icon(Icons.edit_outlined, color: colors.textTertiary, size: 18),
+              Icon(Icons.edit_outlined, color: colors.textTertiary, size: 22),
             ],
           ),
         ),

@@ -5,8 +5,7 @@
 </p>
 
 FREE WAY è una web app Flutter per trovare percorsi pedonali accessibili e
-segnalare barriere architettoniche. È un progetto dell'Università degli Studi di
-Brescia.
+segnalare barriere architettoniche. È un progetto di Enactus UniBs 2024 / 2025.
 
 Versione pubblicata: <https://progetto-rimosso.web.app/>
 

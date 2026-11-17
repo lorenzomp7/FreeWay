@@ -81,7 +81,7 @@ class MapControls extends StatelessWidget {
     BoxDecoration decoration() => BoxDecoration(
           color: colors.surface,
           border: Border.all(color: colors.border),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           boxShadow: softShadow(colors),
         );
     return Column(
@@ -147,16 +147,16 @@ class MapControlButton extends StatelessWidget {
     final foreground = color ?? colors.textPrimary;
     final Widget child = isLoading
         ? SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2, color: foreground),
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2.5, color: foreground),
           )
-        : Icon(icon, color: foreground, size: 20);
+        : Icon(icon, color: foreground, size: 26);
     return Tooltip(
       message: tooltip,
       child: InkWell(
         onTap: onPressed,
-        child: SizedBox(width: 44, height: 44, child: Center(child: child)),
+        child: SizedBox(width: 56, height: 56, child: Center(child: child)),
       ),
     );
   }
@@ -197,7 +197,7 @@ class CategoryFilterBar extends StatelessWidget {
     final colors = AppColors.of(context);
     final textTheme = Theme.of(context).textTheme;
     return SizedBox(
-      height: 38,
+      height: 48,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.zero,
@@ -212,7 +212,7 @@ class CategoryFilterBar extends StatelessWidget {
             onTap: () => onSelected(category),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: isSelected ? AppPalette.primary : colors.surface,
                 border: Border.all(
@@ -233,19 +233,20 @@ class CategoryFilterBar extends StatelessWidget {
                   Icon(
                     _filterIcons[category] ?? Icons.place_outlined,
                     color: isSelected ? Colors.white : colors.textSecondary,
-                    size: 15,
+                    size: 20,
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 8),
                   Text(
                     label,
-                    style: textTheme.labelMedium?.copyWith(
+                    style: textTheme.titleSmall?.copyWith(
+                      fontSize: 15,
                       color: isSelected ? Colors.white : colors.textPrimary,
                     ),
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 8),
                   Container(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
                       color: isSelected
                           ? Colors.white.withValues(alpha: 0.22)
@@ -254,7 +255,7 @@ class CategoryFilterBar extends StatelessWidget {
                     ),
                     child: Text(
                       '$count',
-                      style: textTheme.labelSmall?.copyWith(
+                      style: textTheme.labelMedium?.copyWith(
                         color: isSelected ? Colors.white : colors.textSecondary,
                         letterSpacing: 0,
                       ),

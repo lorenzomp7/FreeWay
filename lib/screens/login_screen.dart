@@ -201,7 +201,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const InfoLinks(),
                       const SizedBox(height: 4),
                       Text(
-                        "Un progetto dell'Università degli Studi di Brescia",
+                        'Un progetto di Enactus UniBs 2024 / 2025',
                         textAlign: TextAlign.center,
                         style: textTheme.labelSmall?.copyWith(letterSpacing: 0.2),
                       ),
