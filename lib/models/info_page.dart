@@ -46,8 +46,10 @@ const List<InfoPage> infoPages = [
     ],
     bullets: [
       'Cerca partenza e arrivo per calcolare il percorso più accessibile.',
-      'Tieni premuto sulla mappa per segnalare un ostacolo che incontri.',
-      'Tocca un ostacolo per scoprire di cosa si tratta e quando è stato segnalato.',
+      'Tieni premuto sulla mappa, oppure usa il pulsante "Segnala un ostacolo '
+          'qui", per segnalare un ostacolo che incontri.',
+      "Tocca un ostacolo per scoprire di cosa si tratta, confermare che c'è "
+          'ancora o segnalare che è stato rimosso.',
     ],
     footer:
         "Ogni segnalazione viene condivisa con tutte le persone che usano l'app.",

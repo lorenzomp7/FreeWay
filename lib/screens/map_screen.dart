@@ -4,8 +4,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/obstacle.dart';
 import '../models/route_option.dart';
@@ -106,6 +108,7 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   void dispose() {
+    if (_isNavigating) _keepScreenOn(false);
     _ttsService.stop();
     _ttsService.reset();
     _navigationSubscription?.cancel();
@@ -282,6 +285,7 @@ class _MapScreenState extends State<MapScreen> {
     if (_routes.isEmpty) return;
     final route = _routes[_selectedRouteIndex];
     setState(() => _isNavigating = true);
+    _keepScreenOn(true);
     _navigationService.start(route);
     _navigationSubscription?.cancel();
     _navigationSubscription =
@@ -337,7 +341,14 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  /// Durante la navigazione lo schermo resta acceso (dove il browser lo
+  /// consente).
+  void _keepScreenOn(bool enable) {
+    unawaited(WakelockPlus.toggle(enable: enable).catchError((Object _) {}));
+  }
+
   void _stopNavigation() {
+    _keepScreenOn(false);
     _ttsService.stop();
     _ttsService.reset();
     _navigationSubscription?.cancel();
@@ -419,8 +430,18 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _reportObstacle(LatLng point) async {
     final type = await showReportObstacleSheet(context);
     if (type == null) return;
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? 'anonymous';
-    await _obstacleService.add(point, type, userId);
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    try {
+      await _obstacleService.add(point, type, userId);
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile salvare la segnalazione. Riprova.',
+        Icons.error_outline_rounded,
+      );
+      return;
+    }
     if (!mounted) return;
     _showSnack(
       'Ostacolo segnalato. Grazie per il contributo!',
@@ -429,9 +450,52 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  /// Segnala un ostacolo nella posizione dell'utente o, se non è nota, al
+  /// centro della mappa. Alternativa alla pressione prolungata, più comoda da
+  /// tastiera, con un lettore di schermo o con difficoltà motorie.
+  Future<void> _reportHere() async {
+    final location = _userLocation;
+    final point = location ?? _mapController.camera.center;
+    if (location == null) {
+      _showSnack(
+        'Posizione non disponibile: la segnalazione andrà al centro della mappa.',
+        iconColor: AppColors.of(context).info,
+        icon: Icons.info_outline_rounded,
+      );
+    }
+    await _reportObstacle(point);
+  }
+
+  Future<void> _confirmObstacle(Obstacle obstacle, String userId) async {
+    try {
+      await _obstacleService.confirm(obstacle.id, userId);
+      if (!mounted) return;
+      _showSnack(
+        "Grazie! Hai confermato che l'ostacolo c'è ancora.",
+        iconColor: AppColors.of(context).success,
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile registrare la conferma. Riprova.',
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
   Future<void> _openObstacle(Obstacle obstacle) async {
-    final remove = await showObstacleDetailsSheet(context, obstacle);
-    if (remove != true || !mounted) return;
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final action = await showObstacleDetailsSheet(
+      context,
+      obstacle,
+      currentUserId: userId,
+    );
+    if (action == null || !mounted) return;
+    if (action == ObstacleAction.confirm) {
+      if (userId != null) await _confirmObstacle(obstacle, userId);
+      return;
+    }
     try {
       await _obstacleService.remove(obstacle.id);
       if (!mounted) return;
@@ -441,6 +505,15 @@ class _MapScreenState extends State<MapScreen> {
         icon: Icons.check_circle_rounded,
       );
       if (_startPoint != null && _endPoint != null) _calculateRoute();
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      _showError(
+        error.code == 'permission-denied'
+            ? 'Per rimuovere le segnalazioni di altri utenti accedi con '
+                'un account (non come ospite).'
+            : "Non è stato possibile rimuovere l'ostacolo.",
+        Icons.error_outline_rounded,
+      );
     } catch (_) {
       if (!mounted) return;
       _showError(
@@ -469,7 +542,7 @@ class _MapScreenState extends State<MapScreen> {
     final colors = AppColors.of(context);
     final hasRoutes = _routes.isNotEmpty;
     final double controlsBottom =
-        _isNavigating ? 32 : (hasRoutes ? 268 : (_showReportHint ? 100 : 40));
+        _isNavigating ? 32 : (hasRoutes ? 268 : (_showReportHint ? 80 : 32));
 
     final children = <Widget>[
       _buildMap(context),
@@ -564,13 +637,14 @@ class _MapScreenState extends State<MapScreen> {
         onZoomOut: _zoomOut,
         onLocate: () => _locateUser(showErrors: true),
         isLocating: _isLocatingUser,
+        onReport: _isNavigating ? null : _reportHere,
       ),
     ));
 
     if (!hasRoutes && !_isNavigating && _showReportHint) {
       children.add(Positioned(
         left: 12,
-        right: 88,
+        right: 60,
         bottom: 24,
         child: ReportHint(
           onClose: () => setState(() => _showReportHint = false),
@@ -606,6 +680,10 @@ class _MapScreenState extends State<MapScreen> {
     final layers = <Widget>[
       TileLayer(
         urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        userAgentPackageName: 'it.enactusunibs.freeway',
+        // Annulla il download delle tile uscite dallo schermo: mappa più
+        // reattiva sul web e meno richieste ai server di OpenStreetMap.
+        tileProvider: CancellableNetworkTileProvider(),
         tileBuilder: isDark ? darkTileBuilder : lightTileBuilder,
       ),
     ];
@@ -657,6 +735,7 @@ class _MapScreenState extends State<MapScreen> {
                   child: ObstacleMarker(
                     color: obstacle.color,
                     icon: obstacle.icon,
+                    label: 'Ostacolo: ${obstacle.type}',
                     onTap: () => _openObstacle(obstacle),
                   ),
                 ))
@@ -675,6 +754,7 @@ class _MapScreenState extends State<MapScreen> {
           child: const RouteEndpointMarker(
             color: AppPalette.startGreen,
             icon: Icons.trip_origin_rounded,
+            label: 'Partenza',
           ),
         ),
       if (_endPoint != null)
@@ -686,6 +766,7 @@ class _MapScreenState extends State<MapScreen> {
           child: const RouteEndpointMarker(
             color: AppPalette.primary,
             icon: Icons.flag_rounded,
+            label: 'Arrivo',
           ),
         ),
       if (_userLocation != null)

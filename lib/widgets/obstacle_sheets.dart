@@ -12,12 +12,35 @@ Future<String?> showReportObstacleSheet(BuildContext context) {
   );
 }
 
-/// Mostra i dettagli di un ostacolo; restituisce `true` se va rimosso.
-Future<bool?> showObstacleDetailsSheet(BuildContext context, Obstacle obstacle) {
-  return showAppBottomSheet<bool>(
+/// Azione scelta nella scheda di un ostacolo.
+enum ObstacleAction { confirm, remove }
+
+/// Mostra i dettagli di un ostacolo e restituisce l'azione scelta.
+Future<ObstacleAction?> showObstacleDetailsSheet(
+  BuildContext context,
+  Obstacle obstacle, {
+  String? currentUserId,
+}) {
+  return showAppBottomSheet<ObstacleAction>(
     context,
-    (_) => ObstacleDetailsSheet(obstacle: obstacle),
+    (_) => ObstacleDetailsSheet(
+      obstacle: obstacle,
+      currentUserId: currentUserId,
+    ),
   );
+}
+
+/// Tempo trascorso da [date] in forma breve ("3 giorni fa").
+String timeAgo(DateTime date, {DateTime? now}) {
+  final elapsed = (now ?? DateTime.now()).difference(date);
+  if (elapsed.inMinutes < 1) return 'proprio ora';
+  if (elapsed.inMinutes < 60) return '${elapsed.inMinutes} min fa';
+  if (elapsed.inHours < 24) return '${elapsed.inHours} h fa';
+  final days = elapsed.inDays;
+  if (days == 1) return 'ieri';
+  if (days < 30) return '$days giorni fa';
+  final months = days ~/ 30;
+  return months == 1 ? 'un mese fa' : '$months mesi fa';
 }
 
 class ReportObstacleSheet extends StatefulWidget {
@@ -185,9 +208,14 @@ class ObstacleOption extends StatelessWidget {
 }
 
 class ObstacleDetailsSheet extends StatelessWidget {
-  const ObstacleDetailsSheet({super.key, required this.obstacle});
+  const ObstacleDetailsSheet({
+    super.key,
+    required this.obstacle,
+    this.currentUserId,
+  });
 
   final Obstacle obstacle;
+  final String? currentUserId;
 
   String get _formattedDate {
     final date = obstacle.reportedAt;
@@ -199,16 +227,16 @@ class ObstacleDetailsSheet extends StatelessWidget {
 
   String get _timeAgo {
     final date = obstacle.reportedAt;
-    if (date == null) return '';
-    final elapsed = DateTime.now().difference(date);
-    if (elapsed.inMinutes < 1) return 'proprio ora';
-    if (elapsed.inMinutes < 60) return '${elapsed.inMinutes} min fa';
-    if (elapsed.inHours < 24) return '${elapsed.inHours} h fa';
-    final days = elapsed.inDays;
-    if (days == 1) return 'ieri';
-    if (days < 30) return '$days giorni fa';
-    final months = days ~/ 30;
-    return months == 1 ? 'un mese fa' : '$months mesi fa';
+    return date == null ? '' : timeAgo(date);
+  }
+
+  String get _confirmationText {
+    final count = obstacle.confirmationCount;
+    final people = count == 1 ? '1 persona' : '$count persone';
+    final last = obstacle.lastConfirmedAt;
+    return last == null
+        ? 'Confermato da $people'
+        : 'Confermato da $people · ultima volta ${timeAgo(last)}';
   }
 
   @override
@@ -256,12 +284,46 @@ class ObstacleDetailsSheet extends StatelessWidget {
                           Expanded(child: Text(when, style: textTheme.bodySmall)),
                         ],
                       ),
+                      if (obstacle.confirmationCount > 0) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.verified_outlined,
+                              color: colors.textTertiary,
+                              size: 15,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                _confirmationText,
+                                style: textTheme.bodySmall,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
                 const SizedBox(height: 16),
+                if (!obstacle.isReportedBy(currentUserId)) ...[
+                  OutlinedButton.icon(
+                    onPressed: obstacle.canBeConfirmedBy(currentUserId)
+                        ? () => Navigator.of(context).pop(ObstacleAction.confirm)
+                        : null,
+                    icon: const Icon(Icons.visibility_outlined, size: 19),
+                    label: Text(
+                      obstacle.canBeConfirmedBy(currentUserId)
+                          ? "Confermo, c'è ancora"
+                          : 'Hai già confermato questo ostacolo',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 FilledButton.icon(
-                  onPressed: () => Navigator.of(context).pop(true),
+                  onPressed: () =>
+                      Navigator.of(context).pop(ObstacleAction.remove),
                   icon: const Icon(Icons.check_circle_outline_rounded, size: 19),
                   label: const Text("L'ostacolo non c'è più"),
                   style: FilledButton.styleFrom(

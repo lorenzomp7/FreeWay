@@ -68,6 +68,7 @@ class MapControls extends StatelessWidget {
     required this.onZoomOut,
     required this.onLocate,
     required this.isLocating,
+    this.onReport,
   });
 
   final VoidCallback onZoomIn;
@@ -75,13 +76,16 @@ class MapControls extends StatelessWidget {
   final VoidCallback onLocate;
   final bool isLocating;
 
+  /// Segnala un ostacolo senza dover tenere premuto sulla mappa.
+  final VoidCallback? onReport;
+
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     BoxDecoration decoration() => BoxDecoration(
           color: colors.surface,
           border: Border.all(color: colors.border),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(8),
           boxShadow: softShadow(colors),
         );
     return Column(
@@ -108,7 +112,7 @@ class MapControls extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         Container(
           clipBehavior: Clip.antiAlias,
           decoration: decoration(),
@@ -120,6 +124,18 @@ class MapControls extends StatelessWidget {
             color: AppPalette.primary,
           ),
         ),
+        if (onReport != null) ...[
+          const SizedBox(height: 8),
+          Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: decoration(),
+            child: MapControlButton(
+              icon: Icons.add_location_alt_outlined,
+              onPressed: onReport!,
+              tooltip: 'Segnala un ostacolo qui',
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -147,16 +163,22 @@ class MapControlButton extends StatelessWidget {
     final foreground = color ?? colors.textPrimary;
     final Widget child = isLoading
         ? SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(strokeWidth: 2.5, color: foreground),
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2, color: foreground),
           )
-        : Icon(icon, color: foreground, size: 26);
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: onPressed,
-        child: SizedBox(width: 56, height: 56, child: Center(child: child)),
+        : Icon(icon, color: foreground, size: 20);
+    return Semantics(
+      button: true,
+      label: tooltip,
+      excludeSemantics: true,
+      onTap: onPressed,
+      child: Tooltip(
+        message: tooltip,
+        child: InkWell(
+          onTap: onPressed,
+          child: SizedBox(width: 32, height: 32, child: Center(child: child)),
+        ),
       ),
     );
   }
@@ -197,7 +219,7 @@ class CategoryFilterBar extends StatelessWidget {
     final colors = AppColors.of(context);
     final textTheme = Theme.of(context).textTheme;
     return SizedBox(
-      height: 48,
+      height: 32,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.zero,
@@ -212,7 +234,7 @@ class CategoryFilterBar extends StatelessWidget {
             onTap: () => onSelected(category),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 150),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(
                 color: isSelected ? AppPalette.primary : colors.surface,
                 border: Border.all(
@@ -233,20 +255,21 @@ class CategoryFilterBar extends StatelessWidget {
                   Icon(
                     _filterIcons[category] ?? Icons.place_outlined,
                     color: isSelected ? Colors.white : colors.textSecondary,
-                    size: 20,
+                    size: 18,
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   Text(
                     label,
                     style: textTheme.titleSmall?.copyWith(
-                      fontSize: 15,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
                       color: isSelected ? Colors.white : colors.textPrimary,
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   Container(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                     decoration: BoxDecoration(
                       color: isSelected
                           ? Colors.white.withValues(alpha: 0.22)
@@ -255,7 +278,7 @@ class CategoryFilterBar extends StatelessWidget {
                     ),
                     child: Text(
                       '$count',
-                      style: textTheme.labelMedium?.copyWith(
+                      style: textTheme.labelSmall?.copyWith(
                         color: isSelected ? Colors.white : colors.textSecondary,
                         letterSpacing: 0,
                       ),
@@ -336,41 +359,53 @@ class ReportHint extends StatelessWidget {
 
 /// Segnaposto di partenza/arrivo con la punta a forma di goccia.
 class RouteEndpointMarker extends StatelessWidget {
-  const RouteEndpointMarker({super.key, required this.color, required this.icon});
+  const RouteEndpointMarker({
+    super.key,
+    required this.color,
+    required this.icon,
+    required this.label,
+  });
 
   final Color color;
   final IconData icon;
 
+  /// "Partenza" o "Arrivo", per i lettori di schermo.
+  final String label;
+
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 3),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.28),
-                offset: const Offset(0, 3),
-                blurRadius: 8,
-              ),
-            ],
+    return Semantics(
+      label: label,
+      excludeSemantics: true,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 3),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.28),
+                  offset: const Offset(0, 3),
+                  blurRadius: 8,
+                ),
+              ],
+            ),
+            child: Icon(icon, color: Colors.white, size: 17),
           ),
-          child: Icon(icon, color: Colors.white, size: 17),
-        ),
-        Transform.translate(
-          offset: const Offset(0, -3),
-          child: CustomPaint(
-            size: const Size(12, 9),
-            painter: _PinTipPainter(color),
+          Transform.translate(
+            offset: const Offset(0, -3),
+            child: CustomPaint(
+              size: const Size(12, 9),
+              painter: _PinTipPainter(color),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -418,9 +453,16 @@ class _UserLocationDotState extends State<UserLocationDot>
   );
 
   @override
-  void initState() {
-    super.initState();
-    _controller.repeat();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Niente pulsazione se l'utente ha chiesto di ridurre le animazioni.
+    if (MediaQuery.of(context).disableAnimations) {
+      _controller
+        ..stop()
+        ..value = 0;
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
   }
 
   @override
@@ -431,40 +473,44 @@ class _UserLocationDotState extends State<UserLocationDot>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        final t = _controller.value;
-        final size = 12 + 28 * t;
-        return Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: size,
-              height: size,
-              decoration: BoxDecoration(
-                color: AppPalette.userBlue.withValues(alpha: (1 - t) * 0.28),
-                shape: BoxShape.circle,
+    return Semantics(
+      label: 'La tua posizione',
+      excludeSemantics: true,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          final t = _controller.value;
+          final size = 12 + 28 * t;
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: size,
+                height: size,
+                decoration: BoxDecoration(
+                  color: AppPalette.userBlue.withValues(alpha: (1 - t) * 0.28),
+                  shape: BoxShape.circle,
+                ),
               ),
-            ),
-            child!,
-          ],
-        );
-      },
-      child: Container(
-        width: 18,
-        height: 18,
-        decoration: BoxDecoration(
-          color: AppPalette.userBlue,
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 3),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.3),
-              offset: const Offset(0, 2),
-              blurRadius: 6,
-            ),
-          ],
+              child!,
+            ],
+          );
+        },
+        child: Container(
+          width: 18,
+          height: 18,
+          decoration: BoxDecoration(
+            color: AppPalette.userBlue,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 3),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                offset: const Offset(0, 2),
+                blurRadius: 6,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -478,34 +524,45 @@ class ObstacleMarker extends StatelessWidget {
     required this.color,
     required this.icon,
     required this.onTap,
+    this.label = 'Ostacolo',
   });
 
   final Color color;
   final IconData icon;
   final VoidCallback onTap;
 
+  /// Descrizione letta dai lettori di schermo.
+  final String label;
+
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
+    return Semantics(
+      button: true,
+      label: label,
+      hint: 'Apri i dettagli',
       onTap: onTap,
-      child: Center(
-        child: Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color: color,
-            border: Border.all(color: Colors.white, width: 2),
-            borderRadius: BorderRadius.circular(11),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.25),
-                offset: const Offset(0, 2),
-                blurRadius: 6,
-              ),
-            ],
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Center(
+          child: Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: color,
+              border: Border.all(color: Colors.white, width: 2),
+              borderRadius: BorderRadius.circular(11),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+                  offset: const Offset(0, 2),
+                  blurRadius: 6,
+                ),
+              ],
+            ),
+            child: Icon(icon, color: Colors.white, size: 16),
           ),
-          child: Icon(icon, color: Colors.white, size: 16),
         ),
       ),
     );
@@ -520,26 +577,30 @@ class ClusterBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.white, width: 2.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppPalette.primary.withValues(alpha: 0.35),
-            offset: const Offset(0, 3),
-            blurRadius: 10,
+    return Semantics(
+      label: '$count ostacoli vicini',
+      excludeSemantics: true,
+      child: Container(
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.white, width: 2.5),
+          boxShadow: [
+            BoxShadow(
+              color: AppPalette.primary.withValues(alpha: 0.35),
+              offset: const Offset(0, 3),
+              blurRadius: 10,
+            ),
+          ],
+          gradient: AppPalette.brandGradient,
+          shape: BoxShape.circle,
+        ),
+        child: Text(
+          '$count',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
           ),
-        ],
-        gradient: AppPalette.brandGradient,
-        shape: BoxShape.circle,
-      ),
-      child: Text(
-        '$count',
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
         ),
       ),
     );

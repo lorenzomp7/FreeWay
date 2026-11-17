@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
@@ -10,33 +11,55 @@ import 'geo_utils.dart';
 
 const String kUserAgent = 'FreeWayApp/2.0 (freeway-accessibility-app)';
 
-/// Calcola percorsi pedonali con OSRM tenendo conto degli ostacoli segnalati.
+/// Chiave di OpenRouteService, passata in fase di build con
+/// `--dart-define=ORS_API_KEY=...`. Se manca si usa solo OSRM.
+const String kOrsApiKey = String.fromEnvironment('ORS_API_KEY');
+
+/// Calcola percorsi pedonali tenendo conto degli ostacoli segnalati.
+///
+/// Con una chiave di OpenRouteService usa il profilo `wheelchair` (che evita
+/// gradini, pendenze e fondi sconnessi) e passa gli ostacoli come zone da
+/// evitare. Senza chiave, o se OpenRouteService non risponde, usa il profilo
+/// pedonale di OSRM con una deviazione intorno al primo ostacolo.
 class RoutingService {
+  RoutingService({http.Client? client, String orsApiKey = kOrsApiKey})
+      : _client = client ?? http.Client(),
+        _orsApiKey = orsApiKey;
+
+  final http.Client _client;
+  final String _orsApiKey;
+
   /// Raggio (in metri) entro cui un ostacolo è considerato sul percorso.
   static const double obstacleRadius = 30;
+
+  /// Metà del lato (in metri) dell'area da evitare intorno a un ostacolo.
+  static const double avoidHalfSide = 15;
+
+  /// Massimo numero di ostacoli passati a OpenRouteService per richiesta.
+  static const int maxAvoidedObstacles = 100;
+
+  bool get usesWheelchairProfile => _orsApiKey.isNotEmpty;
 
   Future<List<RouteOption>> getRoutes(
     LatLng start,
     LatLng end,
     List<Obstacle> obstacles,
   ) async {
-    final routes = await _fetchRoutes([start, end], alternatives: 3);
-    if (routes.isEmpty) throw Exception('Nessun percorso trovato');
-
-    for (final route in routes) {
-      route.obstacleCount = _countObstacles(route.points, obstacles);
-    }
-
-    final candidates = List<RouteOption>.of(routes);
-    final best = candidates.first;
-    if (best.obstacleCount > 0 && obstacles.isNotEmpty) {
-      final points = best.points;
-      final obstacle = _firstObstacleOnRoute(points, obstacles);
-      if (obstacle != null) {
-        final detour =
-            await _findDetour(start, end, obstacle, points, obstacles);
-        if (detour != null) candidates.add(detour);
+    var candidates = <RouteOption>[];
+    if (usesWheelchairProfile) {
+      try {
+        candidates = await _orsCandidates(start, end, obstacles);
+      } catch (_) {
+        candidates = [];
       }
+    }
+    if (candidates.isEmpty) {
+      candidates = await _osrmCandidates(start, end, obstacles);
+    }
+    if (candidates.isEmpty) throw Exception('Nessun percorso trovato');
+
+    for (final route in candidates) {
+      route.obstacleCount = _countObstacles(route.points, obstacles);
     }
 
     // Rimuove i percorsi praticamente identici.
@@ -75,6 +98,234 @@ class RoutingService {
     }
     return unique;
   }
+
+  /// Percorsi pedonali OSRM, più una deviazione intorno al primo ostacolo.
+  Future<List<RouteOption>> _osrmCandidates(
+    LatLng start,
+    LatLng end,
+    List<Obstacle> obstacles,
+  ) async {
+    final routes = await _fetchRoutes([start, end], alternatives: 3);
+    if (routes.isEmpty) return [];
+
+    final candidates = List<RouteOption>.of(routes);
+    final best = candidates.first;
+    final obstacle = _firstObstacleOnRoute(best.points, obstacles);
+    if (obstacle != null) {
+      final detour =
+          await _findDetour(start, end, obstacle, best.points, obstacles);
+      if (detour != null) candidates.add(detour);
+    }
+    return candidates;
+  }
+
+  // --- OpenRouteService -----------------------------------------------------
+
+  /// Due richieste in parallelo: una con le alternative e una che evita le
+  /// aree degli ostacoli (le alternative non sempre le rispettano).
+  Future<List<RouteOption>> _orsCandidates(
+    LatLng start,
+    LatLng end,
+    List<Obstacle> obstacles,
+  ) async {
+    final nearby = obstaclesNear(start, end, obstacles);
+    final requests = <Future<List<RouteOption>>>[
+      _fetchOrsRoutes(start, end, alternatives: true),
+      if (nearby.isNotEmpty) _fetchOrsRoutes(start, end, avoid: nearby),
+    ];
+    final results = await Future.wait(
+      requests.map((r) => r.catchError((Object _) => <RouteOption>[])),
+    );
+    return [for (final routes in results) ...routes];
+  }
+
+  Future<List<RouteOption>> _fetchOrsRoutes(
+    LatLng start,
+    LatLng end, {
+    bool alternatives = false,
+    List<Obstacle> avoid = const [],
+  }) async {
+    final body = <String, dynamic>{
+      'coordinates': [
+        [start.longitude, start.latitude],
+        [end.longitude, end.latitude],
+      ],
+      'instructions': true,
+      'units': 'm',
+      if (alternatives)
+        'alternative_routes': {
+          'target_count': 3,
+          'share_factor': 0.6,
+          'weight_factor': 1.6,
+        },
+      if (avoid.isNotEmpty)
+        'options': {'avoid_polygons': avoidPolygons(avoid)},
+    };
+    final response = await _client.post(
+      Uri.parse(
+        'https://api.openrouteservice.org/v2/directions/wheelchair/geojson',
+      ),
+      headers: {
+        'Authorization': _orsApiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'application/geo+json, application/json',
+      },
+      body: jsonEncode(body),
+    );
+    if (response.statusCode != 200) return [];
+    return parseOrsRoutes(
+      jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
+    );
+  }
+
+  /// Ostacoli nel rettangolo tra partenza e arrivo, allargato di circa 1 km,
+  /// ordinati dal più vicino al punto medio del tragitto.
+  @visibleForTesting
+  static List<Obstacle> obstaclesNear(
+    LatLng start,
+    LatLng end,
+    List<Obstacle> obstacles,
+  ) {
+    const margin = 0.01;
+    final minLat = math.min(start.latitude, end.latitude) - margin;
+    final maxLat = math.max(start.latitude, end.latitude) + margin;
+    final minLng = math.min(start.longitude, end.longitude) - margin;
+    final maxLng = math.max(start.longitude, end.longitude) + margin;
+    final inside = obstacles.where((o) {
+      final p = o.position;
+      return p.latitude >= minLat &&
+          p.latitude <= maxLat &&
+          p.longitude >= minLng &&
+          p.longitude <= maxLng;
+    }).toList();
+    final middle = LatLng(
+      (start.latitude + end.latitude) / 2,
+      (start.longitude + end.longitude) / 2,
+    );
+    inside.sort((a, b) => haversineDistance(a.position, middle)
+        .compareTo(haversineDistance(b.position, middle)));
+    return inside.take(maxAvoidedObstacles).toList();
+  }
+
+  /// Un quadrato di lato `2 * avoidHalfSide` metri intorno a ogni ostacolo,
+  /// nel formato GeoJSON `MultiPolygon` richiesto da OpenRouteService.
+  @visibleForTesting
+  static Map<String, dynamic> avoidPolygons(List<Obstacle> obstacles) {
+    return {
+      'type': 'MultiPolygon',
+      'coordinates': [
+        for (final obstacle in obstacles) [_square(obstacle.position)],
+      ],
+    };
+  }
+
+  static List<List<double>> _square(LatLng center) {
+    final dLat = avoidHalfSide / 111320;
+    final dLng =
+        avoidHalfSide / (111320 * math.cos(center.latitude * math.pi / 180));
+    final south = center.latitude - dLat;
+    final north = center.latitude + dLat;
+    final west = center.longitude - dLng;
+    final east = center.longitude + dLng;
+    return [
+      [west, south],
+      [east, south],
+      [east, north],
+      [west, north],
+      [west, south],
+    ];
+  }
+
+  /// Converte la risposta GeoJSON di OpenRouteService in [RouteOption],
+  /// con le manovre nello stesso formato di OSRM.
+  @visibleForTesting
+  static List<RouteOption> parseOrsRoutes(Map<String, dynamic> data) {
+    final features = data['features'] as List? ?? const [];
+    final result = <RouteOption>[];
+    for (var i = 0; i < features.length; i++) {
+      final feature = features[i] as Map<String, dynamic>;
+      final geometry = feature['geometry'] as Map<String, dynamic>;
+      final points = (geometry['coordinates'] as List)
+          .map<LatLng>((c) => LatLng(
+                ((c as List)[1] as num).toDouble(),
+                (c[0] as num).toDouble(),
+              ))
+          .toList();
+      if (points.length < 2) continue;
+
+      final properties = feature['properties'] as Map<String, dynamic>;
+      final summary =
+          properties['summary'] as Map<String, dynamic>? ?? const {};
+      final steps = <RouteStep>[];
+      for (final segment in properties['segments'] as List? ?? const []) {
+        final rawSteps = (segment as Map)['steps'] as List? ?? const [];
+        for (final rawStep in rawSteps) {
+          final step = rawStep as Map<String, dynamic>;
+          final (type, modifier) =
+              _orsManeuver((step['type'] as num?)?.toInt());
+          var name = (step['name'] as String?) ?? '';
+          if (name == '-') name = '';
+          final wayPoints = step['way_points'] as List? ?? const [0];
+          final index =
+              (wayPoints.first as num).toInt().clamp(0, points.length - 1);
+          steps.add(RouteStep(
+            instruction: '$type|$modifier|$name',
+            location: points[index],
+            maneuverType: type,
+            modifier: modifier,
+            streetName: name,
+            distance: (step['distance'] as num?)?.toDouble() ?? 0,
+            duration: (step['duration'] as num?)?.toDouble() ?? 0,
+          ));
+        }
+      }
+
+      result.add(RouteOption(
+        points: points,
+        distance: (summary['distance'] as num?)?.toDouble() ?? 0,
+        duration: (summary['duration'] as num?)?.toDouble() ?? 0,
+        steps: steps,
+        index: i,
+      ));
+    }
+    return result;
+  }
+
+  /// Tipi di manovra di OpenRouteService tradotti in tipo e modificatore OSRM.
+  static (String, String) _orsManeuver(int? type) {
+    switch (type) {
+      case 0:
+        return ('turn', 'left');
+      case 1:
+        return ('turn', 'right');
+      case 2:
+        return ('turn', 'sharp left');
+      case 3:
+        return ('turn', 'sharp right');
+      case 4:
+        return ('turn', 'slight left');
+      case 5:
+        return ('turn', 'slight right');
+      case 7:
+        return ('roundabout', '');
+      case 8:
+        return ('exit roundabout', '');
+      case 9:
+        return ('turn', 'uturn');
+      case 10:
+        return ('arrive', '');
+      case 11:
+        return ('depart', '');
+      case 12:
+        return ('fork', 'slight left');
+      case 13:
+        return ('fork', 'slight right');
+      default:
+        return ('continue', 'straight');
+    }
+  }
+
+  // --- OSRM -----------------------------------------------------------------
 
   /// Prova a passare a lato dell'ostacolo aggiungendo un punto intermedio.
   Future<RouteOption?> _findDetour(
@@ -166,7 +417,7 @@ class RoutingService {
     if (alternatives > 0) url += '&alternatives=$alternatives';
 
     final response =
-        await http.get(Uri.parse(url), headers: {'User-Agent': kUserAgent});
+        await _client.get(Uri.parse(url), headers: {'User-Agent': kUserAgent});
     if (response.statusCode != 200) return [];
 
     final data = jsonDecode(response.body) as Map<String, dynamic>;

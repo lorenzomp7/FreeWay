@@ -1,6 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 
 import 'firebase_options.dart';
 import 'screens/login_screen.dart';
@@ -10,6 +12,9 @@ import 'widgets/common.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Sul web Flutter attiva il supporto ai lettori di schermo solo dopo un clic
+  // su un pulsante nascosto: per un'app sull'accessibilità lo attiviamo subito.
+  if (kIsWeb) SemanticsBinding.instance.ensureSemantics();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const FreeWayApp());
 }

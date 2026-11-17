@@ -139,14 +139,14 @@ class LogoBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 38,
-      height: 38,
+      width: 30,
+      height: 30,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(9.6),
         gradient: AppPalette.brandGradient,
       ),
-      child: const Icon(Icons.route_rounded, color: Colors.white, size: 22),
+      child: const Icon(Icons.route_rounded, color: Colors.white, size: 17.4),
     );
   }
 }
@@ -161,7 +161,7 @@ class Wordmark extends StatelessWidget {
       text: TextSpan(
         style: TextStyle(
           color: AppColors.of(context).textPrimary,
-          fontSize: 18,
+          fontSize: 15,
           fontWeight: FontWeight.w800,
           letterSpacing: 0.6,
         ),
@@ -190,10 +190,10 @@ class CircleIconBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 44,
-      height: 44,
+      width: 36,
+      height: 36,
       decoration: BoxDecoration(color: background, shape: BoxShape.circle),
-      child: Icon(icon, color: foreground, size: 22),
+      child: Icon(icon, color: foreground, size: 20),
     );
   }
 }
