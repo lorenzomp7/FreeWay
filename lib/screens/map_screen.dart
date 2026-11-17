@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -606,6 +607,10 @@ class _MapScreenState extends State<MapScreen> {
     final layers = <Widget>[
       TileLayer(
         urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        userAgentPackageName: 'it.enactusunibs.freeway',
+        // Annulla il download delle tile uscite dallo schermo: mappa più
+        // reattiva sul web e meno richieste ai server di OpenStreetMap.
+        tileProvider: CancellableNetworkTileProvider(),
         tileBuilder: isDark ? darkTileBuilder : lightTileBuilder,
       ),
     ];
