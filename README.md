@@ -1,24 +1,26 @@
-# FREE WAY
+# FreeWay
 
 <p align="center">
-  <img src="assets/banner.png" alt="FREE WAY" width="360">
+  <img src="assets/banner.png" alt="FreeWay" width="360">
 </p>
 
-FREE WAY è una web app Flutter per trovare percorsi pedonali accessibili e
+FreeWay è una web app Flutter per trovare percorsi pedonali accessibili e
 segnalare barriere architettoniche. È un progetto di Enactus UniBs 2024 / 2025.
 
 ## Prova nel browser
 
-[Apri FREE WAY su GitHub Pages](https://lorenzomp7.github.io/FreeWay/)
+[Apri FreeWay su GitHub Pages](https://lorenzomp7.github.io/FreeWay/)
 
 Il workflow `.github/workflows/pages.yml` pubblica l'app su GitHub Pages a ogni
-push sul branch `main`.
+push sul branch `main`. La build assegna ai file di avvio una versione legata al commit per ridurre il riuso della cache del browser.
 
 ## Funzionalità
 
 - Accesso con email e password, con Google oppure come ospite (Firebase Auth).
 - Mappa OpenStreetMap con tema chiaro e scuro e posizione dell'utente (GPS, con
   stima tramite IP se il GPS non è disponibile).
+- Barra di ricerca compatta sulla mappa, con selezione di partenza e arrivo in modalità indicazioni. Su schermi piccoli il suggerimento per segnalare un ostacolo occupa meno spazio.
+- Mappe con tile ad alta densità sui dispositivi compatibili.
 - Ricerca di partenza e arrivo con suggerimenti (Nominatim) e indirizzo della
   propria posizione. Le richieste a Nominatim sono al massimo una al secondo e
   le ricerche già fatte restano in memoria, come chiedono le sue regole d'uso.
