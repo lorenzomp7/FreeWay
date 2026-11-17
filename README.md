@@ -13,8 +13,9 @@ segnalare barriere architettoniche. È un progetto di Enactus UniBs 2024 / 2025.
 
 Il workflow `.github/workflows/pages.yml` pubblica l'app su GitHub Pages a ogni
 push sul branch `main`. La pagina verifica la versione pubblicata prima
-di avviare l’app e ricontrolla quando si torna sulla scheda. I file di
-avvio usano il commit come versione.
+di avviare l’app. Ricontrolla quando si torna sulla scheda e ogni minuto
+mentre la scheda è visibile. Se è disponibile una versione più recente,
+la pagina si ricarica. I file di avvio sono identificati dal commit.
 
 ## Funzionalità
 
@@ -26,7 +27,8 @@ avvio usano il commit come versione.
   arrivo in modalità indicazioni. Su schermi piccoli il suggerimento per
   segnalare un ostacolo occupa meno spazio.
 - Ricerca di città, indirizzi e altri luoghi con suggerimenti Photon mentre
-  digiti. Le ricerche già fatte restano in memoria. Nominatim restituisce
+  digiti. Una nuova ricerca può partire anche se la precedente è ancora in
+  corso. Le ricerche già fatte restano in memoria. Nominatim restituisce
   l'indirizzo della posizione attuale.
 - Calcolo dei percorsi con il profilo "sedia a rotelle" di OpenRouteService,
   che evita gradini, pendenze e fondi sconnessi; gli ostacoli segnalati vengono
