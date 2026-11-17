@@ -82,9 +82,9 @@ flutter run -d chrome
    flutter run -d chrome --dart-define=ORS_API_KEY=la-tua-chiave
    ```
 
-3. Per GitHub Pages, aggiungila come secret `ORS_API_KEY` in
-   **Settings → Secrets and variables → Actions** del repository. Il workflow la
-   usa alla prossima pubblicazione.
+3. Per GitHub Pages e Firebase, aggiungila come secret `ORS_API_KEY` in
+   **Settings → Secrets and variables → Actions** del repository. I workflow la
+   usano alla prossima pubblicazione.
 
 La chiave finisce nel JavaScript pubblicato, quindi chiunque può leggerla: usa
 un account dedicato al progetto. Il piano gratuito ha un limite giornaliero di
@@ -98,29 +98,76 @@ richieste; superato quello, l'app torna da sola a OSRM.
 - una segnalazione si crea solo a proprio nome, con l'ora del server e con i
   soli campi `lat`, `lng`, `type`, `category` (facoltativo), `timestamp`,
   `userId` validi;
+- ognuno può fare al massimo una segnalazione ogni 30 secondi e una rimozione
+  ogni 10 secondi (l'ora dell'ultima azione è nel documento `limiti/{uid}`,
+  aggiornato nella stessa scrittura);
 - l'unica modifica ammessa è "Confermo, c'è ancora": si aggiunge il proprio
   uid a `confirmedBy`, una sola volta e non sulle proprie segnalazioni;
 - chi ha un account può rimuovere qualsiasi segnalazione ("L'ostacolo non c'è
   più"), un ospite solo le proprie;
 - il resto del database è chiuso.
 
-Per pubblicarle (sostituiscono le regole attuali del progetto):
+Prima di segnalare, l'app avvisa se a meno di 25 m c'è già una segnalazione
+dello stesso tipo e propone di confermarla invece di duplicarla.
+
+### Test delle regole
+
+`firestore_tests/` prova le regole con l'emulatore di Firestore (servono
+Node.js 22 e Java 21):
 
 ```bash
-firebase deploy --only firestore:rules
+cd firestore_tests && npm ci && npm test
 ```
 
-## Pubblicazione su Firebase Hosting
+Il workflow di pubblicazione esegue gli stessi test e non pubblica nulla se
+uno fallisce.
+
+## Pubblicazione su Firebase
+
+Il workflow `.github/workflows/firebase.yml`, a ogni push su `master`:
+
+1. prova le regole di Firestore con l'emulatore;
+2. compila l'app;
+3. pubblica l'app su <https://progetto-rimosso.web.app/> e le regole su Firestore.
+
+Nelle pull request esegue solo il punto 1. Per attivare la pubblicazione serve
+una volta sola il secret `FIREBASE_SERVICE_ACCOUNT`:
+
+1. Nella console Firebase apri **Impostazioni progetto → Account di servizio**
+   e premi **Genera nuova chiave privata**: si scarica un file JSON.
+2. In GitHub apri **Settings → Secrets and variables → Actions** del
+   repository, crea il secret `FIREBASE_SERVICE_ACCOUNT` e incolla tutto il
+   contenuto del file.
+3. Cancella il file dal computer: la chiave dà accesso amministrativo al
+   progetto. Se vuoi limitarla, crea invece in Google Cloud un account di
+   servizio con i soli ruoli *Firebase Hosting Admin* e *Firebase Rules Admin*.
+
+Senza il secret il workflow salta la pubblicazione e lo segnala nel
+riepilogo. A mano:
 
 ```bash
 flutter build web --release
 ```
 
 ```bash
-firebase deploy --only hosting
+firebase deploy --only hosting,firestore:rules
 ```
 
-`firebase.json` pubblica la cartella `build/web` sul progetto `progetto-rimosso`.
+### Firebase App Check (facoltativo)
+
+App Check fa accettare a Firestore solo le richieste che arrivano davvero
+dall'app, bloccando script e bot.
+
+1. Nella console Firebase apri **App Check**, registra l'app web con
+   **reCAPTCHA Enterprise** e crea una chiave del sito per i domini
+   `progetto-rimosso.web.app`, `progetto-rimosso.firebaseapp.com`,
+   `lorenzomp7.github.io` e `localhost`.
+2. Salva la chiave del sito come secret `RECAPTCHA_SITE_KEY` nel repository
+   (in locale: `--dart-define=RECAPTCHA_SITE_KEY=...`).
+3. Dopo la pubblicazione controlla in **App Check** che le richieste risultino
+   verificate, poi attiva l'**applicazione forzata** per Cloud Firestore.
+
+Senza la chiave l'app funziona come prima, senza App Check.
 
 ## Nota sull'origine del codice
 

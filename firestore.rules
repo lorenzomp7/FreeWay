@@ -32,6 +32,32 @@ service cloud.firestore {
         && data.userId == request.auth.uid;
     }
 
+    // --- Limite di frequenza -------------------------------------------------
+    // Ogni utente ha un documento limiti/{uid} con l'ora dell'ultima
+    // segnalazione e dell'ultima rimozione. L'app lo aggiorna nella stessa
+    // scrittura (batch) della segnalazione o della rimozione, e le regole
+    // accettano l'aggiornamento solo se è passato abbastanza tempo.
+
+    function limitsPath() {
+      return /databases/$(database)/documents/limiti/$(request.auth.uid);
+    }
+
+    // [field] resta com'era, oppure diventa l'ora del server se dall'ultima
+    // volta sono passati almeno [seconds] secondi.
+    function validStamp(field, seconds) {
+      let before = resource == null ? null : resource.data.get(field, null);
+      let after = request.resource.data.get(field, null);
+      return after == before
+        || (after == request.time
+          && (before == null || before + duration.value(seconds, 's') <= request.time));
+    }
+
+    // La scrittura in corso aggiorna [field] dei propri limiti all'ora attuale.
+    function stampsNow(field) {
+      return existsAfter(limitsPath())
+        && getAfter(limitsPath()).data.get(field, null) == request.time;
+    }
+
     // "Confermo, c'è ancora": si aggiunge solo il proprio uid, una volta, a
     // una segnalazione fatta da qualcun altro.
     function validConfirmation() {
@@ -53,16 +79,29 @@ service cloud.firestore {
       // Le segnalazioni sono visibili a tutti gli utenti dell'app (ospiti inclusi).
       allow read: if signedIn();
 
-      // Si crea solo a proprio nome, con l'ora del server e campi validi.
-      allow create: if signedIn() && validReport(request.resource.data);
+      // Si crea solo a proprio nome, con l'ora del server e campi validi, e al
+      // massimo una segnalazione ogni 30 secondi.
+      allow create: if signedIn()
+        && validReport(request.resource.data)
+        && stampsNow('lastReportAt');
 
       // L'unica modifica ammessa è la conferma che l'ostacolo c'è ancora.
       allow update: if signedIn() && validConfirmation();
 
       // "L'ostacolo non c'è più": chi ha un account può rimuovere qualsiasi
-      // segnalazione; un ospite solo le proprie.
+      // segnalazione, un ospite solo le proprie; al massimo una ogni 10 secondi.
       allow delete: if signedIn()
-        && (!isGuest() || resource.data.userId == request.auth.uid);
+        && (!isGuest() || resource.data.userId == request.auth.uid)
+        && stampsNow('lastRemovalAt');
+    }
+
+    match /limiti/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create, update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['lastReportAt', 'lastRemovalAt'])
+        && validStamp('lastReportAt', 30)
+        && validStamp('lastRemovalAt', 10);
     }
 
     // Tutto il resto del database è chiuso.

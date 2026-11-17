@@ -28,3 +28,7 @@ macos/build/
 # File generati localmente da Flutter
 **/flutter/ephemeral/
 ios/Flutter/ephemeral/
+
+# Test delle regole Firestore
+firestore_tests/node_modules/
+firestore-debug.log

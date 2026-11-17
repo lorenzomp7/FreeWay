@@ -22,29 +22,18 @@ jobs:
       - run: flutter analyze --no-fatal-infos
       - run: flutter test
       - name: Build web for repository URL
-        # ORS_API_KEY (facoltativo) attiva i percorsi in sedia a rotelle di
-        # OpenRouteService; senza il secret l'app usa OSRM.
+        # Chiavi facoltative: ORS_API_KEY attiva i percorsi in sedia a rotelle
+        # di OpenRouteService, RECAPTCHA_SITE_KEY attiva Firebase App Check.
         env:
           ORS_API_KEY: ${{ secrets.ORS_API_KEY }}
-        run: flutter build web --release --pwa-strategy=none --base-href "/${{ github.event.repository.name }}/" --dart-define=ORS_API_KEY="$ORS_API_KEY"
+          RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY }}
+        run: >-
+          flutter build web --release --pwa-strategy=none
+          --base-href "/${{ github.event.repository.name }}/"
+          --dart-define=ORS_API_KEY="$ORS_API_KEY"
+          --dart-define=RECAPTCHA_SITE_KEY="$RECAPTCHA_SITE_KEY"
       - name: Version application entrypoints to prevent stale browser caches
-        env:
-          RELEASE_SHA: ${{ github.sha }}
-        run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-          root = Path("build/web")
-          version = os.environ["RELEASE_SHA"][:12]
-          main_name = f"main.{version}.dart.js"
-          bootstrap_name = f"flutter_bootstrap.{version}.js"
-          (root / "main.dart.js").rename(root / main_name)
-          bootstrap = (root / "flutter_bootstrap.js").read_text()
-          bootstrap = bootstrap.replace('"mainJsPath":"main.dart.js"', f'"mainJsPath":"{main_name}"')
-          (root / bootstrap_name).write_text(bootstrap)
-          index = root / "index.html"
-          index.write_text(index.read_text().replace("flutter_bootstrap.js", bootstrap_name))
-          PY
+        run: python3 tool/version_entrypoints.py build/web "${{ github.sha }}"
       - name: Disable Jekyll
         run: touch build/web/.nojekyll
       - uses: actions/upload-pages-artifact@v3

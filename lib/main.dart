@@ -1,3 +1,4 @@
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
@@ -16,7 +17,26 @@ Future<void> main() async {
   // su un pulsante nascosto: per un'app sull'accessibilità lo attiviamo subito.
   if (kIsWeb) SemanticsBinding.instance.ensureSemantics();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await _activateAppCheck();
   runApp(const FreeWayApp());
+}
+
+/// Chiave del sito reCAPTCHA Enterprise per Firebase App Check, passata in
+/// fase di build con `--dart-define=RECAPTCHA_SITE_KEY=...`.
+const String kRecaptchaSiteKey = String.fromEnvironment('RECAPTCHA_SITE_KEY');
+
+/// App Check fa sì che Firestore e Auth accettino solo richieste che arrivano
+/// davvero dall'app. Senza chiave l'app funziona come prima.
+Future<void> _activateAppCheck() async {
+  if (!kIsWeb || kRecaptchaSiteKey.isEmpty) return;
+  try {
+    await FirebaseAppCheck.instance.activate(
+      providerWeb: ReCaptchaEnterpriseProvider(kRecaptchaSiteKey),
+    );
+  } catch (_) {
+    // Se reCAPTCHA non si carica l'app parte comunque; con l'applicazione
+    // forzata attiva in console le richieste verranno però rifiutate.
+  }
 }
 
 class FreeWayApp extends StatelessWidget {
