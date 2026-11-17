@@ -6,6 +6,7 @@ gli utenti ricevono sempre la versione aggiornata.
 Uso: python3 tool/version_entrypoints.py build/web <sha-del-commit>
 """
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -33,6 +34,11 @@ def main(build_dir: str, sha: str) -> None:
         .replace("__FREEWAY_BUILD_VERSION__", version)
     )
     (root / "version.txt").write_text(f"{version}\n")
+    # Flutter genera uno script vuoto con --pwa-strategy=none.
+    shutil.copyfile(
+        Path(__file__).with_name("retire_service_worker.js"),
+        root / "flutter_service_worker.js",
+    )
 
 
 if __name__ == "__main__":
