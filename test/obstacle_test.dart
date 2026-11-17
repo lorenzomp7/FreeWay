@@ -80,4 +80,48 @@ void main() {
     expect(timeAgo(now.subtract(const Duration(days: 65)), now: now),
         '2 mesi fa');
   });
+
+  group('scadenza degli ostacoli temporanei', () {
+    final reported = DateTime(2025, 3, 1);
+    Obstacle make(String type, {DateTime? confirmed}) => Obstacle.fromMap('o', {
+          'lat': 45.54,
+          'lng': 10.22,
+          'type': type,
+          'timestamp': Timestamp.fromDate(reported),
+          if (confirmed != null)
+            'lastConfirmedAt': Timestamp.fromDate(confirmed),
+        });
+
+    test('gli ostacoli permanenti non scadono', () {
+      final step = make('Gradino che rende impossibile il passaggio');
+      expect(step.expiresAt, isNull);
+      expect(step.isExpired(DateTime(2030)), isFalse);
+    });
+
+    test('un ostacolo temporaneo scade dopo 14 giorni', () {
+      final car = make('Auto parcheggiata su scivolo o marciapiede');
+      expect(car.expiresAt, DateTime(2025, 3, 15));
+      expect(car.isExpired(DateTime(2025, 3, 14)), isFalse);
+      expect(car.isExpired(DateTime(2025, 3, 16)), isTrue);
+    });
+
+    test('una conferma sposta la scadenza', () {
+      final works = make(
+        'Cantieri con percorsi accessibili bloccati',
+        confirmed: DateTime(2025, 3, 10),
+      );
+      expect(works.expiresAt, DateTime(2025, 3, 24));
+      expect(works.isExpired(DateTime(2025, 3, 20)), isFalse);
+    });
+
+    test('senza data (scrittura non ancora confermata) non scade', () {
+      final pending = Obstacle.fromMap('o', {
+        'lat': 1,
+        'lng': 1,
+        'type': 'Rifiuti o ingombri che ostruiscono il passaggio',
+        'timestamp': null,
+      });
+      expect(pending.isExpired(DateTime(2030)), isFalse);
+    });
+  });
 }

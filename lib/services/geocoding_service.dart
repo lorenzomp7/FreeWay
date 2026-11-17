@@ -7,64 +7,108 @@ import 'package:latlong2/latlong.dart';
 import 'routing_service.dart' show kUserAgent;
 
 /// Ricerca indirizzi tramite Nominatim (OpenStreetMap).
+///
+/// Rispetta le regole d'uso di Nominatim: al massimo una richiesta al secondo
+/// (le richieste vengono messe in coda) e risultati delle ricerche già fatte
+/// tenuti in memoria.
 class GeocodingService {
+  GeocodingService({
+    http.Client? client,
+    this.minInterval = const Duration(milliseconds: 1100),
+  }) : _client = client ?? http.Client();
+
+  final http.Client _client;
+
+  /// Intervallo minimo tra due richieste a Nominatim.
+  final Duration minInterval;
+
+  /// Numero massimo di ricerche tenute in memoria.
+  static const int cacheSize = 50;
+
+  final Map<String, List<Map<String, dynamic>>> _cache = {};
+  Future<void> _queue = Future.value();
+  DateTime? _lastRequest;
   Timer? _debounce;
+  int _generation = 0;
 
   /// Cerca [query] dopo 350 ms di inattività e passa i risultati a [onResults].
+  /// I risultati di una ricerca superata da una più recente vengono scartati.
   void searchDebounced(
     String query,
     void Function(List<Map<String, dynamic>> results) onResults,
   ) {
     _debounce?.cancel();
+    final generation = ++_generation;
     final trimmed = query.trim();
     if (trimmed.length < 2) {
       onResults([]);
       return;
     }
     _debounce = Timer(const Duration(milliseconds: 350), () async {
+      List<Map<String, dynamic>> results;
       try {
-        onResults(await search(trimmed));
+        results = await search(trimmed);
       } catch (_) {
-        onResults([]);
+        results = [];
       }
+      if (generation == _generation) onResults(results);
     });
   }
 
   Future<List<Map<String, dynamic>>> search(String query) async {
-    // Prima prova limitando la ricerca all'Italia...
-    final italian = await http.get(
-      Uri.https('nominatim.openstreetmap.org', '/search', {
-        'format': 'json',
-        'q': query,
-        'limit': '8',
-        'countrycodes': 'it',
-        'addressdetails': '1',
-      }),
-      headers: {'User-Agent': kUserAgent},
-    );
-    if (italian.statusCode == 200) {
-      final results = jsonDecode(italian.body) as List;
-      if (results.isNotEmpty) {
-        return results.map((e) => e as Map<String, dynamic>).toList();
-      }
+    final key = query.trim().toLowerCase();
+    final cached = _cache.remove(key);
+    if (cached != null) {
+      _cache[key] = cached; // Torna in fondo: è la più recente.
+      return List.of(cached);
     }
 
-    // ...poi senza limitazioni geografiche.
-    final global = await http.get(
+    // Prima prova limitando la ricerca all'Italia, poi ovunque.
+    var results = await _search(query, italyOnly: true);
+    if (results == null || results.isEmpty) {
+      results = await _search(query, italyOnly: false);
+    }
+    if (results == null) return [];
+
+    _cache[key] = results;
+    if (_cache.length > cacheSize) _cache.remove(_cache.keys.first);
+    return List.of(results);
+  }
+
+  /// `null` se Nominatim non ha risposto correttamente.
+  Future<List<Map<String, dynamic>>?> _search(
+    String query, {
+    required bool italyOnly,
+  }) async {
+    final response = await _get(
       Uri.https('nominatim.openstreetmap.org', '/search', {
         'format': 'json',
         'q': query,
         'limit': '8',
+        if (italyOnly) 'countrycodes': 'it',
         'addressdetails': '1',
+        'accept-language': 'it',
       }),
-      headers: {'User-Agent': kUserAgent},
     );
-    if (global.statusCode == 200) {
-      return (jsonDecode(global.body) as List)
-          .map((e) => e as Map<String, dynamic>)
-          .toList();
-    }
-    return [];
+    if (response.statusCode != 200) return null;
+    return (jsonDecode(utf8.decode(response.bodyBytes)) as List)
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+  }
+
+  /// Esegue le richieste una alla volta, distanziate di [minInterval].
+  Future<http.Response> _get(Uri uri) {
+    final response = _queue.then((_) async {
+      final last = _lastRequest;
+      if (last != null) {
+        final wait = minInterval - DateTime.now().difference(last);
+        if (wait > Duration.zero) await Future<void>.delayed(wait);
+      }
+      _lastRequest = DateTime.now();
+      return _client.get(uri, headers: {'User-Agent': kUserAgent});
+    });
+    _queue = response.then((_) {}, onError: (Object _) {});
+    return response;
   }
 
   /// Restituisce un indirizzo leggibile per [position], se disponibile.
@@ -75,10 +119,12 @@ class GeocodingService {
         'lat': '${position.latitude}',
         'lon': '${position.longitude}',
         'addressdetails': '1',
+        'accept-language': 'it',
       });
-      final response = await http.get(uri, headers: {'User-Agent': kUserAgent});
+      final response = await _get(uri);
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final data = jsonDecode(utf8.decode(response.bodyBytes))
+            as Map<String, dynamic>;
         final address = data['address'] as Map<String, dynamic>?;
         if (address != null) {
           final street =
@@ -98,7 +144,10 @@ class GeocodingService {
     return null;
   }
 
-  void dispose() => _debounce?.cancel();
+  void dispose() {
+    _debounce?.cancel();
+    _generation++; // Ignora le ricerche ancora in corso.
+  }
 }
 
 /// Titolo e sottotitolo di un risultato Nominatim.

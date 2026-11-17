@@ -22,7 +22,8 @@ push sul branch `master`.
 - Mappa OpenStreetMap con tema chiaro e scuro e posizione dell'utente (GPS, con
   stima tramite IP se il GPS non è disponibile).
 - Ricerca di partenza e arrivo con suggerimenti (Nominatim) e indirizzo della
-  propria posizione.
+  propria posizione. Le richieste a Nominatim sono al massimo una al secondo e
+  le ricerche già fatte restano in memoria, come chiedono le sue regole d'uso.
 - Calcolo dei percorsi con il profilo "sedia a rotelle" di OpenRouteService,
   che evita gradini, pendenze e fondi sconnessi; gli ostacoli segnalati vengono
   passati come zone da evitare. Senza chiave OpenRouteService (o se il servizio
@@ -32,7 +33,9 @@ push sul branch `master`.
 - Segnalazione condivisa degli ostacoli su Cloud Firestore (collezione
   `segnalazioni`): si tiene premuto sulla mappa oppure si usa il pulsante
   "Segnala un ostacolo qui". Toccando un ostacolo se ne vedono i dettagli, si
-  può confermare che c'è ancora oppure rimuoverlo.
+  può confermare che c'è ancora oppure rimuoverlo. Gli ostacoli temporanei
+  (auto in sosta, cantieri, ingombri) spariscono da mappa e percorsi dopo 14
+  giorni senza conferme; i dati restano su Firestore.
 - Filtri per categoria e raggruppamento degli ostacoli vicini.
 - Navigazione passo-passo con istruzioni vocali in italiano o inglese, ricalcolo
   quando si esce dal percorso e schermo sempre acceso durante il tragitto.

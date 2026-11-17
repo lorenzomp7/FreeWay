@@ -119,6 +119,34 @@ class Obstacle {
 
   int get confirmationCount => confirmedBy.length;
 
+  /// Dopo quanto tempo senza conferme un ostacolo temporaneo sparisce.
+  static const Duration temporaryLifetime = Duration(days: 14);
+
+  /// Auto in sosta, cantieri e ingombri: ostacoli destinati a sparire.
+  bool get isTemporary => category == 'Ostacoli temporanei';
+
+  /// Ultima volta che qualcuno ha segnalato o confermato l'ostacolo.
+  DateTime? get lastSeenAt {
+    final reported = reportedAt;
+    final confirmed = lastConfirmedAt;
+    if (reported == null) return confirmed;
+    if (confirmed == null) return reported;
+    return confirmed.isAfter(reported) ? confirmed : reported;
+  }
+
+  /// Quando un ostacolo temporaneo smette di essere mostrato, se nessuno
+  /// conferma che c'è ancora. `null` per gli ostacoli permanenti.
+  DateTime? get expiresAt {
+    final seen = lastSeenAt;
+    if (!isTemporary || seen == null) return null;
+    return seen.add(temporaryLifetime);
+  }
+
+  bool isExpired([DateTime? now]) {
+    final expiry = expiresAt;
+    return expiry != null && (now ?? DateTime.now()).isAfter(expiry);
+  }
+
   /// La segnalazione è stata fatta da [uid].
   bool isReportedBy(String? uid) => uid != null && userId == uid;
 
