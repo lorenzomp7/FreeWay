@@ -1,30 +1,44 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:osm_routing_app/main.dart';
+import 'package:freeway/models/route_option.dart';
+import 'package:freeway/services/geocoding_service.dart';
+import 'package:freeway/services/instruction_translator.dart';
+import 'package:latlong2/latlong.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  group('InstructionTranslator', () {
+    test('traduce una svolta in italiano', () {
+      const translator = InstructionTranslator('it');
+      expect(
+        translator.translate('turn|left|Via Roma'),
+        'Svolta a sinistra su Via Roma',
+      );
+    });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    test("traduce l'arrivo in inglese", () {
+      const translator = InstructionTranslator('en');
+      expect(translator.translate('arrive||'), 'You have arrived at destination');
+    });
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  test('RouteOption formatta distanza, durata e punteggio', () {
+    final route = RouteOption(
+      points: const [LatLng(45.46, 9.19)],
+      distance: 1530,
+      duration: 3900,
+      steps: const [],
+      index: 0,
+    )..obstacleCount = 1;
+    expect(route.distanceText, '1.5 km');
+    expect(route.durationText, '1h 5min');
+    expect(route.accessibilityScore, 85);
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  test('formatPlace usa via e città di Nominatim', () {
+    final label = formatPlace({
+      'display_name': 'Via Roma, Brescia, Lombardia, Italia',
+      'address': {'road': 'Via Roma', 'city': 'Brescia', 'county': 'Brescia'},
+    });
+    expect(label.title, 'Via Roma');
+    expect(label.subtitle, 'Brescia, Brescia');
   });
 }
