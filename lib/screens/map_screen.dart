@@ -63,6 +63,8 @@ class _MapScreenState extends State<MapScreen> {
   bool _isLocatingUser = false;
   bool _isNavigating = false;
   NavigationUpdate? _navigationUpdate;
+  RouteStep? _navigationFirstStep;
+  bool _navigationGpsFailed = false;
   String _voiceLanguage = 'it';
   StreamSubscription<NavigationUpdate>? _navigationSubscription;
 
@@ -363,17 +365,34 @@ class _MapScreenState extends State<MapScreen> {
   void _startNavigation() {
     if (_routes.isEmpty) return;
     final route = _routes[_selectedRouteIndex];
-    setState(() => _isNavigating = true);
+    if (route.steps.isEmpty) {
+      _showError(
+        'Questo percorso non contiene indicazioni passo-passo.',
+        Icons.directions_walk_rounded,
+      );
+      return;
+    }
+    setState(() {
+      _isNavigating = true;
+      _navigationFirstStep = route.steps.first;
+      _navigationGpsFailed = false;
+    });
     _keepScreenOn(true);
-    _navigationService.start(route);
     _navigationSubscription?.cancel();
-    _navigationSubscription =
-        _navigationService.updates.listen(_onNavigationUpdate);
+    _navigationSubscription = _navigationService.updates.listen(
+      _onNavigationUpdate,
+      onError: (Object _) {
+        if (!mounted || !_isNavigating) return;
+        setState(() => _navigationGpsFailed = true);
+      },
+    );
+    _navigationService.start(route);
   }
 
   void _onNavigationUpdate(NavigationUpdate update) {
-    if (!mounted) return;
+    if (!mounted || !_isNavigating) return;
     setState(() {
+      _navigationGpsFailed = false;
       _navigationUpdate = update;
       _userLocation = update.position;
     });
@@ -405,7 +424,10 @@ class _MapScreenState extends State<MapScreen> {
     _isRecalculating = true;
     try {
       final routes = await _routingService.getRoutes(from, _endPoint!, _obstacles);
-      if (mounted && routes.isNotEmpty && _isNavigating) {
+      if (mounted &&
+          routes.isNotEmpty &&
+          routes.first.steps.isNotEmpty &&
+          _isNavigating) {
         setState(() {
           _routes = routes;
           _selectedRouteIndex = 0;
@@ -436,6 +458,7 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       _isNavigating = false;
       _navigationUpdate = null;
+      _navigationFirstStep = null;
     });
     _fitRoute();
   }
@@ -772,13 +795,15 @@ class _MapScreenState extends State<MapScreen> {
       ));
     }
 
-    if (_isNavigating && _navigationUpdate != null) {
+    if (_isNavigating) {
       children.add(Positioned(
         top: 0,
         left: 0,
         right: 0,
         child: NavigationPanel(
-          update: _navigationUpdate!,
+          update: _navigationUpdate,
+          firstStep: _navigationFirstStep!,
+          gpsFailed: _navigationGpsFailed,
           language: _voiceLanguage,
           isMuted: _ttsService.muted,
           onStop: _stopNavigation,

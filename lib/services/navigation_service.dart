@@ -39,12 +39,16 @@ class NavigationService {
   void start(RouteOption route) {
     stop();
     _route = route;
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
-      ),
-    ).listen(_onPosition);
+    try {
+      _positionSubscription = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 5,
+        ),
+      ).listen(_onPosition, onError: _controller.addError);
+    } catch (error, stackTrace) {
+      _controller.addError(error, stackTrace);
+    }
   }
 
   void stop() {
@@ -92,10 +96,14 @@ class NavigationService {
       }
     }
     if (stepIndex < steps.length - 1) {
-      final currentDistance =
-          haversineDistance(current, steps[stepIndex].location);
-      final nextDistance =
-          haversineDistance(current, steps[stepIndex + 1].location);
+      final currentDistance = haversineDistance(
+        current,
+        steps[stepIndex].location,
+      );
+      final nextDistance = haversineDistance(
+        current,
+        steps[stepIndex + 1].location,
+      );
       if (nextDistance < currentDistance && currentDistance < 50) stepIndex++;
     }
 
@@ -108,13 +116,15 @@ class NavigationService {
         steps.last.maneuverType == 'arrive' &&
         haversineDistance(current, steps.last.location) < 20;
 
-    _controller.add(NavigationUpdate(
-      position: current,
-      currentStep: steps[stepIndex],
-      distanceToNextStep: distanceToNext,
-      isOffRoute: distanceFromRoute > 50,
-      progress: progress.clamp(0.0, 1.0),
-      hasArrived: hasArrived,
-    ));
+    _controller.add(
+      NavigationUpdate(
+        position: current,
+        currentStep: steps[stepIndex],
+        distanceToNextStep: distanceToNext,
+        isOffRoute: distanceFromRoute > 50,
+        progress: progress.clamp(0.0, 1.0),
+        hasArrived: hasArrived,
+      ),
+    );
   }
 }
