@@ -1,5 +1,7 @@
 <!DOCTYPE html>
 <html>
+<meta name="google-signin-client_id" content="RIMOSSO">
+
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -14,7 +16,7 @@
     This is a placeholder for base href that will be replaced by the value of
     the `--base-href` argument provided to `flutter build`.
   -->
-  <base href="$FLUTTER_BASE_HREF">
+  <base href="/">
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
@@ -29,8 +31,25 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>osm_routing_app</title>
+  <title>FREE WAY</title>
   <link rel="manifest" href="manifest.json">
+  <script>
+    // Force unregister stale offline-first service workers and clear browser cache
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for (var i = 0; i < registrations.length; i++) {
+          registrations[i].unregister();
+        }
+      });
+    }
+    if ('caches' in window) {
+      caches.keys().then(function(names) {
+        for (var i = 0; i < names.length; i++) {
+          caches.delete(names[i]);
+        }
+      });
+    }
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

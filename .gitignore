@@ -24,3 +24,7 @@ macos/build/
 # Other
 .vscode/
 *.log
+
+# File generati localmente da Flutter
+**/flutter/ephemeral/
+ios/Flutter/ephemeral/

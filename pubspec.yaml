@@ -1,26 +1,47 @@
-name: osm_routing_app
-description: A new Flutter project with OSM and routing
+name: freeway
+description: 'FREE WAY: percorsi pedonali accessibili e segnalazione di barriere architettoniche.'
 publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.8.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
-  latlong2: ^0.9.1
-  http: ^1.3.0
-  flutter_map: ^8.1.0
-  geolocator: ^13.0.2
+  cloud_firestore: ^7.2.0
+  firebase_auth: ^7.1.0
+  firebase_core: ^5.2.0
+  flutter_map: ^8.2.1
   flutter_map_cancellable_tile_provider: ^3.1.0
+  flutter_map_marker_cluster: ^8.2.2
+  flutter_tts: ^4.2.3
+  geolocator: ^14.0.2
+  # La 7.x ha rimosso GoogleSignIn().signIn(), usato dalla schermata di login.
+  google_sign_in: ^6.3.0
+  http: ^1.3.0
+  intl: ^0.20.2
+  latlong2: ^0.9.1
   shared_preferences: ^2.0.15
-
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
+  flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/banner.png
+    - assets/logo.png
+
+flutter_launcher_icons:
+  image_path: assets/logo.png
+  android: false
+  ios: false
+  web:
+    generate: true
+    image_path: assets/logo.png
+    background_color: '#FFFFFF'
+    theme_color: '#EC0414'
