@@ -420,8 +420,18 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _reportObstacle(LatLng point) async {
     final type = await showReportObstacleSheet(context);
     if (type == null) return;
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? 'anonymous';
-    await _obstacleService.add(point, type, userId);
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    try {
+      await _obstacleService.add(point, type, userId);
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile salvare la segnalazione. Riprova.',
+        Icons.error_outline_rounded,
+      );
+      return;
+    }
     if (!mounted) return;
     _showSnack(
       'Ostacolo segnalato. Grazie per il contributo!',
@@ -442,6 +452,15 @@ class _MapScreenState extends State<MapScreen> {
         icon: Icons.check_circle_rounded,
       );
       if (_startPoint != null && _endPoint != null) _calculateRoute();
+    } on FirebaseException catch (error) {
+      if (!mounted) return;
+      _showError(
+        error.code == 'permission-denied'
+            ? 'Per rimuovere le segnalazioni di altri utenti accedi con '
+                'un account (non come ospite).'
+            : "Non è stato possibile rimuovere l'ostacolo.",
+        Icons.error_outline_rounded,
+      );
     } catch (_) {
       if (!mounted) return;
       _showError(
