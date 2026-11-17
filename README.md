@@ -7,8 +7,6 @@
 FREE WAY è una web app Flutter per trovare percorsi pedonali accessibili e
 segnalare barriere architettoniche. È un progetto di Enactus UniBs 2024 / 2025.
 
-Versione pubblicata: <https://progetto-rimosso.web.app/>
-
 ## Prova nel browser
 
 [Apri FREE WAY su GitHub Pages](https://lorenzomp7.github.io/FreeWay/)
@@ -82,7 +80,7 @@ flutter run -d chrome
    flutter run -d chrome --dart-define=ORS_API_KEY=la-tua-chiave
    ```
 
-3. Per GitHub Pages e Firebase, aggiungila come secret `ORS_API_KEY` in
+3. Per GitHub Pages, aggiungila come secret `ORS_API_KEY` in
    **Settings → Secrets and variables → Actions** del repository. I workflow la
    usano alla prossima pubblicazione.
 
@@ -119,38 +117,17 @@ Node.js 22 e Java 21):
 cd firestore_tests && npm ci && npm test
 ```
 
-Il workflow di pubblicazione esegue gli stessi test e non pubblica nulla se
-uno fallisce.
+Il workflow `.github/workflows/rules-test.yml` esegue gli stessi test a ogni
+push su `main` e in ogni pull request.
 
-## Pubblicazione su Firebase
+## Pubblicazione
 
-Il workflow `.github/workflows/firebase.yml`, a ogni push su `main`:
-
-1. prova le regole di Firestore con l'emulatore;
-2. compila l'app;
-3. pubblica l'app su <https://progetto-rimosso.web.app/> e le regole su Firestore.
-
-Nelle pull request esegue solo il punto 1. Per attivare la pubblicazione serve
-una volta sola il secret `FIREBASE_SERVICE_ACCOUNT`:
-
-1. Nella console Firebase apri **Impostazioni progetto → Account di servizio**
-   e premi **Genera nuova chiave privata**: si scarica un file JSON.
-2. In GitHub apri **Settings → Secrets and variables → Actions** del
-   repository, crea il secret `FIREBASE_SERVICE_ACCOUNT` e incolla tutto il
-   contenuto del file.
-3. Cancella il file dal computer: la chiave dà accesso amministrativo al
-   progetto. Se vuoi limitarla, crea invece in Google Cloud un account di
-   servizio con i soli ruoli *Firebase Hosting Admin* e *Firebase Rules Admin*.
-
-Senza il secret il workflow salta la pubblicazione e lo segnala nel
-riepilogo. A mano:
+Il sito sta solo su GitHub Pages (vedi sopra). Firebase serve unicamente per
+login e segnalazioni (Authentication e Firestore). Le regole di Firestore si
+pubblicano a mano sul proprio progetto Firebase, solo quando cambiano:
 
 ```bash
-flutter build web --release
-```
-
-```bash
-firebase deploy --only hosting,firestore:rules
+firebase deploy --only firestore:rules --project ID-DEL-TUO-PROGETTO
 ```
 
 ### Firebase App Check (facoltativo)
@@ -160,7 +137,6 @@ dall'app, bloccando script e bot.
 
 1. Nella console Firebase apri **App Check**, registra l'app web con
    **reCAPTCHA Enterprise** e crea una chiave del sito per i domini
-   `progetto-rimosso.web.app`, `progetto-rimosso.firebaseapp.com`,
    `lorenzomp7.github.io` e `localhost`.
 2. Salva la chiave del sito come secret `RECAPTCHA_SITE_KEY` nel repository
    (in locale: `--dart-define=RECAPTCHA_SITE_KEY=...`).
@@ -172,8 +148,8 @@ Senza la chiave l'app funziona come prima, senza App Check.
 ## Nota sull'origine del codice
 
 Il codice sorgente originale non era disponibile: questo codice è stato
-ricostruito dalla build compilata pubblicata su `progetto-rimosso.web.app`
-(senza source map). Logica, testi, colori, icone e layout sono stati ricavati dal
+ricostruito dalla build compilata della prima versione online (senza source
+map). Logica, testi, colori, icone e layout sono stati ricavati dal
 JavaScript compilato. Il risultato compila e la schermata di accesso è identica a
 quella pubblicata. Nomi di classi, variabili e file sono invece ricostruiti, e
 alcuni dettagli del tema (per esempio gli stili di pulsanti e campi non visibili
