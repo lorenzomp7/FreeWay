@@ -160,19 +160,42 @@ class _MapScreenState extends State<MapScreen> {
   // --- Ricerca indirizzi ---------------------------------------------------
 
   void _onSearchChanged(String query, bool isStart) {
-    _geocodingService.searchDebounced(query, (results) {
-      if (!mounted) return;
-      setState(() {
-        if (isStart) {
-          _startSuggestions = results;
-        } else {
-          _endSuggestions = results;
-        }
-      });
+    setState(() {
+      _startSuggestions = [];
+      _endSuggestions = [];
+      if (isStart) {
+        _startPoint = null;
+      } else {
+        _endPoint = null;
+      }
+      _isCalculating = false;
+      _routes = [];
+      _routePoints = [];
     });
+    _geocodingService.searchDebounced(
+      query,
+      (results) {
+        if (!mounted) return;
+        setState(() {
+          if (isStart) {
+            _startSuggestions = results;
+          } else {
+            _endSuggestions = results;
+          }
+        });
+      },
+      onError: () {
+        if (!mounted) return;
+        _showError(
+          'Ricerca temporaneamente non disponibile. Riprova.',
+          Icons.error_outline_rounded,
+        );
+      },
+    );
   }
 
   void _selectSuggestion(Map<String, dynamic> place, bool isStart) {
+    _geocodingService.cancelSearch();
     final lat = double.parse(place['lat'].toString());
     final lon = double.parse(place['lon'].toString());
     final label = formatPlace(place);
@@ -210,6 +233,7 @@ class _MapScreenState extends State<MapScreen> {
   /// Torna alla ricerca semplice: la destinazione resta, la partenza e i
   /// percorsi vengono tolti.
   void _closeDirections() {
+    _geocodingService.cancelSearch();
     FocusScope.of(context).unfocus();
     setState(() {
       _isDirectionsMode = false;
@@ -218,6 +242,7 @@ class _MapScreenState extends State<MapScreen> {
       _startSuggestions = [];
       _startPoint = null;
       _endSuggestions = [];
+      _isCalculating = false;
       _routes = [];
       _routePoints = [];
       _selectedRouteIndex = 0;
@@ -239,6 +264,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _clearPoint({required bool isStart}) {
+    _geocodingService.cancelSearch();
     setState(() {
       if (isStart) {
         _startController.clear();
@@ -250,12 +276,14 @@ class _MapScreenState extends State<MapScreen> {
         _endPoint = null;
       }
       _routePoints = [];
+      _isCalculating = false;
       _routes = [];
       _isSearchExpanded = true;
     });
   }
 
   void _swapPoints() {
+    _geocodingService.cancelSearch();
     setState(() {
       final start = _startPoint;
       _startPoint = _endPoint;
@@ -282,7 +310,7 @@ class _MapScreenState extends State<MapScreen> {
     });
     try {
       final routes = await _routingService.getRoutes(start, end, _obstacles);
-      if (!mounted) return;
+      if (!mounted || _startPoint != start || _endPoint != end) return;
       setState(() {
         _routes = routes;
         _selectedRouteIndex = 0;
@@ -292,7 +320,7 @@ class _MapScreenState extends State<MapScreen> {
       });
       _fitRoute();
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || _startPoint != start || _endPoint != end) return;
       setState(() => _isCalculating = false);
       _showError(
         'Non è stato possibile calcolare il percorso. Riprova.',
@@ -823,13 +851,10 @@ class _MapScreenState extends State<MapScreen> {
       TileLayer(
         urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
         userAgentPackageName: 'it.enactusunibs.freeway',
-        // OpenStreetMap non ha tile oltre lo zoom 19: oltre si vedrebbero
-        // solo pixel ingranditi.
+        // Usa tile native anche sui display ad alta densità: la modalità
+        // retina simulata richiede il livello successivo, assente oltre 19.
         maxNativeZoom: _maxZoom.toInt(),
         maxZoom: _maxZoom,
-        // Sugli schermi ad alta densità usa tile del livello successivo,
-        // disegnate a metà dimensione: testi e contorni restano nitidi.
-        retinaMode: RetinaMode.isHighDensity(context),
         // Annulla il download delle tile uscite dallo schermo: mappa più
         // reattiva sul web e meno richieste ai server di OpenStreetMap.
         tileProvider: CancellableNetworkTileProvider(),

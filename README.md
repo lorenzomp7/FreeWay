@@ -9,7 +9,7 @@ segnalare barriere architettoniche. È un progetto di Enactus UniBs 2024 / 2025.
 
 ## Prova nel browser
 
-[Apri FREE WAY su GitHub Pages](https://lorenzomp7.github.io/FreeWay/)
+[Apri FreeWay su GitHub Pages](https://lorenzomp7.github.io/FreeWay/)
 
 Il workflow `.github/workflows/pages.yml` pubblica l'app su GitHub Pages a ogni
 push sul branch `main`.
@@ -19,9 +19,9 @@ push sul branch `main`.
 - Accesso con email e password, con Google oppure come ospite (Firebase Auth).
 - Mappa OpenStreetMap con tema chiaro e scuro e posizione dell'utente (GPS, con
   stima tramite IP se il GPS non è disponibile).
-- Ricerca di partenza e arrivo con suggerimenti (Nominatim) e indirizzo della
-  propria posizione. Le richieste a Nominatim sono al massimo una al secondo e
-  le ricerche già fatte restano in memoria, come chiedono le sue regole d'uso.
+- Ricerca di città, indirizzi e altri luoghi con suggerimenti Photon mentre
+  digiti. Le ricerche già fatte restano in memoria. Nominatim restituisce
+  l'indirizzo della posizione attuale.
 - Calcolo dei percorsi con il profilo "sedia a rotelle" di OpenRouteService,
   che evita gradini, pendenze e fondi sconnessi; gli ostacoli segnalati vengono
   passati come zone da evitare. Senza chiave OpenRouteService (o se il servizio
@@ -52,9 +52,17 @@ lib/
   theme/app_theme.dart      colori e tema chiaro/scuro
   models/                   ostacoli, percorsi, schede informative
   services/                 posizione, percorsi (OpenRouteService e OSRM),
-                            Nominatim, Firestore, navigazione, sintesi vocale
+                            Photon, Nominatim, Firestore, navigazione, sintesi vocale
   screens/                  login e mappa
   widgets/                  componenti dell'interfaccia
+web/                        pagina HTML, manifest e icone dell'app web
+assets/                     immagini del progetto
+test/                       test Flutter per servizi e interfaccia
+firestore_tests/            test delle regole Firestore
+tool/                       script per preparare la pubblicazione
+.github/workflows/          verifiche e pubblicazione su GitHub Pages
+android/, ios/              configurazione Flutter per dispositivi mobili
+linux/, macos/, windows/    configurazione Flutter per desktop
 ```
 
 ## Avvio

@@ -63,6 +63,8 @@
       background: #F6F7F9; transition: opacity .25s ease;
     }
     #splash .logo { height: 70px; }
+    #version-status { margin: 0; font: 14px system-ui, sans-serif; }
+    #version-status:not(:empty) { margin-top: 12px; }
     #splash .bar {
       position: relative; overflow: hidden; width: 120px; height: 4px; margin-top: 24px;
       border-radius: 999px; background: #F1F3F6;
@@ -76,33 +78,18 @@
       html, body, #splash { background: #0D0F13; }
       #splash .logo-box { padding: 12px 20px; border-radius: 18px; background: #FFFFFF; }
       #splash .bar { background: #23272F; }
+      #version-status { color: #FFFFFF; }
     }
     @media (prefers-reduced-motion: reduce) {
       #splash .bar::after { animation: none; left: 0; width: 100%; opacity: .6; }
     }
   </style>
-  <script>
-    // Force unregister stale offline-first service workers and clear browser cache
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for (var i = 0; i < registrations.length; i++) {
-          registrations[i].unregister();
-        }
-      });
-    }
-    if ('caches' in window) {
-      caches.keys().then(function(names) {
-        for (var i = 0; i < names.length; i++) {
-          caches.delete(names[i]);
-        }
-      });
-    }
-  </script>
 </head>
 <body>
   <div id="splash" role="status" aria-label="FREE WAY si sta caricando">
     <div class="logo-box"><img class="logo" src="assets/assets/banner.png" alt="FREE WAY"></div>
     <div class="bar"></div>
+    <p id="version-status" aria-live="polite"></p>
   </div>
   <script>
     window.addEventListener('flutter-first-frame', function () {
@@ -112,6 +99,89 @@
       setTimeout(function () { splash.remove(); }, 300);
     });
   </script>
-  <script src="flutter_bootstrap.js" async></script>
+  <script>
+    const buildVersion = '__FREEWAY_BUILD_VERSION__';
+    if ('serviceWorker' in navigator) {
+      // Il browser aggiorna i vecchi worker allo script di dismissione.
+      const scope = new URL('.', document.baseURI).href;
+      navigator.serviceWorker.getRegistration(scope).then(registration => {
+        if (registration?.scope === scope &&
+            registration.active &&
+            new URL(registration.active.scriptURL).pathname ===
+              new URL('flutter_service_worker.js', scope).pathname) {
+          return registration.update();
+        }
+      }).catch(() => {});
+    }
+
+    let started = false;
+    let checking = false;
+
+    function startApp() {
+      if (started) return;
+      started = true;
+      const script = document.createElement('script');
+      script.src = 'flutter_bootstrap.js';
+      document.body.appendChild(script);
+    }
+
+    async function checkVersion() {
+      if (checking) return;
+      checking = true;
+      const splash = document.getElementById('splash');
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      try {
+        const versionUrl = new URL('version.txt', document.baseURI);
+        versionUrl.searchParams.set('t', Date.now());
+        const response = await fetch(versionUrl, {
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error('Cannot check the published version');
+        const latest = (await response.text()).trim();
+        if (!/^[a-f0-9]{12}$/.test(latest)) throw new Error('Invalid version');
+
+        if (latest === buildVersion) {
+          startApp();
+          return;
+        }
+
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('v') !== latest) {
+          url.searchParams.set('v', latest);
+          window.location.replace(url);
+          return;
+        }
+        if (splash) splash.setAttribute('aria-label', 'Aggiornamento in corso');
+        document.getElementById('version-status')?.replaceChildren(
+          'Aggiornamento in corso. Nuovo tentativo tra poco…'
+        );
+      } catch (_) {
+        document.getElementById('version-status')?.replaceChildren(
+          'Impossibile verificare la versione. Nuovo tentativo tra poco…'
+        );
+      } finally {
+        clearTimeout(timeout);
+        checking = false;
+      }
+    }
+
+    if (/^[a-f0-9]{12}$/.test(buildVersion)) {
+      checkVersion();
+      window.addEventListener('pageshow', event => {
+        if (event.persisted) checkVersion();
+      });
+      window.addEventListener('online', checkVersion);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) checkVersion();
+      });
+      setInterval(() => {
+        if (!document.hidden) checkVersion();
+      }, 60000);
+    } else {
+      startApp();
+    }
+  </script>
 </body>
 </html>

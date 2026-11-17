@@ -6,97 +6,100 @@ import 'package:freeway/services/geocoding_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-List<Map<String, dynamic>> place(String name) => [
+http.Response photonResult(String name) => http.Response(
+  jsonEncode({
+    'features': [
       {
-        'display_name': name,
-        'lat': '45.54',
-        'lon': '10.22',
-        'address': {'road': name, 'city': 'Brescia'},
+        'properties': {'name': name, 'city': name, 'state': 'Lombardia'},
+        'geometry': {
+          'coordinates': [10.22, 45.54],
+        },
       },
-    ];
+    ],
+  }),
+  200,
+);
 
 void main() {
-  test('una ricerca già fatta non chiama di nuovo Nominatim', () async {
+  test('cerca una città su Photon e riusa i risultati dalla cache', () async {
     var calls = 0;
     final service = GeocodingService(
-      minInterval: Duration.zero,
       client: MockClient((request) async {
         calls++;
-        expect(request.url.queryParameters['accept-language'], 'it');
-        return http.Response(jsonEncode(place('Via Branze')), 200);
+        expect(request.url.host, 'photon.komoot.io');
+        expect(request.url.queryParameters['q'], 'brescia');
+        expect(request.url.queryParameters, isNot(contains('countrycodes')));
+        return photonResult('Brescia');
       }),
     );
+    addTearDown(service.dispose);
 
-    expect((await service.search('via branze')).single['display_name'],
-        'Via Branze');
-    await service.search('  Via Branze ');
+    final result = (await service.search('brescia')).single;
+    expect(result['lat'], 45.54);
+    expect(result['lon'], 10.22);
+    expect(formatPlace(result).title, 'Brescia');
+    expect(formatPlace(result).subtitle, 'Lombardia');
+    await service.search('  Brescia ');
     expect(calls, 1);
   });
 
-  test('se in Italia non trova nulla cerca ovunque', () async {
-    final countries = <String?>[];
-    final service = GeocodingService(
-      minInterval: Duration.zero,
-      client: MockClient((request) async {
-        final country = request.url.queryParameters['countrycodes'];
-        countries.add(country);
-        return http.Response(
-          jsonEncode(country == null ? place('Paris') : []),
-          200,
-        );
-      }),
-    );
-
-    final results = await service.search('Paris');
-    expect(countries, ['it', null]);
-    expect(results.single['display_name'], 'Paris');
-  });
-
-  test('le richieste sono distanziate di almeno minInterval', () async {
-    final times = <DateTime>[];
-    final service = GeocodingService(
-      minInterval: const Duration(milliseconds: 200),
-      client: MockClient((request) async {
-        times.add(DateTime.now());
-        return http.Response(jsonEncode(place('x')), 200);
-      }),
-    );
-
-    await Future.wait([
-      service.search('uno'),
-      service.search('due'),
-      service.search('tre'),
-    ]);
-
-    expect(times, hasLength(3));
-    for (var i = 1; i < times.length; i++) {
-      expect(
-        times[i].difference(times[i - 1]).inMilliseconds,
-        greaterThanOrEqualTo(190),
+  test(
+    'una ricerca lenta non blocca né sostituisce quella successiva',
+    () async {
+      final slow = Completer<http.Response>();
+      final slowStarted = Completer<void>();
+      final latest = Completer<String>();
+      final received = <String>[];
+      final service = GeocodingService(
+        client: MockClient((request) async {
+          final query = request.url.queryParameters['q'];
+          if (query == 'bres') {
+            slowStarted.complete();
+            return slow.future;
+          }
+          return photonResult('Brescia');
+        }),
       );
-    }
-  });
+      addTearDown(service.dispose);
 
-  test('i risultati di una ricerca superata vengono scartati', () async {
-    final slow = Completer<void>();
-    final service = GeocodingService(
-      minInterval: Duration.zero,
-      client: MockClient((request) async {
-        final q = request.url.queryParameters['q'];
-        if (q == 'bres') await slow.future;
-        return http.Response(jsonEncode(place(q!)), 200);
-      }),
-    );
+      service.searchDebounced(
+        'bres',
+        (results) => received.add(formatPlace(results.single).title),
+        onError: () => fail('La prima ricerca è fallita'),
+      );
+      await slowStarted.future;
+      service.searchDebounced(
+        'brescia',
+        (results) => latest.complete(formatPlace(results.single).title),
+        onError: () => latest.completeError(StateError('Ricerca fallita')),
+      );
+      expect(
+        await latest.future.timeout(const Duration(seconds: 2)),
+        'Brescia',
+      );
+      slow.complete(photonResult('Risultato superato'));
+      await Future<void>.delayed(Duration.zero);
+      expect(received, isEmpty);
+    },
+  );
 
-    final received = <String>[];
-    service.searchDebounced(
-        'bres', (r) => received.add(r.first['display_name'] as String));
-    await Future<void>.delayed(const Duration(milliseconds: 400));
-    service.searchDebounced(
-        'brescia', (r) => received.add(r.first['display_name'] as String));
-    slow.complete();
-    await Future<void>.delayed(const Duration(milliseconds: 500));
+  test(
+    'un errore HTTP viene segnalato e la ricerca può essere ripetuta',
+    () async {
+      var calls = 0;
+      final service = GeocodingService(
+        client: MockClient((_) async {
+          calls++;
+          return calls == 1 ? http.Response('', 503) : photonResult('Brescia');
+        }),
+      );
+      addTearDown(service.dispose);
 
-    expect(received, ['brescia']);
-  });
+      await expectLater(
+        service.search('Brescia'),
+        throwsA(isA<http.ClientException>()),
+      );
+      expect((await service.search('Brescia')).single['name'], 'Brescia');
+    },
+  );
 }

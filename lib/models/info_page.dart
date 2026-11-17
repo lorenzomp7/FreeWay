@@ -29,8 +29,8 @@ const List<InfoPage> infoPages = [
           'Vogliamo aiutare le persone a spostarsi liberamente, segnalando in '
           'tempo reale gli ostacoli sulle strade e sui marciapiedi.',
       'Il progetto è realizzato da un team di studenti/sse e dottorandi/e '
-          "dell'Università degli Studi di Brescia: Chiara Leggerini (Project "
-          'manager), Lorenzo Mainetti (Team leader), Michela Lanzini, Matteo '
+          "dell'Università degli Studi di Brescia: Lorenzo Mainetti (Team "
+          'leader), Chiara Leggerini (Project manager), Michela Lanzini, Matteo '
           'Boniotti, Anita Paiardi e Andrea Menardo.',
     ],
     footer:

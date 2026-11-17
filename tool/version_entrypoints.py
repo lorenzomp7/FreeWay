@@ -1,4 +1,4 @@
-"""Rinomina main.dart.js e flutter_bootstrap.js con la versione del commit.
+"""Pubblica gli entrypoint e il manifesto con la versione del commit.
 
 I browser tengono in cache questi file: con un nome nuovo a ogni pubblicazione
 gli utenti ricevono sempre la versione aggiornata.
@@ -28,8 +28,11 @@ def main(build_dir: str, sha: str) -> None:
 
     index = root / "index.html"
     index.write_text(
-        index.read_text().replace("flutter_bootstrap.js", bootstrap_name)
+        index.read_text()
+        .replace("flutter_bootstrap.js", bootstrap_name)
+        .replace("__FREEWAY_BUILD_VERSION__", version)
     )
+    (root / "version.txt").write_text(f"{version}\n")
 
 
 if __name__ == "__main__":
