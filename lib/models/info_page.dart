@@ -45,7 +45,8 @@ const List<InfoPage> infoPages = [
           'punto B, tenendo conto delle barriere segnalate dalla community.',
     ],
     bullets: [
-      'Cerca partenza e arrivo per calcolare il percorso più accessibile.',
+      'Cerca il luogo da raggiungere, poi scegli da dove partire: FREE WAY '
+          'calcola il percorso più accessibile.',
       'Tieni premuto sulla mappa, oppure usa il pulsante "Segnala un ostacolo '
           'qui", per segnalare un ostacolo che incontri.',
       "Tocca un ostacolo per scoprire di cosa si tratta, confermare che c'è "

@@ -71,6 +71,10 @@ class _MapScreenState extends State<MapScreen> {
   List<Map<String, dynamic>> _startSuggestions = [];
   List<Map<String, dynamic>> _endSuggestions = [];
   bool _isSearchExpanded = true;
+
+  /// `false`: un solo campo per cercare la destinazione. `true`: partenza e
+  /// arrivo per calcolare il percorso, come le "Indicazioni" di Google Maps.
+  bool _isDirectionsMode = false;
   bool _showReportHint = true;
 
   List<Obstacle> _obstacles = [];
@@ -175,8 +179,51 @@ class _MapScreenState extends State<MapScreen> {
     var text = label.title;
     if (label.subtitle.isNotEmpty) text = '$text, ${label.subtitle.split(',').first}';
 
-    setState(() => _setPoint(isStart, LatLng(lat, lon), text));
+    final point = LatLng(lat, lon);
+    setState(() => _setPoint(isStart, point, text));
     FocusScope.of(context).unfocus();
+
+    if (!_isDirectionsMode) {
+      // Trovata la destinazione, si passa alla scelta della partenza.
+      _mapController.move(point, 17);
+      _openDirections();
+    } else if (_startPoint != null && _endPoint != null) {
+      _calculateRoute();
+    }
+  }
+
+  /// Passa alle indicazioni. Se la posizione dell'utente è già nota la usa
+  /// come partenza e calcola subito il percorso; altrimenti il cursore va sul
+  /// campo della partenza.
+  void _openDirections() {
+    final location = _userLocation;
+    setState(() {
+      _isDirectionsMode = true;
+      _isSearchExpanded = true;
+      if (_startPoint == null && location != null) {
+        _setPoint(true, location, 'La tua posizione');
+      }
+    });
+    if (_startPoint != null && _endPoint != null) _calculateRoute();
+  }
+
+  /// Torna alla ricerca semplice: la destinazione resta, la partenza e i
+  /// percorsi vengono tolti.
+  void _closeDirections() {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _isDirectionsMode = false;
+      _isSearchExpanded = true;
+      _startController.clear();
+      _startSuggestions = [];
+      _startPoint = null;
+      _endSuggestions = [];
+      _routes = [];
+      _routePoints = [];
+      _selectedRouteIndex = 0;
+    });
+    final end = _endPoint;
+    if (end != null) _mapController.move(end, 17);
   }
 
   void _setPoint(bool isStart, LatLng point, String text) {
@@ -595,13 +642,16 @@ class _MapScreenState extends State<MapScreen> {
 
   // --- Zoom ----------------------------------------------------------------
 
+  static const double _minZoom = 3;
+  static const double _maxZoom = 19;
+
   void _zoomIn() {
-    _zoom = (_zoom + 1).clamp(2, 19).toDouble();
+    _zoom = (_zoom + 1).clamp(_minZoom, _maxZoom).toDouble();
     _mapController.move(_center, _zoom);
   }
 
   void _zoomOut() {
-    _zoom = (_zoom - 1).clamp(2, 19).toDouble();
+    _zoom = (_zoom - 1).clamp(_minZoom, _maxZoom).toDouble();
     _mapController.move(_center, _zoom);
   }
 
@@ -622,7 +672,10 @@ class _MapScreenState extends State<MapScreen> {
     if (!_isNavigating) {
       final Widget search = _isSearchExpanded
           ? SearchPanel(
-              key: const ValueKey('search-expanded'),
+              key: ValueKey(
+                _isDirectionsMode ? 'search-directions' : 'search-place',
+              ),
+              isDirectionsMode: _isDirectionsMode,
               startController: _startController,
               endController: _endController,
               startSuggestions: _startSuggestions,
@@ -638,6 +691,8 @@ class _MapScreenState extends State<MapScreen> {
               onClear: _clearPoint,
               onSwap: _swapPoints,
               onCalculate: _calculateRoute,
+              onOpenDirections: _openDirections,
+              onCloseDirections: _closeDirections,
             )
           : CollapsedSearchBar(
               key: const ValueKey('search-collapsed'),
@@ -659,9 +714,21 @@ class _MapScreenState extends State<MapScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 240),
-                child: search,
+              // Sugli schermi larghi il pannello resta stretto e a sinistra,
+              // come la casella di ricerca di Google Maps.
+              Align(
+                alignment: Alignment.centerLeft,
+                child: ConstrainedBox(
+                  constraints:
+                      const BoxConstraints(maxWidth: kSearchPanelMaxWidth),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 240),
+                      child: search,
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               CategoryFilterBar(
@@ -716,8 +783,13 @@ class _MapScreenState extends State<MapScreen> {
         left: 12,
         right: 60,
         bottom: 24,
-        child: ReportHint(
-          onClose: () => setState(() => _showReportHint = false),
+        // Allineato a sinistra: la pillola è larga quanto il suo testo
+        // invece di occupare tutta la larghezza dello schermo.
+        child: Align(
+          alignment: Alignment.bottomLeft,
+          child: ReportHint(
+            onClose: () => setState(() => _showReportHint = false),
+          ),
         ),
       ));
     }
@@ -751,6 +823,13 @@ class _MapScreenState extends State<MapScreen> {
       TileLayer(
         urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
         userAgentPackageName: 'it.enactusunibs.freeway',
+        // OpenStreetMap non ha tile oltre lo zoom 19: oltre si vedrebbero
+        // solo pixel ingranditi.
+        maxNativeZoom: _maxZoom.toInt(),
+        maxZoom: _maxZoom,
+        // Sugli schermi ad alta densità usa tile del livello successivo,
+        // disegnate a metà dimensione: testi e contorni restano nitidi.
+        retinaMode: RetinaMode.isHighDensity(context),
         // Annulla il download delle tile uscite dallo schermo: mappa più
         // reattiva sul web e meno richieste ai server di OpenStreetMap.
         tileProvider: CancellableNetworkTileProvider(),
@@ -853,6 +932,8 @@ class _MapScreenState extends State<MapScreen> {
       options: MapOptions(
         initialCenter: _center,
         initialZoom: _zoom,
+        minZoom: _minZoom,
+        maxZoom: _maxZoom,
         onTap: (_, _) => FocusScope.of(context).unfocus(),
         onLongPress: (_, point) => _reportObstacle(point),
         interactionOptions: const InteractionOptions(
