@@ -97,7 +97,10 @@ class _MapScreenState extends State<MapScreen> {
     super.initState();
     _locateUser();
     _obstacleService.listen((obstacles) {
-      if (mounted) setState(() => _obstacles = obstacles);
+      // Gli ostacoli temporanei non confermati da tempo non compaiono né
+      // sulla mappa né nel calcolo dei percorsi.
+      final active = obstacles.where((o) => !o.isExpired()).toList();
+      if (mounted) setState(() => _obstacles = active);
     });
     _mapController.mapEventStream.listen((event) {
       if (!mounted) return;

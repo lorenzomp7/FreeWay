@@ -230,6 +230,11 @@ class ObstacleDetailsSheet extends StatelessWidget {
     return date == null ? '' : timeAgo(date);
   }
 
+  static String _formatDay(DateTime date) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(date.day)}/${two(date.month)}/${date.year}';
+  }
+
   String get _confirmationText {
     final count = obstacle.confirmationCount;
     final people = count == 1 ? '1 persona' : '$count persone';
@@ -284,6 +289,28 @@ class ObstacleDetailsSheet extends StatelessWidget {
                           Expanded(child: Text(when, style: textTheme.bodySmall)),
                         ],
                       ),
+                      if (obstacle.expiresAt != null) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.hourglass_bottom_rounded,
+                              color: colors.textTertiary,
+                              size: 15,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Ostacolo temporaneo: sparisce dalla mappa il '
+                                '${_formatDay(obstacle.expiresAt!)} se nessuno '
+                                "conferma che c'è ancora.",
+                                style: textTheme.bodySmall,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       if (obstacle.confirmationCount > 0) ...[
                         const SizedBox(height: 6),
                         Row(
