@@ -304,7 +304,8 @@ class ReportHint extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+      constraints: const BoxConstraints(maxWidth: 440),
+      padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
       decoration: BoxDecoration(
         color: colors.surface,
         border: Border.all(color: colors.border),

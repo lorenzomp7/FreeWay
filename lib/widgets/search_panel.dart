@@ -5,10 +5,18 @@ import '../theme/app_theme.dart';
 
 typedef PointCallback = void Function({required bool isStart});
 
-/// Pannello di ricerca con partenza, arrivo, suggerimenti e calcolo percorso.
+/// Larghezza massima dei pannelli di ricerca sugli schermi larghi, come la
+/// casella di ricerca di Google Maps.
+const double kSearchPanelMaxWidth = 408;
+
+/// Pannello di ricerca in due fasi, come in Google Maps:
+///
+/// * ricerca: un solo campo per cercare il luogo da raggiungere;
+/// * indicazioni: partenza e arrivo, suggerimenti e calcolo del percorso.
 class SearchPanel extends StatelessWidget {
   const SearchPanel({
     super.key,
+    required this.isDirectionsMode,
     required this.startController,
     required this.endController,
     required this.startSuggestions,
@@ -24,8 +32,11 @@ class SearchPanel extends StatelessWidget {
     required this.onClear,
     required this.onSwap,
     required this.onCalculate,
+    required this.onOpenDirections,
+    required this.onCloseDirections,
   });
 
+  final bool isDirectionsMode;
   final TextEditingController startController;
   final TextEditingController endController;
   final List<Map<String, dynamic>> startSuggestions;
@@ -41,20 +52,82 @@ class SearchPanel extends StatelessWidget {
   final PointCallback onClear;
   final VoidCallback onSwap;
   final VoidCallback onCalculate;
+  final VoidCallback onOpenDirections;
+  final VoidCallback onCloseDirections;
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    final children = isDirectionsMode
+        ? _buildDirections(context, colors)
+        : _buildSearch(context);
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border.all(color: colors.border),
+        borderRadius: BorderRadius.circular(isDirectionsMode ? 24 : 28),
+        boxShadow: softShadow(colors),
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: children),
+    );
+  }
+
+  /// Fase 1: un solo campo per cercare la destinazione.
+  List<Widget> _buildSearch(BuildContext context) {
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 6, 4),
+        child: Row(
+          children: [
+            Icon(
+              Icons.search_rounded,
+              size: 22,
+              color: AppColors.of(context).textSecondary,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: SearchField(
+                controller: endController,
+                hint: 'Cerca un luogo',
+                isLoading: isLocatingEnd,
+                onChanged: onEndChanged,
+                onClear: () => onClear(isStart: false),
+              ),
+            ),
+            const SizedBox(width: 4),
+            DirectionsButton(onTap: onOpenDirections),
+          ],
+        ),
+      ),
+      if (endSuggestions.isNotEmpty)
+        SuggestionsList(
+          suggestions: List.of(endSuggestions),
+          isStart: false,
+          onSelect: onSelectSuggestion,
+        ),
+    ];
+  }
+
+  /// Fase 2: scelta della partenza e calcolo del percorso.
+  List<Widget> _buildDirections(BuildContext context, AppColors colors) {
     final suggestions = startSuggestions.isNotEmpty
         ? startSuggestions
         : (endSuggestions.isNotEmpty ? endSuggestions : const <Map<String, dynamic>>[]);
     final suggestionsForStart = startSuggestions.isNotEmpty;
 
-    final children = <Widget>[
+    return [
       Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+        padding: const EdgeInsets.fromLTRB(4, 4, 8, 4),
         child: Row(
           children: [
+            SmallIconButton(
+              icon: Icons.arrow_back_rounded,
+              onTap: onCloseDirections,
+              tooltip: 'Torna alla ricerca',
+            ),
+            const SizedBox(width: 2),
             const RouteDots(),
             const SizedBox(width: 12),
             Expanded(
@@ -63,7 +136,9 @@ class SearchPanel extends StatelessWidget {
                 children: [
                   SearchField(
                     controller: startController,
-                    hint: 'Punto di partenza',
+                    hint: 'Scegli il punto di partenza',
+                    // Se manca la partenza il cursore va subito qui.
+                    autofocus: startController.text.isEmpty,
                     isLoading: isLocatingStart,
                     onChanged: onStartChanged,
                     onClear: () => onClear(isStart: true),
@@ -72,7 +147,7 @@ class SearchPanel extends StatelessWidget {
                   Divider(height: 1, thickness: 1, color: colors.border),
                   SearchField(
                     controller: endController,
-                    hint: 'Dove vuoi andare?',
+                    hint: 'Scegli la destinazione',
                     isLoading: isLocatingEnd,
                     onChanged: onEndChanged,
                     onClear: () => onClear(isStart: false),
@@ -86,55 +161,72 @@ class SearchPanel extends StatelessWidget {
           ],
         ),
       ),
-    ];
-
-    if (suggestions.isNotEmpty) {
-      children.add(SuggestionsList(
-        suggestions: List.of(suggestions),
-        isStart: suggestionsForStart,
-        onSelect: onSelectSuggestion,
-      ));
-    }
-
-    children.add(Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      child: SizedBox(
-        width: double.infinity,
-        child: FilledButton.icon(
-          onPressed: isCalculating || !canCalculate ? null : onCalculate,
-          icon: isCalculating
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Icon(Icons.directions_walk_rounded, size: 20),
-          label: Text(
-            isCalculating ? 'Calcolo in corso…' : 'Calcola percorso pedonale',
-          ),
-          style: FilledButton.styleFrom(
-            minimumSize: const Size(0, 44),
-            textStyle: Theme.of(context)
-                .textTheme
-                .labelLarge
-                ?.copyWith(fontSize: 14, color: Colors.white),
+      if (suggestions.isNotEmpty)
+        SuggestionsList(
+          suggestions: List.of(suggestions),
+          isStart: suggestionsForStart,
+          onSelect: onSelectSuggestion,
+        ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        child: SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: isCalculating || !canCalculate ? null : onCalculate,
+            icon: isCalculating
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.directions_walk_rounded, size: 20),
+            label: Text(
+              isCalculating ? 'Calcolo in corso…' : 'Calcola percorso pedonale',
+            ),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(0, 44),
+              textStyle: Theme.of(context)
+                  .textTheme
+                  .labelLarge
+                  ?.copyWith(fontSize: 14, color: Colors.white),
+            ),
           ),
         ),
       ),
-    ));
+    ];
+  }
+}
 
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: softShadow(colors),
+/// Pulsante "Indicazioni" nella casella di ricerca.
+class DirectionsButton extends StatelessWidget {
+  const DirectionsButton({super.key, required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Indicazioni',
+      child: Material(
+        color: AppPalette.primary,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: const SizedBox(
+            width: 36,
+            height: 36,
+            child: Icon(
+              Icons.directions_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+        ),
       ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: children),
     );
   }
 }
@@ -195,7 +287,8 @@ class SearchField extends StatelessWidget {
     required this.isLoading,
     required this.onChanged,
     required this.onClear,
-    required this.onUseMyLocation,
+    this.onUseMyLocation,
+    this.autofocus = false,
   });
 
   final TextEditingController controller;
@@ -203,7 +296,10 @@ class SearchField extends StatelessWidget {
   final bool isLoading;
   final ValueChanged<String> onChanged;
   final VoidCallback onClear;
-  final VoidCallback onUseMyLocation;
+
+  /// Se `null` il pulsante "Usa la mia posizione" non viene mostrato.
+  final VoidCallback? onUseMyLocation;
+  final bool autofocus;
 
   @override
   Widget build(BuildContext context) {
@@ -216,6 +312,7 @@ class SearchField extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: controller,
+              autofocus: autofocus,
               onChanged: onChanged,
               style: theme.textTheme.bodyLarge?.copyWith(fontSize: 15),
               textInputAction: TextInputAction.search,
@@ -252,7 +349,7 @@ class SearchField extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             )
-          else
+          else if (onUseMyLocation != null)
             SmallIconButton(
               icon: Icons.my_location_rounded,
               onTap: onUseMyLocation,
