@@ -30,8 +30,17 @@ class ObstacleService {
       'lat': position.latitude,
       'lng': position.longitude,
       'type': type,
+      'category': obstacleCategoryOf(type),
       'timestamp': FieldValue.serverTimestamp(),
       'userId': userId,
+    });
+  }
+
+  /// Registra che [userId] ha visto l'ostacolo ancora al suo posto.
+  Future<void> confirm(String id, String userId) async {
+    await _collection.doc(id).update({
+      'confirmedBy': FieldValue.arrayUnion([userId]),
+      'lastConfirmedAt': FieldValue.serverTimestamp(),
     });
   }
 

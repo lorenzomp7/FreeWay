@@ -30,11 +30,16 @@ push sul branch `master`.
   intorno al primo ostacolo. Ogni percorso riceve un punteggio di accessibilità
   in base agli ostacoli lungo il tragitto.
 - Segnalazione condivisa degli ostacoli su Cloud Firestore (collezione
-  `segnalazioni`): basta tenere premuto sulla mappa. Toccando un ostacolo se ne
-  vedono i dettagli e lo si può rimuovere.
+  `segnalazioni`): si tiene premuto sulla mappa oppure si usa il pulsante
+  "Segnala un ostacolo qui". Toccando un ostacolo se ne vedono i dettagli, si
+  può confermare che c'è ancora oppure rimuoverlo.
 - Filtri per categoria e raggruppamento degli ostacoli vicini.
-- Navigazione passo-passo con istruzioni vocali in italiano o inglese e ricalcolo
-  quando si esce dal percorso.
+- Navigazione passo-passo con istruzioni vocali in italiano o inglese, ricalcolo
+  quando si esce dal percorso e schermo sempre acceso durante il tragitto.
+- Accessibilità: supporto ai lettori di schermo attivo da subito sul web,
+  etichette per pulsanti e segnaposti della mappa, testi con contrasto almeno
+  4,5:1 e niente animazione della posizione se il sistema chiede di ridurre i
+  movimenti.
 - Schede informative "Chi siamo", "Come funziona" e "Prossimi passi".
 
 ## Struttura
@@ -88,8 +93,10 @@ richieste; superato quello, l'app torna da sola a OSRM.
 
 - solo gli utenti che hanno fatto accesso (anche come ospiti) le vedono;
 - una segnalazione si crea solo a proprio nome, con l'ora del server e con i
-  soli campi `lat`, `lng`, `type`, `timestamp`, `userId` validi;
-- le segnalazioni non si modificano;
+  soli campi `lat`, `lng`, `type`, `category` (facoltativo), `timestamp`,
+  `userId` validi;
+- l'unica modifica ammessa è "Confermo, c'è ancora": si aggiunge il proprio
+  uid a `confirmedBy`, una sola volta e non sulle proprie segnalazioni;
 - chi ha un account può rimuovere qualsiasi segnalazione ("L'ostacolo non c'è
   più"), un ospite solo le proprie;
 - il resto del database è chiuso.

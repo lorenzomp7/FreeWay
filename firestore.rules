@@ -13,15 +13,40 @@ service cloud.firestore {
       return request.auth.token.firebase.sign_in_provider == 'anonymous';
     }
 
-    // Una segnalazione valida ha esattamente i campi scritti dall'app.
+    // Una segnalazione valida ha i campi scritti dall'app; la categoria è
+    // facoltativa perché le versioni precedenti non la salvavano.
     function validReport(data) {
-      return data.keys().hasOnly(['lat', 'lng', 'type', 'timestamp', 'userId'])
+      return data.keys().hasOnly(['lat', 'lng', 'type', 'category', 'timestamp', 'userId'])
         && data.keys().hasAll(['lat', 'lng', 'type', 'timestamp', 'userId'])
+        && (!('category' in data) || data.category in [
+          'Dislivello e pavimentazione',
+          'Ingresso e passaggio',
+          'Sicurezza',
+          'Ostacoli temporanei',
+          'Altro'
+        ])
         && data.lat is number && data.lat >= -90 && data.lat <= 90
         && data.lng is number && data.lng >= -180 && data.lng <= 180
         && data.type is string && data.type.size() > 0 && data.type.size() <= 100
         && data.timestamp == request.time
         && data.userId == request.auth.uid;
+    }
+
+    // "Confermo, c'è ancora": si aggiunge solo il proprio uid, una volta, a
+    // una segnalazione fatta da qualcun altro.
+    function validConfirmation() {
+      let before = resource.data.get('confirmedBy', []);
+      let after = request.resource.data.confirmedBy;
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['confirmedBy', 'lastConfirmedAt'])
+        && request.resource.data.lastConfirmedAt == request.time
+        && resource.data.get('userId', '') != request.auth.uid
+        && !(request.auth.uid in before)
+        && after is list
+        && after.size() == before.size() + 1
+        && after.size() <= 1000
+        && after.hasAll(before)
+        && request.auth.uid in after;
     }
 
     match /segnalazioni/{reportId} {
@@ -31,8 +56,8 @@ service cloud.firestore {
       // Si crea solo a proprio nome, con l'ora del server e campi validi.
       allow create: if signedIn() && validReport(request.resource.data);
 
-      // Le segnalazioni non si modificano: si rimuovono e se ne crea una nuova.
-      allow update: if false;
+      // L'unica modifica ammessa è la conferma che l'ostacolo c'è ancora.
+      allow update: if signedIn() && validConfirmation();
 
       // "L'ostacolo non c'è più": chi ha un account può rimuovere qualsiasi
       // segnalazione; un ospite solo le proprie.

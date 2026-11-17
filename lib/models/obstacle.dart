@@ -35,6 +35,38 @@ const Map<String, IconData> obstacleCategoryIcons = {
   'Ostacoli temporanei': Icons.construction_rounded,
 };
 
+/// Categoria di un tipo di ostacolo: quella della lista
+/// [obstacleTypesByCategory] o, per i testi delle versioni precedenti, quella
+/// ricavata da parole chiave.
+String obstacleCategoryOf(String type) {
+  for (final entry in obstacleTypesByCategory.entries) {
+    if (entry.value.contains(type)) return entry.key;
+  }
+  bool has(String text) => type.contains(text);
+  if (has('rampa') ||
+      has('ascensore') ||
+      has('Gradino') ||
+      has('ripido') ||
+      has('Buche') ||
+      has('pavimentazione') ||
+      has('sassi') ||
+      has('ghiaia')) {
+    return 'Dislivello e pavimentazione';
+  }
+  if (has('Porte') || has('Tornelli') || has('Palo') || has('colonna')) {
+    return 'Ingresso e passaggio';
+  }
+  if (has('visibilità') || has('segnaletica')) return 'Sicurezza';
+  if (has('Auto') ||
+      has('parcheggiata') ||
+      has('Cantieri') ||
+      has('Rifiuti') ||
+      has('ingombri')) {
+    return 'Ostacoli temporanei';
+  }
+  return 'Altro';
+}
+
 /// Segnalazione di un ostacolo salvata su Firestore (collezione `segnalazioni`).
 class Obstacle {
   Obstacle({
@@ -42,26 +74,57 @@ class Obstacle {
     required this.position,
     required this.type,
     this.reportedAt,
-  });
+    this.userId,
+    String? category,
+    this.confirmedBy = const [],
+    this.lastConfirmedAt,
+  }) : _storedCategory = category;
 
   final String id;
   final LatLng position;
   final String type;
   final DateTime? reportedAt;
 
+  /// Chi ha fatto la segnalazione (assente nelle segnalazioni più vecchie).
+  final String? userId;
+
+  /// Utenti che hanno confermato che l'ostacolo è ancora presente.
+  final List<String> confirmedBy;
+  final DateTime? lastConfirmedAt;
+
+  final String? _storedCategory;
+
   factory Obstacle.fromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data();
-    final timestamp = data['timestamp'] as Timestamp?;
+    return Obstacle.fromMap(doc.id, doc.data());
+  }
+
+  factory Obstacle.fromMap(String id, Map<String, dynamic> data) {
+    final timestamp = data['timestamp'];
+    final confirmed = data['lastConfirmedAt'];
     return Obstacle(
-      id: doc.id,
+      id: id,
       position: LatLng(
         (data['lat'] as num).toDouble(),
         (data['lng'] as num).toDouble(),
       ),
       type: data['type'] as String,
-      reportedAt: timestamp?.toDate(),
+      reportedAt: timestamp is Timestamp ? timestamp.toDate() : null,
+      userId: data['userId'] as String?,
+      category: data['category'] as String?,
+      confirmedBy: (data['confirmedBy'] as List?)?.whereType<String>().toList() ??
+          const [],
+      lastConfirmedAt: confirmed is Timestamp ? confirmed.toDate() : null,
     );
   }
+
+  int get confirmationCount => confirmedBy.length;
+
+  /// La segnalazione è stata fatta da [uid].
+  bool isReportedBy(String? uid) => uid != null && userId == uid;
+
+  /// [uid] può confermare che l'ostacolo c'è ancora.
+  bool canBeConfirmedBy(String? uid) =>
+      uid != null && !isReportedBy(uid) && !confirmedBy.contains(uid);
 
   bool _has(String text) => type.contains(text);
 
@@ -112,31 +175,12 @@ class Obstacle {
     return const Color(0xFF667085);
   }
 
+  /// Categoria salvata su Firestore o, se manca, ricavata dal tipo.
   String get category {
-    for (final entry in obstacleTypesByCategory.entries) {
-      if (entry.value.contains(type)) return entry.key;
+    final stored = _storedCategory;
+    if (stored != null && obstacleTypesByCategory.containsKey(stored)) {
+      return stored;
     }
-    if (_has('rampa') ||
-        _has('ascensore') ||
-        _has('Gradino') ||
-        _has('ripido') ||
-        _has('Buche') ||
-        _has('pavimentazione') ||
-        _has('sassi') ||
-        _has('ghiaia')) {
-      return 'Dislivello e pavimentazione';
-    }
-    if (_has('Porte') || _has('Tornelli') || _has('Palo') || _has('colonna')) {
-      return 'Ingresso e passaggio';
-    }
-    if (_has('visibilità') || _has('segnaletica')) return 'Sicurezza';
-    if (_has('Auto') ||
-        _has('parcheggiata') ||
-        _has('Cantieri') ||
-        _has('Rifiuti') ||
-        _has('ingombri')) {
-      return 'Ostacoli temporanei';
-    }
-    return 'Altro';
+    return obstacleCategoryOf(type);
   }
 }

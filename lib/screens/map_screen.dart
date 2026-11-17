@@ -7,6 +7,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/obstacle.dart';
 import '../models/route_option.dart';
@@ -107,6 +108,7 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   void dispose() {
+    if (_isNavigating) _keepScreenOn(false);
     _ttsService.stop();
     _ttsService.reset();
     _navigationSubscription?.cancel();
@@ -283,6 +285,7 @@ class _MapScreenState extends State<MapScreen> {
     if (_routes.isEmpty) return;
     final route = _routes[_selectedRouteIndex];
     setState(() => _isNavigating = true);
+    _keepScreenOn(true);
     _navigationService.start(route);
     _navigationSubscription?.cancel();
     _navigationSubscription =
@@ -338,7 +341,14 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  /// Durante la navigazione lo schermo resta acceso (dove il browser lo
+  /// consente).
+  void _keepScreenOn(bool enable) {
+    unawaited(WakelockPlus.toggle(enable: enable).catchError((Object _) {}));
+  }
+
   void _stopNavigation() {
+    _keepScreenOn(false);
     _ttsService.stop();
     _ttsService.reset();
     _navigationSubscription?.cancel();
@@ -440,9 +450,52 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  /// Segnala un ostacolo nella posizione dell'utente o, se non è nota, al
+  /// centro della mappa. Alternativa alla pressione prolungata, più comoda da
+  /// tastiera, con un lettore di schermo o con difficoltà motorie.
+  Future<void> _reportHere() async {
+    final location = _userLocation;
+    final point = location ?? _mapController.camera.center;
+    if (location == null) {
+      _showSnack(
+        'Posizione non disponibile: la segnalazione andrà al centro della mappa.',
+        iconColor: AppColors.of(context).info,
+        icon: Icons.info_outline_rounded,
+      );
+    }
+    await _reportObstacle(point);
+  }
+
+  Future<void> _confirmObstacle(Obstacle obstacle, String userId) async {
+    try {
+      await _obstacleService.confirm(obstacle.id, userId);
+      if (!mounted) return;
+      _showSnack(
+        "Grazie! Hai confermato che l'ostacolo c'è ancora.",
+        iconColor: AppColors.of(context).success,
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile registrare la conferma. Riprova.',
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
   Future<void> _openObstacle(Obstacle obstacle) async {
-    final remove = await showObstacleDetailsSheet(context, obstacle);
-    if (remove != true || !mounted) return;
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final action = await showObstacleDetailsSheet(
+      context,
+      obstacle,
+      currentUserId: userId,
+    );
+    if (action == null || !mounted) return;
+    if (action == ObstacleAction.confirm) {
+      if (userId != null) await _confirmObstacle(obstacle, userId);
+      return;
+    }
     try {
       await _obstacleService.remove(obstacle.id);
       if (!mounted) return;
@@ -584,6 +637,7 @@ class _MapScreenState extends State<MapScreen> {
         onZoomOut: _zoomOut,
         onLocate: () => _locateUser(showErrors: true),
         isLocating: _isLocatingUser,
+        onReport: _isNavigating ? null : _reportHere,
       ),
     ));
 
@@ -681,6 +735,7 @@ class _MapScreenState extends State<MapScreen> {
                   child: ObstacleMarker(
                     color: obstacle.color,
                     icon: obstacle.icon,
+                    label: 'Ostacolo: ${obstacle.type}',
                     onTap: () => _openObstacle(obstacle),
                   ),
                 ))
@@ -699,6 +754,7 @@ class _MapScreenState extends State<MapScreen> {
           child: const RouteEndpointMarker(
             color: AppPalette.startGreen,
             icon: Icons.trip_origin_rounded,
+            label: 'Partenza',
           ),
         ),
       if (_endPoint != null)
@@ -710,6 +766,7 @@ class _MapScreenState extends State<MapScreen> {
           child: const RouteEndpointMarker(
             color: AppPalette.primary,
             icon: Icons.flag_rounded,
+            label: 'Arrivo',
           ),
         ),
       if (_userLocation != null)
