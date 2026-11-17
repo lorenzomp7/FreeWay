@@ -11,10 +11,10 @@ Versione pubblicata: <https://progetto-rimosso.web.app/>
 
 ## Prova nel browser
 
-[Apri FREE WAY su GitHub Pages](https://lorenzomp7.github.io/EnactusProject/)
+[Apri FREE WAY su GitHub Pages](https://lorenzomp7.github.io/FreeWay/)
 
 Il workflow `.github/workflows/pages.yml` pubblica l'app su GitHub Pages a ogni
-push sul branch `master`.
+push sul branch `main`.
 
 ## Funzionalità
 
@@ -124,7 +124,7 @@ uno fallisce.
 
 ## Pubblicazione su Firebase
 
-Il workflow `.github/workflows/firebase.yml`, a ogni push su `master`:
+Il workflow `.github/workflows/firebase.yml`, a ogni push su `main`:
 
 1. prova le regole di Firestore con l'emulatore;
 2. compila l'app;

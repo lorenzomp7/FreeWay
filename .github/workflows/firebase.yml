@@ -1,13 +1,13 @@
 name: Deploy to Firebase
 # Pubblica l'app su Firebase Hosting (progetto-rimosso.web.app) e le regole di
-# Firestore a ogni push su master. Prima prova le regole con l'emulatore: se un
+# Firestore a ogni push su main. Prima prova le regole con l'emulatore: se un
 # test fallisce non si pubblica nulla. Nelle pull request esegue solo i test.
 # La pubblicazione richiede il secret FIREBASE_SERVICE_ACCOUNT (vedi README).
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
