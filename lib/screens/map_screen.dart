@@ -469,7 +469,7 @@ class _MapScreenState extends State<MapScreen> {
     final colors = AppColors.of(context);
     final hasRoutes = _routes.isNotEmpty;
     final double controlsBottom =
-        _isNavigating ? 32 : (hasRoutes ? 268 : (_showReportHint ? 100 : 40));
+        _isNavigating ? 32 : (hasRoutes ? 268 : (_showReportHint ? 80 : 32));
 
     final children = <Widget>[
       _buildMap(context),
@@ -570,7 +570,7 @@ class _MapScreenState extends State<MapScreen> {
     if (!hasRoutes && !_isNavigating && _showReportHint) {
       children.add(Positioned(
         left: 12,
-        right: 88,
+        right: 60,
         bottom: 24,
         child: ReportHint(
           onClose: () => setState(() => _showReportHint = false),
