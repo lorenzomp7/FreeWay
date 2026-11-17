@@ -1,0 +1,15 @@
+{
+  "name": "freeway-agent-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "qa": "playwright test",
+    "playwriter": "playwriter",
+    "gemini": "gemini"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "playwriter": "0.12.0",
+    "@google/gemini-cli": "0.68.0"
+  }
+}

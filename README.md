@@ -170,3 +170,14 @@ JavaScript compilato. Il risultato compila e la schermata di accesso è identica
 quella pubblicata. Nomi di classi, variabili e file sono invece ricostruiti, e
 alcuni dettagli del tema (per esempio gli stili di pulsanti e campi non visibili
 nelle schermate principali) sono un'approssimazione.
+
+## Strumenti per agenti e test nel browser
+
+Sono configurati agent-skills, Playwriter, Vibetest Use, Container Use e Gemini
+CLI. Il comando `python3 tool/agent_tools.py setup all` prepara gli strumenti
+locali; Container Use e gli esempi Syncfusion hanno setup separati.
+Il workflow `agent-qa.yml` verifica l'app con Flutter e Playwright su desktop e
+telefono. Collegamenti al browser, autenticazioni e chiavi AI vanno completati
+nel client che esegue gli strumenti.
+
+[Installazione, comandi e stato delle integrazioni](docs/agent-tools.md).

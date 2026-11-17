@@ -1,0 +1,18 @@
+{
+  "agent-skills": {
+    "url": "https://github.com/addyosmani/agent-skills.git",
+    "ref": "39b723ceebf81474d0557c1fecd01eddab585563"
+  },
+  "vibetest-use": {
+    "url": "https://github.com/browser-use/vibetest-use.git",
+    "ref": "fe0b90ac9d6a129ce06f5b53074241a9f205015b"
+  },
+  "container-use": {
+    "url": "https://github.com/dagger/container-use.git",
+    "ref": "v0.4.2"
+  },
+  "syncfusion-examples": {
+    "url": "https://github.com/syncfusion/flutter-examples.git",
+    "ref": "dee00ad6c7f785dcf5e7f326c6d528ed5b2643bc"
+  }
+}

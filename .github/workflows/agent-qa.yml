@@ -1,0 +1,44 @@
+name: Agent tools and browser QA
+on:
+  pull_request:
+  push:
+    branches: [main_chatgpt]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tools/agents/package-lock.json
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.0'
+          channel: stable
+          cache: true
+      - run: python3 -m py_compile tool/agent_tools.py tools/agents/vibetest_server.py
+      - run: python3 tool/agent_tools.py setup skills
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+      - run: flutter build web --release --pwa-strategy=none --base-href /
+      - run: npm ci
+        working-directory: tools/agents
+      - run: npx --no-install playwright install --with-deps chromium
+        working-directory: tools/agents
+      - run: npm run qa
+        working-directory: tools/agents
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-qa-report
+          path: |
+            tools/agents/playwright-report/
+            tools/agents/test-results/
+          if-no-files-found: ignore

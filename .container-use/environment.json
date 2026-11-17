@@ -1,0 +1,14 @@
+{
+  "workdir": "/workdir",
+  "base_image": "ubuntu:24.04",
+  "setup_commands": [
+    "apt-get update && apt-get install -y ca-certificates curl git unzip xz-utils zip libglu1-mesa python3",
+    "git clone --depth 1 --branch 3.47.0 https://github.com/flutter/flutter.git /opt/flutter",
+    "git config --global --add safe.directory /opt/flutter",
+    "/opt/flutter/bin/flutter config --enable-web --no-analytics",
+    "/opt/flutter/bin/flutter precache --web"
+  ],
+  "env": [
+    "PATH=/opt/flutter/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  ]
+}

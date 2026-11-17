@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "playwriter": {
+      "command": "node",
+      "args": [
+        "tools/agents/node_modules/playwriter/bin.js"
+      ],
+      "env": {
+        "PLAYWRITER_TELEMETRY": "0"
+      }
+    },
+    "vibetest": {
+      "command": "python3",
+      "args": [
+        "tool/agent_tools.py",
+        "vibetest"
+      ]
+    },
+    "container-use": {
+      "command": "container-use",
+      "args": [
+        "stdio"
+      ]
+    }
+  }
+}

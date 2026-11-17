@@ -1,0 +1,14 @@
+# Avviare Codex dalla radice di FreeWay dopo il setup.
+[mcp_servers.playwriter]
+command = "node"
+args = ["tools/agents/node_modules/playwriter/bin.js"]
+env = { PLAYWRITER_TELEMETRY = "0" }
+
+[mcp_servers.vibetest]
+command = "python3"
+args = ["tool/agent_tools.py", "vibetest"]
+env_vars = ["GOOGLE_API_KEY", "FREEWAY_QA_MODEL"]
+
+[mcp_servers.container-use]
+command = "container-use"
+args = ["stdio"]

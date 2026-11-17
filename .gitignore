@@ -32,3 +32,17 @@ ios/Flutter/ephemeral/
 # Test delle regole Firestore
 firestore_tests/node_modules/
 firestore-debug.log
+
+# Strumenti di sviluppo e rapporti QA
+.agent-tools/
+.agents/skills/
+.claude/skills/
+tools/agents/node_modules/
+tools/agents/test-results/
+tools/agents/playwright-report/
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.pyc
