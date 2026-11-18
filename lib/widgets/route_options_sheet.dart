@@ -12,6 +12,9 @@ class RouteOptionsSheet extends StatelessWidget {
     required this.onSelect,
     required this.onStart,
     required this.onClose,
+    this.onFindToilets,
+    this.isFindingToilets = false,
+    this.toiletCount,
   });
 
   final List<RouteOption> routes;
@@ -19,6 +22,13 @@ class RouteOptionsSheet extends StatelessWidget {
   final ValueChanged<int> onSelect;
   final VoidCallback onStart;
   final VoidCallback onClose;
+
+  /// "Bagni accessibili lungo il percorso", come "Search along route".
+  final VoidCallback? onFindToilets;
+  final bool isFindingToilets;
+
+  /// Bagni trovati, o `null` se la ricerca non è stata fatta.
+  final int? toiletCount;
 
   @override
   Widget build(BuildContext context) {
@@ -87,6 +97,53 @@ class RouteOptionsSheet extends StatelessWidget {
             if (selectedIndex < routes.length &&
                 routes[selectedIndex].warnings.isNotEmpty)
               RouteWarningsList(warnings: routes[selectedIndex].warnings),
+            // Come l'avviso delle indicazioni accessibili di Google Maps.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 13,
+                    color: colors.textTertiary,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Attenzione: i percorsi possono non riflettere le '
+                      'condizioni reali della strada.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontSize: 11.5,
+                        color: colors.textTertiary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (onFindToilets != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 2, 20, 0),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: isFindingToilets ? null : onFindToilets,
+                    icon: isFindingToilets
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.wc_rounded, size: 18),
+                    label: Text(switch (toiletCount) {
+                      null => 'Bagni accessibili lungo il percorso',
+                      0 => 'Nessun bagno accessibile segnato lungo il percorso',
+                      1 => '1 bagno accessibile sulla mappa',
+                      final n => '$n bagni accessibili sulla mappa',
+                    }),
+                  ),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
               child: SizedBox(

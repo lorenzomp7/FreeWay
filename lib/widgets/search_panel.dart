@@ -65,6 +65,7 @@ class SearchPanel extends StatelessWidget {
     required this.onRemoveRecent,
     required this.onUseMyLocation,
     required this.onChooseOnMap,
+    required this.onPaste,
     required this.onClear,
     required this.onSwap,
     required this.onCalculate,
@@ -108,6 +109,9 @@ class SearchPanel extends StatelessWidget {
   final ValueChanged<Map<String, dynamic>> onRemoveRecent;
   final PointCallback onUseMyLocation;
   final PointCallback onChooseOnMap;
+
+  /// Incolla nel campo il testo copiato (per esempio un indirizzo).
+  final PointCallback onPaste;
   final PointCallback onClear;
   final VoidCallback onSwap;
   final VoidCallback onCalculate;
@@ -301,6 +305,8 @@ class SearchPanel extends StatelessWidget {
       onRemoveRecent: onRemoveRecent,
       onUseMyLocation: () => onUseMyLocation(isStart: isStart),
       onChooseOnMap: () => onChooseOnMap(isStart: isStart),
+      showPaste: showZeroState,
+      onPaste: () => onPaste(isStart: isStart),
     );
   }
 }
@@ -319,6 +325,8 @@ class SearchDropdown extends StatelessWidget {
     required this.onRemoveRecent,
     required this.onUseMyLocation,
     required this.onChooseOnMap,
+    this.showPaste = false,
+    this.onPaste,
   });
 
   final bool isStart;
@@ -332,11 +340,23 @@ class SearchDropdown extends StatelessWidget {
   final VoidCallback onUseMyLocation;
   final VoidCallback onChooseOnMap;
 
+  /// Riga "Incolla l'indirizzo copiato", come il suggerimento "From your
+  /// clipboard" di Google Maps. Sul web gli appunti si leggono solo dopo un
+  /// tocco, quindi il testo si vede dopo averla scelta.
+  final bool showPaste;
+  final VoidCallback? onPaste;
+
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final textTheme = Theme.of(context).textTheme;
     final rows = <Widget>[
+      if (showPaste && onPaste != null)
+        SearchRow(
+          icon: Icons.content_paste_rounded,
+          title: "Incolla l'indirizzo copiato",
+          onTap: onPaste!,
+        ),
       if (showLocationShortcuts) ...[
         SearchRow(
           icon: Icons.my_location_rounded,

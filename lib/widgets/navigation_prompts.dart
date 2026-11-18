@@ -198,3 +198,37 @@ class RouteAlertCard extends StatelessWidget {
     );
   }
 }
+
+/// "Stai ancora andando a…?": riprende una navigazione interrotta, come
+/// "Still heading to…?" di Google Maps.
+class ResumeTripCard extends StatelessWidget {
+  const ResumeTripCard({
+    super.key,
+    required this.destination,
+    required this.onResume,
+    required this.onDismiss,
+  });
+
+  final String destination;
+  final VoidCallback onResume;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PromptCard(
+      icon: Icons.navigation_rounded,
+      iconColor: AppPalette.primary,
+      title: 'Stai ancora andando a $destination?',
+      message: 'La navigazione si è interrotta prima dell\'arrivo.',
+      onClose: onDismiss,
+      actions: [
+        FilledButton.icon(
+          onPressed: onResume,
+          icon: const Icon(Icons.play_arrow_rounded, size: 18),
+          label: const Text('Riprendi'),
+        ),
+        TextButton(onPressed: onDismiss, child: const Text('No')),
+      ],
+    );
+  }
+}

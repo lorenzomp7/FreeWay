@@ -56,6 +56,7 @@ class Harness {
           onUseMyLocation: ({required isStart}) =>
               actions.add('my location $isStart'),
           onChooseOnMap: ({required isStart}) => actions.add('map $isStart'),
+          onPaste: ({required isStart}) => actions.add('paste $isStart'),
           onClear: ({required isStart}) => actions.add('clear $isStart'),
           onSwap: () => actions.add('swap'),
           onCalculate: () => actions.add('calculate'),
@@ -87,6 +88,9 @@ void main() {
 
     await tester.tap(find.byTooltip('Elimina dalla cronologia'));
     expect(h.actions, contains('remove Piazza della Loggia'));
+
+    await tester.tap(find.text("Incolla l'indirizzo copiato"));
+    expect(h.actions, contains('paste false'));
   });
 
   testWidgets('senza risultati lo dice invece di restare vuoto', (

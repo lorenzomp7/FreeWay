@@ -14,6 +14,7 @@ import '../models/obstacle.dart';
 import '../models/place_accessibility.dart';
 import '../models/route_option.dart';
 import '../models/travel_mode.dart';
+import '../services/along_route_service.dart';
 import '../services/geo_utils.dart';
 import '../services/geocoding_service.dart';
 import '../services/instruction_translator.dart';
@@ -24,6 +25,7 @@ import '../services/obstacle_service.dart';
 import '../services/place_accessibility_service.dart';
 import '../services/recent_places_service.dart';
 import '../services/routing_service.dart';
+import '../services/trip_resume_service.dart';
 import '../services/tts_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/map_widgets.dart';
@@ -50,6 +52,11 @@ class _MapScreenState extends State<MapScreen> {
   final GeocodingService _geocodingService = GeocodingService();
   final PlaceAccessibilityService _accessibilityService =
       PlaceAccessibilityService();
+  final AlongRouteService _alongRouteService = AlongRouteService();
+
+  /// Bagni accessibili trovati lungo il percorso scelto (`null`: non cercati).
+  List<AccessibleToilet>? _toilets;
+  bool _isFindingToilets = false;
   final ObstacleService _obstacleService = ObstacleService(
     FirebaseFirestore.instance,
   );
@@ -98,6 +105,10 @@ class _MapScreenState extends State<MapScreen> {
   bool _isSearchExpanded = true;
 
   final RecentPlacesService _recentPlaces = RecentPlacesService();
+
+  /// Navigazione interrotta da riprendere ("Still heading to…?").
+  final TripResumeService _tripResume = TripResumeService();
+  PendingTrip? _pendingTrip;
   List<Map<String, dynamic>> _recents = [];
 
   /// Ricerca, luogo trovato o indicazioni, come in Google Maps.
@@ -168,6 +179,9 @@ class _MapScreenState extends State<MapScreen> {
     _recentPlaces.load().then((recents) {
       if (mounted) setState(() => _recents = recents);
     });
+    _tripResume.load().then((trip) {
+      if (mounted && trip != null) setState(() => _pendingTrip = trip);
+    });
     _obstacleService.listen((obstacles) {
       // Gli ostacoli temporanei non confermati da tempo non compaiono né
       // sulla mappa né nel calcolo dei percorsi.
@@ -195,6 +209,7 @@ class _MapScreenState extends State<MapScreen> {
     _obstacleService.dispose();
     _geocodingService.dispose();
     _accessibilityService.dispose();
+    _alongRouteService.dispose();
     _startController.dispose();
     _endController.dispose();
     _startFocus.dispose();
@@ -608,6 +623,34 @@ class _MapScreenState extends State<MapScreen> {
     if (_startPoint != null && _endPoint != null) _calculateRoute();
   }
 
+  /// Mette nel campo il testo copiato e lo cerca subito.
+  Future<void> _pasteAddress({required bool isStart}) async {
+    String? text;
+    try {
+      text = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+    } catch (_) {
+      text = null;
+    }
+    if (!mounted) return;
+    // Solo la prima riga: un indirizzo copiato da un messaggio basta.
+    final pasted = (text ?? '').trim().split('\n').first.trim();
+    if (pasted.isEmpty) {
+      _showError(
+        'Negli appunti non c\'è un testo da incollare.',
+        Icons.content_paste_off_rounded,
+      );
+      return;
+    }
+    final value = pasted.length > 150 ? pasted.substring(0, 150) : pasted;
+    final controller = isStart ? _startController : _endController;
+    controller.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+    (isStart ? _startFocus : _endFocus).requestFocus();
+    _onSearchChanged(value, isStart);
+  }
+
   // --- Scegli sulla mappa -------------------------------------------------
 
   void _chooseOnMap({required bool isStart}) {
@@ -643,6 +686,34 @@ class _MapScreenState extends State<MapScreen> {
   // --- Scheda del luogo ---------------------------------------------------
 
   /// "Avvia" della scheda: percorso dalla tua posizione e navigazione subito.
+  /// "Riprendi": percorso dalla posizione attuale alla destinazione salvata,
+  /// con lo stesso mezzo, e navigazione subito.
+  Future<void> _resumeTrip() async {
+    final trip = _pendingTrip;
+    if (trip == null) return;
+    setState(() {
+      _pendingTrip = null;
+      _travelMode = trip.mode;
+      _stage = SearchPhase.directions;
+      _selectedPlace = null;
+      _setPoint(false, trip.destination, trip.label);
+    });
+    if (_userLocation == null) await _locateUser(showErrors: true);
+    if (!mounted) return;
+    final location = _userLocation;
+    if (location == null) {
+      _openDirections();
+      return;
+    }
+    setState(() => _setPoint(true, location, 'La tua posizione'));
+    await _calculateRoute(startNavigation: true);
+  }
+
+  void _dismissTrip() {
+    setState(() => _pendingTrip = null);
+    unawaited(_tripResume.clear());
+  }
+
   Future<void> _startFromPlace() async {
     if (_userLocation == null) await _locateUser(showErrors: true);
     if (!mounted) return;
@@ -701,6 +772,7 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       _isCalculating = true;
       _routes = [];
+      _toilets = null;
     });
     try {
       final routes = await _routingService.getRoutes(
@@ -744,12 +816,42 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       _selectedRouteIndex = index;
       _routePoints = _routes[index].points;
+      _toilets = null;
     });
     _fitRoute();
   }
 
+  /// "Cerca lungo il percorso" di Google Maps, per i bagni accessibili.
+  Future<void> _findToilets() async {
+    if (_routes.isEmpty) return;
+    final route = _routes[_selectedRouteIndex];
+    setState(() => _isFindingToilets = true);
+    final toilets = await _alongRouteService.accessibleToilets(route.points);
+    if (!mounted) return;
+    setState(() {
+      _isFindingToilets = false;
+      // Il percorso potrebbe essere cambiato nel frattempo.
+      if (_routes.contains(route) && _routes[_selectedRouteIndex] == route) {
+        _toilets = toilets;
+      }
+    });
+    if (toilets == null) {
+      _showError(
+        'Ricerca dei bagni non disponibile in questo momento. Riprova.',
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
+  String _toiletLabel(AccessibleToilet toilet) {
+    final limited = toilet.isLimited ? ' (parzialmente accessibile)' : '';
+    return '${toilet.name}$limited · a ${formatDistance(toilet.metersFromStart)} '
+        'dalla partenza';
+  }
+
   void _closeRoutes() {
     setState(() {
+      _toilets = null;
       _routes = [];
       _routePoints = [];
       _selectedRouteIndex = 0;
@@ -765,7 +867,7 @@ class _MapScreenState extends State<MapScreen> {
     _mapController.fitCamera(
       CameraFit.bounds(
         bounds: LatLngBounds.fromPoints(points),
-        padding: const EdgeInsets.fromLTRB(48, 150, 48, 300),
+        padding: const EdgeInsets.fromLTRB(48, 150, 48, 360),
       ),
     );
   }
@@ -795,6 +897,22 @@ class _MapScreenState extends State<MapScreen> {
     _keepScreenOn(true);
     _gpsSignalLost = false;
     _restartGpsWatchdog();
+    final destination = _endPoint;
+    if (destination != null) {
+      _pendingTrip = null;
+      unawaited(
+        _tripResume.save(
+          PendingTrip(
+            destination: destination,
+            label: _endController.text.isEmpty
+                ? 'destinazione'
+                : _endController.text,
+            mode: _travelMode,
+            startedAt: DateTime.now(),
+          ),
+        ),
+      );
+    }
     _navigationSubscription?.cancel();
     _navigationSubscription = _navigationService.updates.listen(
       _onNavigationUpdate,
@@ -835,6 +953,7 @@ class _MapScreenState extends State<MapScreen> {
     if (update.hasArrived) {
       // Dice anche il lato: "la destinazione è sulla sinistra".
       speech = instruction;
+      unawaited(_tripResume.clear());
     } else {
       speech = _voiceLanguage == 'it'
           ? 'Tra $distance, $instruction'
@@ -909,6 +1028,7 @@ class _MapScreenState extends State<MapScreen> {
 
   void _stopNavigation() {
     _keepScreenOn(false);
+    unawaited(_tripResume.clear());
     _gpsWatchdog?.cancel();
     _gpsSignalLost = false;
     _ttsService.stop();
@@ -1349,7 +1469,7 @@ class _MapScreenState extends State<MapScreen> {
         : choosing != null
         ? 96
         : hasRoutes
-        ? 300 + 32.0 * _selectedRouteWarningCount
+        ? 360 + 32.0 * _selectedRouteWarningCount
         : showPlaceSheet
         ? 196 +
               22.0 *
@@ -1395,6 +1515,7 @@ class _MapScreenState extends State<MapScreen> {
               onRemoveRecent: _removeRecent,
               onUseMyLocation: _useMyLocation,
               onChooseOnMap: _chooseOnMap,
+              onPaste: _pasteAddress,
               onClear: _clearPoint,
               onSwap: _swapPoints,
               onCalculate: _calculateRoute,
@@ -1560,9 +1681,41 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
 
+    final pendingTrip = _pendingTrip;
+    final showTripCard =
+        pendingTrip != null &&
+        !hasRoutes &&
+        !_isNavigating &&
+        !showPlaceSheet &&
+        choosing == null;
+    if (showTripCard) {
+      children.add(
+        Positioned(
+          left: 12,
+          right: 64,
+          bottom: 24,
+          child: SafeArea(
+            top: false,
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: ResumeTripCard(
+                  destination: pendingTrip.label,
+                  onResume: _resumeTrip,
+                  onDismiss: _dismissTrip,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     if (!hasRoutes &&
         !_isNavigating &&
         !showPlaceSheet &&
+        !showTripCard &&
         choosing == null &&
         _showReportHint) {
       children.add(
@@ -1626,6 +1779,9 @@ class _MapScreenState extends State<MapScreen> {
             onSelect: _selectRoute,
             onStart: _startNavigation,
             onClose: _closeRoutes,
+            onFindToilets: _findToilets,
+            isFindingToilets: _isFindingToilets,
+            toiletCount: _toilets?.length,
           ),
         ),
       );
@@ -1840,6 +1996,17 @@ class _MapScreenState extends State<MapScreen> {
                     onTap: () => _chooseEntrance(entrance),
                   ),
                 ),
+          for (final toilet in _toilets ?? const <AccessibleToilet>[])
+            Marker(
+              point: toilet.position,
+              width: 28,
+              height: 28,
+              child: ToiletMarker(
+                label: _toiletLabel(toilet),
+                onTap: () =>
+                    _showSnack(_toiletLabel(toilet), icon: Icons.wc_rounded),
+              ),
+            ),
           if (_userLocation != null)
             Marker(
               point: _userLocation!,
