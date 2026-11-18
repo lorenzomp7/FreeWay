@@ -140,6 +140,8 @@ void main() {
                     'state': 'Lombardia',
                     'osm_key': 'amenity',
                     'osm_value': 'pharmacy',
+                    'osm_type': 'N',
+                    'osm_id': 42,
                   },
                   'geometry': {
                     'coordinates': [10.22, 45.54],
@@ -155,6 +157,8 @@ void main() {
 
       final place = (await service.search('farmacia')).single;
       expect(place['kind'], 'health');
+      expect(place['osm_type'], 'N');
+      expect(place['osm_id'], 42);
       final label = formatPlace(place);
       expect(label.title, 'Farmacia Centrale');
       expect(label.subtitle, 'Corso Zanardelli 12, Brescia, Lombardia');

@@ -65,6 +65,19 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   rotelle i percorsi con gradini, salite ripide o lavori scendono in classifica
   e perdono punti di accessibilità. Con OSRM questi dati non ci sono e la
   scheda lo dice.
+- Accessibilità del luogo nella sua scheda, come le voci "Accessible
+  entrance / restroom / parking" di Google Maps: da OpenStreetMap (tramite
+  Overpass) l'app legge se il luogo è accessibile in sedia a rotelle
+  (`wheelchair`), il bagno accessibile (`toilets:wheelchair`), la descrizione
+  (`wheelchair:description`), gli ingressi dell'edificio (`entrance` con
+  `wheelchair`) e i parcheggi per disabili entro 150 m. Se Overpass non
+  risponde la scheda funziona senza.
+- Percorso fino all'ingresso accessibile: nelle indicazioni l'arrivo si
+  sposta sull'ingresso accessibile in sedia a rotelle (o, se non ce n'è, su
+  quello principale non segnato come inaccessibile) invece del centro
+  dell'edificio. Gli ingressi compaiono sulla mappa (verde accessibile, rosso
+  con gradini, grigio senza informazioni) e toccandone uno il percorso arriva
+  lì.
 - Durante la navigazione, passando a meno di 25 m da un ostacolo segnalato da
   altri l'app chiede "C'è ancora?" (anche a voce): "C'è ancora" lo conferma,
   "Non c'è più" lo toglie (solo con un account, o se è tuo), "Non so" chiude.

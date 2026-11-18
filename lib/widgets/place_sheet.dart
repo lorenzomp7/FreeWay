@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../models/place_accessibility.dart';
+import '../services/geocoding_service.dart' show formatDistance;
 import '../theme/app_theme.dart';
 
 /// Scheda in basso del luogo trovato, come quella di Google Maps: nome,
@@ -11,6 +13,8 @@ class PlaceSheet extends StatelessWidget {
     required this.subtitle,
     required this.distanceText,
     required this.nearbyObstacles,
+    this.accessibility,
+    this.isLoadingAccessibility = false,
     required this.onDirections,
     required this.onStart,
     required this.onShare,
@@ -25,6 +29,10 @@ class PlaceSheet extends StatelessWidget {
 
   /// Ostacoli segnalati nei dintorni del luogo.
   final int nearbyObstacles;
+
+  /// Accessibilità da OpenStreetMap; `null` se non disponibile.
+  final PlaceAccessibility? accessibility;
+  final bool isLoadingAccessibility;
   final VoidCallback onDirections;
   final VoidCallback onStart;
   final VoidCallback onShare;
@@ -120,6 +128,28 @@ class PlaceSheet extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (isLoadingAccessibility || accessibility != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10, right: 12),
+                    child: isLoadingAccessibility
+                        ? Row(
+                            children: [
+                              const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                'Controllo l\'accessibilità…',
+                                style: textTheme.bodySmall,
+                              ),
+                            ],
+                          )
+                        : AccessibilityFacts(info: accessibility!),
+                  ),
                 const SizedBox(height: 12),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
@@ -204,6 +234,230 @@ class ChooseOnMapBar extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Le voci di accessibilità del luogo, come "Accessible entrance",
+/// "Accessible restroom" e "Accessible parking" di Google Maps.
+class AccessibilityFacts extends StatelessWidget {
+  const AccessibilityFacts({super.key, required this.info});
+
+  final PlaceAccessibility info;
+
+  /// Righe che la scheda mostrerà, per spostare i pulsanti della mappa.
+  static int rowCount(PlaceAccessibility? info) {
+    if (info == null) return 0;
+    if (!info.hasData) return 1;
+    var rows = 1; // ingresso del luogo
+    if (info.entrances.isNotEmpty) rows++;
+    if (info.toilets != null) rows++;
+    if (info.disabledParkingMeters != null) rows++;
+    if (info.description != null) rows++;
+    return rows;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+
+    Widget row(IconData icon, Color color, String text) => Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: textTheme.bodySmall?.copyWith(color: color),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (!info.hasData) {
+      return row(
+        Icons.accessible_rounded,
+        colors.textTertiary,
+        'Accessibilità non indicata su OpenStreetMap',
+      );
+    }
+
+    final rows = <Widget>[];
+    switch (info.wheelchair) {
+      case 'yes':
+        rows.add(
+          row(
+            Icons.accessible_rounded,
+            colors.success,
+            'Accessibile in sedia a rotelle',
+          ),
+        );
+      case 'limited':
+        rows.add(
+          row(
+            Icons.accessible_rounded,
+            colors.warning,
+            'Parzialmente accessibile in sedia a rotelle',
+          ),
+        );
+      case 'no':
+        rows.add(
+          row(
+            Icons.not_accessible_rounded,
+            colors.danger,
+            'Non accessibile in sedia a rotelle',
+          ),
+        );
+      default:
+        rows.add(
+          row(
+            Icons.accessible_rounded,
+            colors.textTertiary,
+            'Accessibilità del luogo non indicata',
+          ),
+        );
+    }
+
+    final best = info.bestEntrance;
+    if (best != null) {
+      final what = best.isAccessible
+          ? (best.wheelchair == 'yes'
+                ? 'Ingresso accessibile'
+                : 'Ingresso parzialmente accessibile')
+          : 'Ingresso principale';
+      final name = best.name != null ? ' (${best.name})' : '';
+      rows.add(
+        row(
+          Icons.door_front_door_outlined,
+          best.isAccessible ? colors.success : colors.textSecondary,
+          '$what$name: il percorso arriva lì',
+        ),
+      );
+    } else if (info.allEntrancesInaccessible) {
+      rows.add(
+        row(
+          Icons.door_front_door_outlined,
+          colors.danger,
+          'Gli ingressi segnati non sono accessibili',
+        ),
+      );
+    } else if (info.entrances.isNotEmpty) {
+      rows.add(
+        row(
+          Icons.door_front_door_outlined,
+          colors.textTertiary,
+          'Ingressi segnati senza informazioni sull\'accessibilità',
+        ),
+      );
+    }
+
+    switch (info.toilets) {
+      case 'yes':
+        rows.add(row(Icons.wc_rounded, colors.success, 'Bagno accessibile'));
+      case 'no':
+        rows.add(row(Icons.wc_rounded, colors.danger, 'Bagno non accessibile'));
+    }
+
+    final parking = info.disabledParkingMeters;
+    if (parking != null) {
+      rows.add(
+        row(
+          Icons.local_parking_rounded,
+          colors.success,
+          'Parcheggio per disabili a ${formatDistance(parking)}',
+        ),
+      );
+    }
+
+    final description = info.description;
+    if (description != null) {
+      rows.add(
+        row(Icons.info_outline_rounded, colors.textSecondary, '«$description»'),
+      );
+    }
+
+    return Semantics(
+      container: true,
+      label: 'Accessibilità, dati OpenStreetMap',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: rows,
+      ),
+    );
+  }
+}
+
+/// Segnaposto di un ingresso sulla mappa: verde se accessibile, rosso se
+/// non lo è, grigio senza informazioni. Toccandolo il percorso arriva lì.
+class EntranceMarker extends StatelessWidget {
+  const EntranceMarker({
+    super.key,
+    required this.entrance,
+    required this.isDestination,
+    required this.onTap,
+  });
+
+  final PlaceEntrance entrance;
+  final bool isDestination;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final Color color;
+    final String label;
+    if (entrance.isAccessible) {
+      color = colors.success;
+      label = entrance.wheelchair == 'yes'
+          ? 'Ingresso accessibile'
+          : 'Ingresso parzialmente accessibile';
+    } else if (entrance.isNotAccessible) {
+      color = colors.danger;
+      label = 'Ingresso non accessibile';
+    } else {
+      color = colors.textTertiary;
+      label = entrance.isMain ? 'Ingresso principale' : 'Ingresso';
+    }
+    final semantics = isDestination ? '$label, arrivo del percorso' : label;
+    return Tooltip(
+      message: semantics,
+      child: Semantics(
+        button: true,
+        label: semantics,
+        excludeSemantics: true,
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.white,
+                width: isDestination ? 3 : 2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Icon(
+              entrance.isNotAccessible
+                  ? Icons.not_accessible_rounded
+                  : Icons.door_front_door_rounded,
+              color: Colors.white,
+              size: 16,
+            ),
+          ),
+        ),
       ),
     );
   }

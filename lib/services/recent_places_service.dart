@@ -50,6 +50,8 @@ class RecentPlacesService {
       'lon': double.parse(place['lon'].toString()),
       if (place['address'] is Map) 'address': place['address'],
       if (place['kind'] != null) 'kind': place['kind'],
+      if (place['osm_type'] != null) 'osm_type': place['osm_type'],
+      if (place['osm_id'] != null) 'osm_id': place['osm_id'],
     };
     _places = [
       entry,

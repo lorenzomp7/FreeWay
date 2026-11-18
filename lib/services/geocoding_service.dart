@@ -123,6 +123,11 @@ class GeocodingService {
       'display_name': name,
       'lat': coordinates[1],
       'lon': coordinates[0],
+      // Servono per leggere da OpenStreetMap accessibilità e ingressi.
+      if (properties['osm_type'] is String && properties['osm_id'] is num) ...{
+        'osm_type': properties['osm_type'],
+        'osm_id': (properties['osm_id'] as num).toInt(),
+      },
       'kind': placeKind(
         '${properties['osm_key'] ?? ''}',
         '${properties['osm_value'] ?? ''}',

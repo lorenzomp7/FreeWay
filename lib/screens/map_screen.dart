@@ -11,6 +11,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/obstacle.dart';
+import '../models/place_accessibility.dart';
 import '../models/route_option.dart';
 import '../models/travel_mode.dart';
 import '../services/geo_utils.dart';
@@ -20,6 +21,7 @@ import '../services/location_service.dart';
 import '../services/navigation_service.dart';
 import '../services/obstacle_alerts.dart';
 import '../services/obstacle_service.dart';
+import '../services/place_accessibility_service.dart';
 import '../services/recent_places_service.dart';
 import '../services/routing_service.dart';
 import '../services/tts_service.dart';
@@ -46,6 +48,8 @@ class _MapScreenState extends State<MapScreen> {
   final LocationService _locationService = LocationService();
   final RoutingService _routingService = RoutingService();
   final GeocodingService _geocodingService = GeocodingService();
+  final PlaceAccessibilityService _accessibilityService =
+      PlaceAccessibilityService();
   final ObstacleService _obstacleService = ObstacleService(
     FirebaseFirestore.instance,
   );
@@ -95,6 +99,15 @@ class _MapScreenState extends State<MapScreen> {
   /// indicazioni.
   Map<String, dynamic>? _selectedPlace;
   TravelMode _travelMode = TravelMode.wheelchair;
+
+  /// Accessibilità della destinazione cercata, da OpenStreetMap.
+  PlaceAccessibility? _placeAccessibility;
+  bool _isLoadingAccessibility = false;
+  int _accessibilityRequest = 0;
+
+  /// Punto del luogo cercato. Nelle indicazioni l'arrivo può spostarsi
+  /// sull'ingresso accessibile; chiudendole torna qui.
+  LatLng? _destinationPlacePoint;
 
   /// `true` o `false` mentre si sceglie sulla mappa la partenza o l'arrivo.
   bool? _choosingOnMapFor;
@@ -172,6 +185,7 @@ class _MapScreenState extends State<MapScreen> {
     _navigationService.dispose();
     _obstacleService.dispose();
     _geocodingService.dispose();
+    _accessibilityService.dispose();
     _startController.dispose();
     _endController.dispose();
     _startFocus.dispose();
@@ -234,6 +248,7 @@ class _MapScreenState extends State<MapScreen> {
         _endPoint = null;
         _endItems = recentMatches;
         _noResultsEnd = null;
+        _clearAccessibility();
         // Si sta cercando un altro luogo: la scheda del precedente si chiude.
         if (_stage == SearchPhase.place) {
           _stage = SearchPhase.search;
@@ -360,6 +375,7 @@ class _MapScreenState extends State<MapScreen> {
         if (mounted) setState(() => _recents = recents);
       }),
     );
+    if (!isStart) _loadAccessibility(place, point);
 
     if (_stage == SearchPhase.place) {
       _mapController.move(point, 17);
@@ -405,6 +421,7 @@ class _MapScreenState extends State<MapScreen> {
       if (_startPoint == null && location != null) {
         _setPoint(true, location, 'La tua posizione');
       }
+      _applyEntrance();
     });
     if (_startPoint != null && _endPoint != null) {
       _calculateRoute();
@@ -424,6 +441,10 @@ class _MapScreenState extends State<MapScreen> {
       _stage = _endPoint != null && _selectedPlace != null
           ? SearchPhase.place
           : SearchPhase.search;
+      // Nella scheda il segnaposto torna sul luogo, non sull'ingresso.
+      if (_stage == SearchPhase.place) {
+        _endPoint = _destinationPlacePoint ?? _endPoint;
+      }
       _isSearchExpanded = true;
       _startController.clear();
       _startItems = [];
@@ -450,6 +471,7 @@ class _MapScreenState extends State<MapScreen> {
       _endController.clear();
       _endItems = [];
       _noResultsEnd = null;
+      _clearAccessibility();
     });
   }
 
@@ -464,6 +486,63 @@ class _MapScreenState extends State<MapScreen> {
       _endController.text = text;
       _endItems = [];
       _noResultsEnd = null;
+      _clearAccessibility();
+    }
+  }
+
+  // --- Accessibilità e ingressi della destinazione ------------------------
+
+  /// Da chiamare dentro setState: dimentica l'accessibilità della
+  /// destinazione precedente e ignora le risposte ancora in arrivo.
+  void _clearAccessibility() {
+    _accessibilityRequest++;
+    _placeAccessibility = null;
+    _isLoadingAccessibility = false;
+    _destinationPlacePoint = null;
+  }
+
+  /// Legge da OpenStreetMap accessibilità e ingressi della destinazione,
+  /// come le voci "Accessible entrance" della scheda di Google Maps.
+  void _loadAccessibility(Map<String, dynamic> place, LatLng point) {
+    final request = ++_accessibilityRequest;
+    final supported = PlaceAccessibilityService.supports(place);
+    setState(() {
+      _destinationPlacePoint = point;
+      _placeAccessibility = null;
+      _isLoadingAccessibility = supported;
+    });
+    if (!supported) return;
+    _accessibilityService.load(place, point).then((info) {
+      if (!mounted || request != _accessibilityRequest) return;
+      var moved = false;
+      setState(() {
+        _placeAccessibility = info;
+        _isLoadingAccessibility = false;
+        if (_stage == SearchPhase.directions) moved = _applyEntrance();
+      });
+      if (moved && _startPoint != null && !_isNavigating) _calculateRoute();
+    });
+  }
+
+  /// Da chiamare dentro setState: se c'è un ingresso accessibile e l'arrivo
+  /// è ancora il punto del luogo, l'arrivo diventa l'ingresso.
+  bool _applyEntrance() {
+    final entrance = _placeAccessibility?.bestEntrance;
+    final placePoint = _destinationPlacePoint;
+    if (entrance == null || placePoint == null || _endPoint != placePoint) {
+      return false;
+    }
+    _endPoint = entrance.position;
+    return true;
+  }
+
+  /// Toccando un ingresso sulla mappa il percorso arriva lì.
+  void _chooseEntrance(PlaceEntrance entrance) {
+    setState(() => _endPoint = entrance.position);
+    if (_stage != SearchPhase.directions) {
+      _openDirections();
+    } else if (_startPoint != null) {
+      _calculateRoute();
     }
   }
 
@@ -480,6 +559,7 @@ class _MapScreenState extends State<MapScreen> {
         _endItems = [];
         _noResultsEnd = null;
         _endPoint = null;
+        _clearAccessibility();
         if (_stage == SearchPhase.place) {
           _stage = SearchPhase.search;
           _selectedPlace = null;
@@ -508,6 +588,7 @@ class _MapScreenState extends State<MapScreen> {
       _endItems = [];
       _noResultsStart = null;
       _noResultsEnd = null;
+      _clearAccessibility();
     });
     if (_startPoint != null && _endPoint != null) _calculateRoute();
   }
@@ -565,6 +646,7 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       _stage = SearchPhase.directions;
       _setPoint(true, location, 'La tua posizione');
+      _applyEntrance();
     });
     await _calculateRoute(startNavigation: true);
   }
@@ -1210,7 +1292,11 @@ class _MapScreenState extends State<MapScreen> {
         : hasRoutes
         ? 300 + 32.0 * _selectedRouteWarningCount
         : showPlaceSheet
-        ? 196
+        ? 196 +
+              22.0 *
+                  (_isLoadingAccessibility
+                      ? 1
+                      : AccessibilityFacts.rowCount(_placeAccessibility))
         : (_showReportHint ? 80 : 32);
 
     final children = <Widget>[
@@ -1455,6 +1541,8 @@ class _MapScreenState extends State<MapScreen> {
                     ? null
                     : 'a ${formatDistance(haversineDistance(location, _endPoint!))} da te',
                 nearbyObstacles: _obstaclesNear(_endPoint!),
+                accessibility: _placeAccessibility,
+                isLoadingAccessibility: _isLoadingAccessibility,
                 onDirections: _openDirections,
                 onStart: _startFromPlace,
                 onShare: _sharePlace,
@@ -1657,6 +1745,22 @@ class _MapScreenState extends State<MapScreen> {
                       label: 'Luogo cercato',
                     ),
             ),
+          if (_stage != SearchPhase.search && _choosingOnMapFor == null)
+            for (final entrance
+                in _placeAccessibility?.entrances ?? const <PlaceEntrance>[])
+              // Nelle indicazioni l'ingresso scelto è già la bandierina.
+              if (_stage != SearchPhase.directions ||
+                  entrance.position != _endPoint)
+                Marker(
+                  point: entrance.position,
+                  width: 30,
+                  height: 30,
+                  child: EntranceMarker(
+                    entrance: entrance,
+                    isDestination: _endPoint == entrance.position,
+                    onTap: () => _chooseEntrance(entrance),
+                  ),
+                ),
           if (_userLocation != null)
             Marker(
               point: _userLocation!,
