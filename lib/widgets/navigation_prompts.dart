@@ -276,3 +276,39 @@ class ArrivalEntranceCard extends StatelessWidget {
     );
   }
 }
+
+/// "Hai cambiato strada per un ostacolo?" dopo un'uscita dal percorso: chi
+/// devia spesso lo fa perché la strada era bloccata, come le chiusure che
+/// alcuni navigatori deducono da chi cambia strada nello stesso punto.
+class DeviationObstacleCard extends StatelessWidget {
+  const DeviationObstacleCard({
+    super.key,
+    required this.onReport,
+    required this.onDismiss,
+  });
+
+  final VoidCallback onReport;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    return _PromptCard(
+      icon: Icons.alt_route_rounded,
+      iconColor: colors.warning,
+      title: 'Hai cambiato strada per un ostacolo?',
+      message:
+          'Se sì, segnalalo nel punto in cui hai lasciato il percorso: '
+          'gli altri lo eviteranno.',
+      onClose: onDismiss,
+      actions: [
+        FilledButton.icon(
+          onPressed: onReport,
+          icon: const Icon(Icons.add_location_alt_outlined, size: 18),
+          label: const Text('Sì, segnala'),
+        ),
+        TextButton(onPressed: onDismiss, child: const Text('No')),
+      ],
+    );
+  }
+}

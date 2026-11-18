@@ -171,6 +171,15 @@ class _MapScreenState extends State<MapScreen> {
   Timer? _arrivalTimer;
   bool _arrivalHandled = false;
 
+  /// Ultimo punto del tracciato su cui si era prima di uscirne.
+  LatLng? _lastOnRoutePoint;
+
+  /// Punto in cui si è lasciato il percorso, mentre è aperta la domanda
+  /// "Hai cambiato strada per un ostacolo?" (una volta per viaggio).
+  LatLng? _deviationPrompt;
+  Timer? _deviationTimer;
+  bool _deviationAsked = false;
+
   /// Risposte sull'ingresso vicino al luogo aperto nella scheda.
   EntranceSummary _entranceSummary = const EntranceSummary();
   int _entranceRequest = 0;
@@ -248,6 +257,7 @@ class _MapScreenState extends State<MapScreen> {
     _navigationSubscription?.cancel();
     _verifyTimer?.cancel();
     _arrivalTimer?.cancel();
+    _deviationTimer?.cancel();
     _gpsWatchdog?.cancel();
     _navigationService.dispose();
     _obstacleService.dispose();
@@ -1078,6 +1088,9 @@ class _MapScreenState extends State<MapScreen> {
       _announcedObstacleIds.clear();
       _arrivalHandled = false;
       _closeArrivalPromptInState();
+      _lastOnRoutePoint = null;
+      _deviationAsked = false;
+      _closeDeviationPromptInState();
       _knownObstacleIds
         ..clear()
         ..addAll(_obstacles.map((o) => o.id));
@@ -1158,6 +1171,9 @@ class _MapScreenState extends State<MapScreen> {
     _maybeWarnObstacleAhead(update);
     _maybeAskAboutObstacle(update.position);
 
+    if (!update.isOffRoute && update.snappedPosition != null) {
+      _lastOnRoutePoint = update.snappedPosition;
+    }
     if (update.isOffRoute && !_isRecalculating && _endPoint != null) {
       final last = _lastRecalculation;
       // Un ricalcolo ogni 10 secondi al massimo: il servizio dei percorsi
@@ -1165,7 +1181,7 @@ class _MapScreenState extends State<MapScreen> {
       if (last == null ||
           DateTime.now().difference(last) >= const Duration(seconds: 10)) {
         _lastRecalculation = DateTime.now();
-        _recalculate(update.position);
+        _recalculate(update.position, leftAt: _lastOnRoutePoint);
       }
     }
   }
@@ -1220,7 +1236,9 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  Future<void> _recalculate(LatLng from) async {
+  /// Ricalcola il percorso da [from]. Con [leftAt], il punto in cui si è
+  /// lasciato il percorso, chiede poi se la deviazione era per un ostacolo.
+  Future<void> _recalculate(LatLng from, {LatLng? leftAt}) async {
     _isRecalculating = true;
     try {
       final routes = await _routingService.getRoutes(
@@ -1240,6 +1258,7 @@ class _MapScreenState extends State<MapScreen> {
           _routePoints = routes.first.points;
         });
         _followRoute(routes.first);
+        if (leftAt != null) _maybeAskAboutDeviation(leftAt);
       }
     } catch (_) {
       // Si riprova al prossimo aggiornamento di posizione.
@@ -1270,6 +1289,7 @@ class _MapScreenState extends State<MapScreen> {
       _navigationUpdate = null;
       _navigationFirstStep = null;
       _verifyPrompt = null;
+      _closeDeviationPromptInState();
       _clearRouteAlert();
     });
     _fitRoute();
@@ -1628,6 +1648,45 @@ class _MapScreenState extends State<MapScreen> {
     _arrivalTimer = Timer(const Duration(seconds: 60), _closeArrivalPrompt);
   }
 
+  /// Dopo un ricalcolo per uscita dal percorso chiede se si è cambiata
+  /// strada per un ostacolo, una volta per viaggio e solo se lì vicino non
+  /// c'è già una segnalazione.
+  void _maybeAskAboutDeviation(LatLng leftAt) {
+    if (_deviationAsked ||
+        FirebaseAuth.instance.currentUser == null ||
+        !shouldAskAboutDeviation(leftAt, _obstacles)) {
+      return;
+    }
+    _deviationAsked = true;
+    setState(() => _deviationPrompt = leftAt);
+    _ttsService.speak(
+      _voiceLanguage == 'it'
+          ? 'Hai cambiato strada per un ostacolo?'
+          : 'Did you change route because of an obstacle?',
+      _voiceLanguage,
+    );
+    _deviationTimer?.cancel();
+    _deviationTimer = Timer(const Duration(seconds: 45), _closeDeviationPrompt);
+  }
+
+  /// Da chiamare dentro setState.
+  void _closeDeviationPromptInState() {
+    _deviationTimer?.cancel();
+    _deviationPrompt = null;
+  }
+
+  void _closeDeviationPrompt() {
+    if (mounted && _deviationPrompt != null) {
+      setState(_closeDeviationPromptInState);
+    }
+  }
+
+  Future<void> _reportDeviation() async {
+    final point = _deviationPrompt;
+    _closeDeviationPrompt();
+    if (point != null) await _reportObstacle(point);
+  }
+
   /// Da chiamare dentro setState.
   void _closeArrivalPromptInState() {
     _arrivalTimer?.cancel();
@@ -1976,6 +2035,7 @@ class _MapScreenState extends State<MapScreen> {
     if (_isNavigating || _arrivalPrompt != null) {
       final alertObstacle = _isNavigating ? _routeAlertObstacle : null;
       final verify = _isNavigating ? _verifyPrompt : null;
+      final deviation = _isNavigating ? _deviationPrompt : null;
       final Widget? prompt = _arrivalPrompt != null
           ? ArrivalEntranceCard(
               onAnswer: _answerArrivalPrompt,
@@ -1998,6 +2058,11 @@ class _MapScreenState extends State<MapScreen> {
               onStillThere: () => _answerVerifyPrompt(stillThere: true),
               onGone: () => _answerVerifyPrompt(stillThere: false),
               onSkip: _closeVerifyPrompt,
+            )
+          : deviation != null
+          ? DeviationObstacleCard(
+              onReport: _reportDeviation,
+              onDismiss: _closeDeviationPrompt,
             )
           : null;
       if (prompt != null) {

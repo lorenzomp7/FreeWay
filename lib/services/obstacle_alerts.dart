@@ -122,3 +122,19 @@ ObstacleAhead? obstacleAheadToAnnounce(
   }
   return best;
 }
+
+/// Raggio entro cui un ostacolo già segnalato spiega una deviazione.
+const double kDeviationExplainedRadius = 40;
+
+/// Se dopo un'uscita dal percorso in [leftAt] conviene chiedere "Hai
+/// cambiato strada per un ostacolo?".
+///
+/// Non serve se lì vicino c'è già un ostacolo segnalato: la deviazione è
+/// spiegata e semmai lo si conferma con "C'è ancora?".
+bool shouldAskAboutDeviation(
+  LatLng leftAt,
+  List<Obstacle> obstacles, {
+  double radius = kDeviationExplainedRadius,
+}) {
+  return !obstacles.any((o) => haversineDistance(o.position, leftAt) <= radius);
+}

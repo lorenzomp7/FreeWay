@@ -113,6 +113,11 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   risposte vanno nella collezione `ingressi` di Firestore e la scheda del
   luogo le riassume ("Ingresso secondo chi è arrivato qui: accessibile per 3
   persone"), contando quelle entro 40 m e dell'ultimo anno.
+- Dopo un'uscita dal percorso e il ricalcolo l'app chiede "Hai cambiato
+  strada per un ostacolo?" (anche a voce): con "Sì, segnala" si apre la
+  segnalazione nel punto in cui si è lasciato il percorso. Si chiede una
+  volta per viaggio, solo a chi ha fatto accesso, e non se entro 40 m c'è
+  già un ostacolo segnalato; la domanda sparisce dopo 45 secondi.
 - Se l'app si chiude durante la navigazione, alla riapertura (entro 3 ore)
   chiede "Stai ancora andando a…?" e con "Riprendi" ricalcola il percorso
   dalla posizione attuale con lo stesso mezzo.

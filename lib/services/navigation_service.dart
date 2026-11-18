@@ -24,6 +24,7 @@ class NavigationUpdate {
     this.distanceBetweenSteps = double.infinity,
     this.remainingDistance = 0,
     this.distanceFromRoute = 0,
+    this.snappedPosition,
   });
 
   final LatLng position;
@@ -56,6 +57,9 @@ class NavigationUpdate {
 
   /// Distanza dal tracciato in metri.
   final double distanceFromRoute;
+
+  /// Punto del tracciato più vicino alla posizione.
+  final LatLng? snappedPosition;
 }
 
 /// Segue la posizione GPS durante la navigazione e calcola la manovra corrente.
@@ -161,6 +165,7 @@ class NavigationService {
       distanceBetweenSteps: between,
       remainingDistance: remaining,
       distanceFromRoute: fix.offset,
+      snappedPosition: fix.snapped,
     );
     _controller.add(update);
     return update;
