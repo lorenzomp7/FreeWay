@@ -58,6 +58,16 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
 - Filtri per categoria e raggruppamento degli ostacoli vicini.
 - Navigazione passo-passo con istruzioni vocali in italiano o inglese, ricalcolo
   quando si esce dal percorso e schermo sempre acceso durante il tragitto.
+  La posizione si proietta sul tratto di percorso più vicino (non sul
+  vertice), così distanze e avanzamento si misurano lungo il tracciato. La
+  voce annuncia ogni manovra al massimo tre volte: "Prosegui per 300 metri"
+  dopo la manovra precedente, "Tra 100 metri, svolta a destra" e infine
+  "Svolta a destra", seguito da "poi…" se la manovra dopo arriva entro 40 m.
+  Si è fuori percorso solo con due posizioni di fila oltre 30–70 m dal
+  tracciato (la soglia cresce con l'incertezza del GPS; con più di ±60 m la
+  posizione non decide), e si ricalcola al massimo ogni 10 secondi. Un
+  ostacolo segnalato sul percorso viene annunciato a voce quando è tra 25 e
+  80 m più avanti lungo il tracciato.
 - All'arrivo l'app dice da che lato della strada è la destinazione ("la
   destinazione è sulla sinistra"), a schermo e a voce, come "X on your left"
   di Google Maps: il lato si calcola dalla direzione dell'ultimo tratto.

@@ -17,7 +17,6 @@ import '../models/travel_mode.dart';
 import '../services/along_route_service.dart';
 import '../services/geo_utils.dart';
 import '../services/geocoding_service.dart';
-import '../services/instruction_translator.dart';
 import '../services/location_service.dart';
 import '../services/navigation_service.dart';
 import '../services/obstacle_alerts.dart';
@@ -29,6 +28,7 @@ import '../services/routing_service.dart';
 import '../services/trip_resume_service.dart';
 import '../services/weather_service.dart';
 import '../services/tts_service.dart';
+import '../services/voice_guidance.dart';
 import '../theme/app_theme.dart';
 import '../widgets/along_route_widgets.dart';
 import '../widgets/map_widgets.dart';
@@ -98,6 +98,11 @@ class _MapScreenState extends State<MapScreen> {
 
   bool _isCalculating = false;
   bool _isRecalculating = false;
+  DateTime? _lastRecalculation;
+  final VoiceGuidance _voiceGuidance = VoiceGuidance();
+
+  /// Ostacoli di cui si è già avvisato in questa navigazione.
+  final Set<String> _announcedObstacleIds = {};
   bool _isLocatingStart = false;
   bool _isLocatingEnd = false;
   bool _isLocatingUser = false;
@@ -1042,6 +1047,7 @@ class _MapScreenState extends State<MapScreen> {
       _navigationFirstStep = route.steps.first;
       _navigationGpsFailed = false;
       _askedObstacleIds.clear();
+      _announcedObstacleIds.clear();
       _knownObstacleIds
         ..clear()
         ..addAll(_obstacles.map((o) => o.id));
@@ -1079,6 +1085,12 @@ class _MapScreenState extends State<MapScreen> {
         setState(() => _navigationGpsFailed = true);
       },
     );
+    _followRoute(route);
+  }
+
+  /// Segue [route] da capo: ricomincia anche gli annunci vocali.
+  void _followRoute(RouteOption route) {
+    _voiceGuidance.reset();
     _navigationService.start(route);
   }
 
@@ -1105,28 +1117,48 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    final instruction = InstructionTranslator(
-      _voiceLanguage,
-    ).translate(update.currentStep.instruction);
-    final distance = update.distanceToNextStep >= 1000
-        ? '${(update.distanceToNextStep / 1000).toStringAsFixed(1)} chilometri'
-        : '${update.distanceToNextStep.round()} metri';
-    final String speech;
-    if (update.hasArrived) {
-      // Dice anche il lato: "la destinazione è sulla sinistra".
-      speech = instruction;
-      unawaited(_tripResume.clear());
-    } else {
-      speech = _voiceLanguage == 'it'
-          ? 'Tra $distance, $instruction'
-          : 'In $distance, $instruction';
-    }
-    _ttsService.speak(speech, _voiceLanguage);
+    // Gli annunci arrivano a tappe (prosegui, tra 100 metri, ora): prima
+    // l'istruzione si ripeteva a ogni aggiornamento del GPS.
+    final speech = _voiceGuidance.next(update, _voiceLanguage);
+    if (speech != null) _ttsService.speak(speech, _voiceLanguage);
+    if (update.hasArrived) unawaited(_tripResume.clear());
+    _maybeWarnObstacleAhead(update);
     _maybeAskAboutObstacle(update.position);
 
     if (update.isOffRoute && !_isRecalculating && _endPoint != null) {
-      _recalculate(update.position);
+      final last = _lastRecalculation;
+      // Un ricalcolo ogni 10 secondi al massimo: il servizio dei percorsi
+      // ha un limite di richieste e il GPS può restare impreciso a lungo.
+      if (last == null ||
+          DateTime.now().difference(last) >= const Duration(seconds: 10)) {
+        _lastRecalculation = DateTime.now();
+        _recalculate(update.position);
+      }
     }
+  }
+
+  /// Avvisa a voce di un ostacolo segnalato sul percorso prima di
+  /// arrivarci (entro 80 m lungo il tracciato), una volta per ostacolo.
+  void _maybeWarnObstacleAhead(NavigationUpdate update) {
+    final tracker = _navigationService.tracker;
+    if (tracker == null || update.hasArrived || update.isOffRoute) return;
+    final along = tracker.totalLength - update.remainingDistance;
+    final ahead = obstacleAheadToAnnounce(
+      tracker,
+      along,
+      _obstacles,
+      _announcedObstacleIds,
+      FirebaseAuth.instance.currentUser?.uid,
+    );
+    if (ahead == null) return;
+    _announcedObstacleIds.add(ahead.obstacle.id);
+    final spoken = VoiceGuidance.spokenDistance(ahead.distance, _voiceLanguage);
+    _ttsService.speak(
+      _voiceLanguage == 'it'
+          ? 'Attenzione, tra $spoken ostacolo segnalato: ${ahead.obstacle.type}'
+          : 'Caution, reported obstacle in $spoken',
+      _voiceLanguage,
+    );
   }
 
   /// Come "GPS signal lost" di Google Maps: se la posizione non arriva da
@@ -1174,7 +1206,7 @@ class _MapScreenState extends State<MapScreen> {
           _selectedRouteIndex = 0;
           _routePoints = routes.first.points;
         });
-        _navigationService.start(routes.first);
+        _followRoute(routes.first);
       }
     } catch (_) {
       // Si riprova al prossimo aggiornamento di posizione.
@@ -1637,7 +1669,7 @@ class _MapScreenState extends State<MapScreen> {
       _routePoints = routes.first.points;
       _clearRouteAlert();
     });
-    _navigationService.start(routes.first);
+    _followRoute(routes.first);
     _ttsService.speak(
       _voiceLanguage == 'it' ? 'Nuovo percorso' : 'New route',
       _voiceLanguage,
