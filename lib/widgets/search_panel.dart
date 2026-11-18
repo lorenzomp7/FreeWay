@@ -4,7 +4,9 @@ import 'package:latlong2/latlong.dart';
 import '../models/travel_mode.dart';
 import '../services/geo_utils.dart';
 import '../services/geocoding_service.dart';
+import '../services/saved_places_service.dart';
 import '../theme/app_theme.dart';
+import 'saved_places_widgets.dart';
 
 typedef PointCallback = void Function({required bool isStart});
 
@@ -28,12 +30,15 @@ enum SearchPhase {
 
 /// Una riga dell'elenco sotto la casella di ricerca.
 class SearchItem {
-  const SearchItem(this.place, {this.isRecent = false});
+  const SearchItem(this.place, {this.isRecent = false, this.saved});
 
   final Map<String, dynamic> place;
 
   /// Viene dalla cronologia: icona dell'orologio e pulsante per toglierlo.
   final bool isRecent;
+
+  /// Luogo salvato (Casa, Lavoro o con un nome): si mostra con il suo nome.
+  final SavedPlace? saved;
 }
 
 /// Pannello di ricerca in alto, come la casella di Google Maps.
@@ -48,6 +53,11 @@ class SearchPanel extends StatelessWidget {
     required this.startItems,
     required this.endItems,
     required this.recentPlaces,
+    this.home,
+    this.work,
+    this.savedPlaces = const [],
+    this.onSavedShortcut,
+    this.onRemoveSaved,
     required this.noResultsForStart,
     required this.noResultsForEnd,
     required this.userLocation,
@@ -87,6 +97,17 @@ class SearchPanel extends StatelessWidget {
 
   /// Cronologia completa, mostrata quando il campo attivo è vuoto.
   final List<Map<String, dynamic>> recentPlaces;
+
+  /// Casa e Lavoro, `null` se non impostati.
+  final SavedPlace? home;
+  final SavedPlace? work;
+
+  /// Gli altri luoghi salvati con un nome.
+  final List<SavedPlace> savedPlaces;
+
+  /// Tocco su "Casa" o "Lavoro".
+  final void Function(SavedKind kind, bool isStart)? onSavedShortcut;
+  final ValueChanged<SavedPlace>? onRemoveSaved;
 
   /// Testo cercato senza risultati, o `null`.
   final String? noResultsForStart;
@@ -297,6 +318,19 @@ class SearchPanel extends StatelessWidget {
                 SearchItem(place, isRecent: true),
             ]
           : items,
+      savedItems: showZeroState
+          ? [
+              for (final saved in savedPlaces)
+                SearchItem(saved.place, saved: saved),
+            ]
+          : const [],
+      showSavedShortcuts: showZeroState && onSavedShortcut != null,
+      home: home,
+      work: work,
+      onSavedShortcut: onSavedShortcut == null
+          ? null
+          : (kind) => onSavedShortcut!(kind, isStart),
+      onRemoveSaved: onRemoveSaved,
       showRecentHeader: showZeroState,
       noResultsFor: showZeroState ? null : noResultsFor,
       userLocation: userLocation,
@@ -327,10 +361,24 @@ class SearchDropdown extends StatelessWidget {
     required this.onChooseOnMap,
     this.showPaste = false,
     this.onPaste,
+    this.savedItems = const [],
+    this.showSavedShortcuts = false,
+    this.home,
+    this.work,
+    this.onSavedShortcut,
+    this.onRemoveSaved,
   });
 
   final bool isStart;
   final List<SearchItem> items;
+
+  /// Luoghi salvati con un nome, sopra le ricerche recenti.
+  final List<SearchItem> savedItems;
+  final bool showSavedShortcuts;
+  final SavedPlace? home;
+  final SavedPlace? work;
+  final ValueChanged<SavedKind>? onSavedShortcut;
+  final ValueChanged<SavedPlace>? onRemoveSaved;
   final bool showRecentHeader;
   final String? noResultsFor;
   final LatLng? userLocation;
@@ -370,6 +418,12 @@ class SearchDropdown extends StatelessWidget {
           onTap: onChooseOnMap,
         ),
       ],
+      if (showSavedShortcuts && onSavedShortcut != null)
+        SavedShortcuts(home: home, work: work, onTap: onSavedShortcut!),
+      if (savedItems.isNotEmpty) ...[
+        _header('Salvati', textTheme, colors),
+        for (final item in savedItems) _placeRow(item),
+      ],
       if (noResultsFor != null)
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -391,14 +445,7 @@ class SearchDropdown extends StatelessWidget {
             ],
           ),
         ),
-      if (showRecentHeader)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
-          child: Text(
-            'Recenti',
-            style: textTheme.labelMedium?.copyWith(color: colors.textSecondary),
-          ),
-        ),
+      if (showRecentHeader) _header('Recenti', textTheme, colors),
       if (showRecentHeader && items.isEmpty)
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
@@ -424,15 +471,41 @@ class SearchDropdown extends StatelessWidget {
     );
   }
 
+  Widget _header(String text, TextTheme textTheme, AppColors colors) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+    child: Text(
+      text,
+      style: textTheme.labelMedium?.copyWith(color: colors.textSecondary),
+    ),
+  );
+
   Widget _placeRow(SearchItem item) {
     final place = item.place;
     final label = formatPlace(place);
+    final saved = item.saved;
     final location = userLocation;
     String? distance;
     final lat = double.tryParse('${place['lat']}');
     final lon = double.tryParse('${place['lon']}');
     if (location != null && lat != null && lon != null) {
       distance = formatDistance(haversineDistance(location, LatLng(lat, lon)));
+    }
+    if (saved != null) {
+      return SearchRow(
+        icon: savedKindIcon(saved.kind),
+        iconColor: AppPalette.primary,
+        title: saved.label,
+        subtitle: [
+          if (label.title != saved.label) label.title,
+          if (label.subtitle.isNotEmpty) label.subtitle,
+        ].join(', '),
+        trailingText: distance,
+        onTap: () => onSelect(place, isStart),
+        onRemove: onRemoveSaved == null || saved.kind != SavedKind.other
+            ? null
+            : () => onRemoveSaved!(saved),
+        removeTooltip: 'Togli dai salvati',
+      );
     }
     return SearchRow(
       icon: item.isRecent
@@ -479,6 +552,7 @@ class SearchRow extends StatelessWidget {
     this.iconColor,
     this.trailingText,
     this.onRemove,
+    this.removeTooltip = 'Elimina dalla cronologia',
   });
 
   final IconData icon;
@@ -488,6 +562,7 @@ class SearchRow extends StatelessWidget {
   final String? trailingText;
   final VoidCallback onTap;
   final VoidCallback? onRemove;
+  final String removeTooltip;
 
   @override
   Widget build(BuildContext context) {
@@ -558,7 +633,7 @@ class SearchRow extends StatelessWidget {
               SmallIconButton(
                 icon: Icons.close_rounded,
                 onTap: onRemove,
-                tooltip: 'Elimina dalla cronologia',
+                tooltip: removeTooltip,
               ),
           ],
         ),

@@ -19,6 +19,8 @@ class PlaceSheet extends StatelessWidget {
     required this.onStart,
     required this.onShare,
     required this.onClose,
+    this.onSave,
+    this.savedLabels = const [],
   });
 
   final String title;
@@ -37,6 +39,12 @@ class PlaceSheet extends StatelessWidget {
   final VoidCallback onStart;
   final VoidCallback onShare;
   final VoidCallback onClose;
+
+  /// Pulsante "Salva" (Casa, Lavoro o un nome); `null` per nasconderlo.
+  final VoidCallback? onSave;
+
+  /// Nomi con cui il luogo è già salvato, per esempio «Casa».
+  final List<String> savedLabels;
 
   @override
   Widget build(BuildContext context) {
@@ -168,6 +176,23 @@ class PlaceSheet extends StatelessWidget {
                         label: const Text('Avvia'),
                       ),
                       const SizedBox(width: 8),
+                      if (onSave != null) ...[
+                        OutlinedButton.icon(
+                          onPressed: onSave,
+                          icon: Icon(
+                            savedLabels.isEmpty
+                                ? Icons.bookmark_border_rounded
+                                : Icons.bookmark_rounded,
+                            size: 20,
+                          ),
+                          label: Text(
+                            savedLabels.isEmpty
+                                ? 'Salva'
+                                : 'Salvato: ${savedLabels.join(', ')}',
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       OutlinedButton.icon(
                         onPressed: onShare,
                         icon: const Icon(Icons.share_outlined, size: 20),

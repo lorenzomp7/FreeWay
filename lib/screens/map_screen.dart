@@ -24,6 +24,7 @@ import '../services/obstacle_alerts.dart';
 import '../services/obstacle_service.dart';
 import '../services/place_accessibility_service.dart';
 import '../services/recent_places_service.dart';
+import '../services/saved_places_service.dart';
 import '../services/routing_service.dart';
 import '../services/trip_resume_service.dart';
 import '../services/weather_service.dart';
@@ -36,6 +37,7 @@ import '../widgets/navigation_prompts.dart';
 import '../widgets/obstacle_sheets.dart';
 import '../widgets/place_sheet.dart';
 import '../widgets/route_options_sheet.dart';
+import '../widgets/saved_places_widgets.dart';
 import '../widgets/search_panel.dart';
 import '../widgets/top_bar.dart';
 import '../widgets/voice_settings_sheet.dart';
@@ -117,6 +119,8 @@ class _MapScreenState extends State<MapScreen> {
   bool _isSearchExpanded = true;
 
   final RecentPlacesService _recentPlaces = RecentPlacesService();
+  final SavedPlacesService _savedPlaces = SavedPlacesService();
+  List<SavedPlace> _saved = [];
 
   /// Navigazione interrotta da riprendere ("Still heading to…?").
   final TripResumeService _tripResume = TripResumeService();
@@ -190,6 +194,9 @@ class _MapScreenState extends State<MapScreen> {
     _endFocus.addListener(_onFocusChanged);
     _recentPlaces.load().then((recents) {
       if (mounted) setState(() => _recents = recents);
+    });
+    _savedPlaces.load().then((saved) {
+      if (mounted) setState(() => _saved = saved);
     });
     _ttsService.loadSettings();
     _tripResume.load().then((trip) {
@@ -275,9 +282,18 @@ class _MapScreenState extends State<MapScreen> {
   // --- Ricerca indirizzi ---------------------------------------------------
 
   void _onSearchChanged(String query, bool isStart) {
+    // Come in Google Maps i luoghi salvati vengono prima, poi la cronologia.
+    final savedMatches = [
+      for (final saved in _savedPlaces.matching(query))
+        SearchItem(saved.place, saved: saved),
+    ];
     final recentMatches = [
+      ...savedMatches,
       for (final place in _recentPlaces.matching(query))
-        SearchItem(place, isRecent: true),
+        if (!savedMatches.any(
+          (s) => RecentPlacesService.isSamePlace(s.place, place),
+        ))
+          SearchItem(place, isRecent: true),
     ];
     setState(() {
       if (isStart) {
@@ -424,6 +440,67 @@ class _MapScreenState extends State<MapScreen> {
     } else {
       // Manca ancora l'altro estremo: il cursore va lì.
       (isStart ? _endFocus : _startFocus).requestFocus();
+    }
+  }
+
+  /// "Casa" o "Lavoro" sotto la casella: va al luogo, oppure spiega come
+  /// impostarlo.
+  void _openSavedShortcut(SavedKind kind, bool isStart) {
+    final saved = kind == SavedKind.home
+        ? _savedPlaces.home
+        : _savedPlaces.work;
+    if (saved != null) {
+      _selectSuggestion(saved.place, isStart);
+      return;
+    }
+    final name = kind == SavedKind.home ? 'Casa' : 'Lavoro';
+    _showSnack(
+      'Cerca il tuo indirizzo, poi nella sua scheda premi «Salva» e scegli '
+      '«$name».',
+      icon: savedKindIcon(kind),
+    );
+  }
+
+  Future<void> _removeSaved(SavedPlace saved) async {
+    final list = await _savedPlaces.remove(saved);
+    if (!mounted) return;
+    setState(() {
+      _saved = list;
+      _startItems = _startItems.where((i) => i.saved != saved).toList();
+      _endItems = _endItems.where((i) => i.saved != saved).toList();
+    });
+  }
+
+  /// "Salva" nella scheda del luogo.
+  Future<void> _savePlace() async {
+    final place = _selectedPlace;
+    if (place == null) return;
+    final choice = await showSavePlaceSheet(
+      context,
+      placeName: formatPlace(place).title,
+      current: _savedPlaces.savedAs(place),
+      home: _savedPlaces.home,
+      work: _savedPlaces.work,
+    );
+    if (choice == null || !mounted) return;
+    switch (choice) {
+      case SaveAs(:final kind, :final label):
+        final list = await _savedPlaces.save(place, kind, label: label);
+        if (!mounted) return;
+        setState(() => _saved = list);
+        final savedAs = list.first.label;
+        _showSnack(
+          'Salvato come «$savedAs». Lo trovi toccando la casella di ricerca.',
+          iconColor: AppColors.of(context).success,
+          icon: Icons.check_circle_rounded,
+        );
+      case RemoveSaved(:final saved):
+        await _removeSaved(saved);
+        if (!mounted) return;
+        _showSnack(
+          '«${saved.label}» tolto dai salvati.',
+          icon: Icons.bookmark_remove_outlined,
+        );
     }
   }
 
@@ -1608,6 +1685,14 @@ class _MapScreenState extends State<MapScreen> {
               startItems: _startItems,
               endItems: _endItems,
               recentPlaces: _recents,
+              home: _savedPlaces.home,
+              work: _savedPlaces.work,
+              savedPlaces: [
+                for (final saved in _saved)
+                  if (saved.kind == SavedKind.other) saved,
+              ],
+              onSavedShortcut: _openSavedShortcut,
+              onRemoveSaved: _removeSaved,
               noResultsForStart: _noResultsStart,
               noResultsForEnd: _noResultsEnd,
               userLocation: _userLocation,
@@ -1878,6 +1963,10 @@ class _MapScreenState extends State<MapScreen> {
                 onStart: _startFromPlace,
                 onShare: _sharePlace,
                 onClose: _closePlace,
+                onSave: _savePlace,
+                savedLabels: [
+                  for (final saved in _savedPlaces.savedAs(place)) saved.label,
+                ],
               ),
             ),
           ),
