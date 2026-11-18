@@ -81,17 +81,38 @@ class InstructionTranslator {
           : '';
       text = (types[type] ?? type) + suffix;
     } else if (type == 'arrive') {
-      final suffix = street.isNotEmpty
-          ? (isItalian ? ' a destinazione su $street' : ' at destination on $street')
-          : (isItalian ? ' a destinazione' : ' at destination');
-      text = (types[type] ?? type) + suffix;
+      final side = isItalian
+          ? const {
+              'left': 'la destinazione è sulla sinistra',
+              'right': 'la destinazione è sulla destra',
+              'straight': 'la destinazione è davanti a te',
+            }[modifier]
+          : const {
+              'left': 'your destination is on the left',
+              'right': 'your destination is on the right',
+              'straight': 'your destination is ahead',
+            }[modifier];
+      if (side != null) {
+        final where = street.isNotEmpty
+            ? (isItalian ? ' su $street' : ' on $street')
+            : '';
+        text = '${types[type] ?? type}$where: $side';
+      } else {
+        final suffix = street.isNotEmpty
+            ? (isItalian
+                  ? ' a destinazione su $street'
+                  : ' at destination on $street')
+            : (isItalian ? ' a destinazione' : ' at destination');
+        text = (types[type] ?? type) + suffix;
+      }
     } else if (modifier == 'uturn') {
       text = modifiers['uturn'] ?? 'U-turn';
     } else {
       final action = types[type] ?? type;
       final direction = modifiers[modifier] ?? modifier;
-      final suffix =
-          street.isNotEmpty ? (isItalian ? ' su $street' : ' on $street') : '';
+      final suffix = street.isNotEmpty
+          ? (isItalian ? ' su $street' : ' on $street')
+          : '';
       text = '$action $direction$suffix';
     }
     return text.trim();

@@ -60,6 +60,14 @@ class _MapScreenState extends State<MapScreen> {
   LatLng _center = const LatLng(45.4642, 9.19); // Milano
   LatLng? _userLocation;
 
+  /// Raggio di incertezza della posizione, in metri, se noto.
+  double? _userAccuracy;
+
+  /// Durante la navigazione: nessun aggiornamento GPS da troppo tempo.
+  bool _gpsSignalLost = false;
+  Timer? _gpsWatchdog;
+  static const Duration _gpsSilenceLimit = Duration(seconds: 30);
+
   List<LatLng> _routePoints = [];
   List<RouteOption> _routes = [];
   int _selectedRouteIndex = 0;
@@ -182,6 +190,7 @@ class _MapScreenState extends State<MapScreen> {
     _ttsService.reset();
     _navigationSubscription?.cancel();
     _verifyTimer?.cancel();
+    _gpsWatchdog?.cancel();
     _navigationService.dispose();
     _obstacleService.dispose();
     _geocodingService.dispose();
@@ -784,6 +793,8 @@ class _MapScreenState extends State<MapScreen> {
       _clearRouteAlert();
     });
     _keepScreenOn(true);
+    _gpsSignalLost = false;
+    _restartGpsWatchdog();
     _navigationSubscription?.cancel();
     _navigationSubscription = _navigationService.updates.listen(
       _onNavigationUpdate,
@@ -797,12 +808,22 @@ class _MapScreenState extends State<MapScreen> {
 
   void _onNavigationUpdate(NavigationUpdate update) {
     if (!mounted || !_isNavigating) return;
+    final signalBack = _gpsSignalLost;
     setState(() {
       _navigationGpsFailed = false;
       _navigationUpdate = update;
       _userLocation = update.position;
+      _userAccuracy = update.accuracy > 0 ? update.accuracy : null;
+      _gpsSignalLost = false;
     });
+    _restartGpsWatchdog();
     _mapController.move(update.position, 17.5);
+    if (signalBack) {
+      _ttsService.speak(
+        _voiceLanguage == 'it' ? 'Segnale GPS ritrovato' : 'GPS signal found',
+        _voiceLanguage,
+      );
+    }
 
     final instruction = InstructionTranslator(
       _voiceLanguage,
@@ -812,9 +833,8 @@ class _MapScreenState extends State<MapScreen> {
         : '${update.distanceToNextStep.round()} metri';
     final String speech;
     if (update.hasArrived) {
-      speech = _voiceLanguage == 'it'
-          ? 'Sei arrivato a destinazione'
-          : 'You have reached destination';
+      // Dice anche il lato: "la destinazione è sulla sinistra".
+      speech = instruction;
     } else {
       speech = _voiceLanguage == 'it'
           ? 'Tra $distance, $instruction'
@@ -826,6 +846,32 @@ class _MapScreenState extends State<MapScreen> {
     if (update.isOffRoute && !_isRecalculating && _endPoint != null) {
       _recalculate(update.position);
     }
+  }
+
+  /// Come "GPS signal lost" di Google Maps: se la posizione non arriva da
+  /// 30 secondi la si chiede direttamente. Il GPS manda aggiornamenti solo
+  /// quando ci si sposta, quindi chi è fermo (a un semaforo, all'arrivo) non
+  /// deve sentirsi dire che il segnale è perso: l'avviso parte solo se anche
+  /// la richiesta diretta fallisce.
+  void _restartGpsWatchdog() {
+    _gpsWatchdog?.cancel();
+    if (_navigationUpdate?.hasArrived ?? false) return;
+    _gpsWatchdog = Timer(_gpsSilenceLimit, () async {
+      if (!mounted || !_isNavigating || _gpsSignalLost) return;
+      final check = await _locationService.getCurrentLocation();
+      if (!mounted || !_isNavigating) return;
+      if (check.position != null && !check.isApproximate) {
+        _restartGpsWatchdog();
+        return;
+      }
+      setState(() => _gpsSignalLost = true);
+      _ttsService.speak(
+        _voiceLanguage == 'it'
+            ? 'Segnale GPS perso. Cerco la posizione.'
+            : 'GPS signal lost. Searching.',
+        _voiceLanguage,
+      );
+    });
   }
 
   Future<void> _recalculate(LatLng from) async {
@@ -863,6 +909,8 @@ class _MapScreenState extends State<MapScreen> {
 
   void _stopNavigation() {
     _keepScreenOn(false);
+    _gpsWatchdog?.cancel();
+    _gpsSignalLost = false;
     _ttsService.stop();
     _ttsService.reset();
     _navigationSubscription?.cancel();
@@ -888,8 +936,18 @@ class _MapScreenState extends State<MapScreen> {
     setState(() => _isLocatingUser = false);
     final position = result.position;
     if (position != null) {
-      setState(() => _userLocation = _center = position);
+      setState(() {
+        _userLocation = _center = position;
+        _userAccuracy = result.accuracy;
+      });
       _mapController.move(_center, 16);
+      if (showErrors && result.isApproximate) {
+        _showError(
+          'Posizione approssimativa, stimata dalla rete. Il cerchio azzurro '
+          'mostra dove potresti essere.',
+          Icons.gps_not_fixed_rounded,
+        );
+      }
     } else if (showErrors) {
       _showError(
         result.error ?? 'Posizione non disponibile',
@@ -922,6 +980,7 @@ class _MapScreenState extends State<MapScreen> {
       }
       setState(() {
         _center = _userLocation = position;
+        _userAccuracy = result.accuracy;
         _setPoint(isStart, position, 'La tua posizione');
       });
       if (result.isApproximate) {
@@ -1425,6 +1484,7 @@ class _MapScreenState extends State<MapScreen> {
             update: _navigationUpdate,
             firstStep: _navigationFirstStep!,
             gpsFailed: _navigationGpsFailed,
+            signalLost: _gpsSignalLost,
             language: _voiceLanguage,
             isMuted: _ttsService.muted,
             onStop: _stopNavigation,
@@ -1679,6 +1739,25 @@ class _MapScreenState extends State<MapScreen> {
               color: AppPalette.primary,
               borderColor: Colors.white,
               borderStrokeWidth: 2.5,
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Cerchio di incertezza intorno alla posizione, come in Google Maps.
+    final accuracy = _userAccuracy;
+    if (_userLocation != null && accuracy != null && accuracy > 15) {
+      layers.add(
+        CircleLayer(
+          circles: [
+            CircleMarker(
+              point: _userLocation!,
+              radius: accuracy,
+              useRadiusInMeter: true,
+              color: AppPalette.userBlue.withValues(alpha: 0.12),
+              borderColor: AppPalette.userBlue.withValues(alpha: 0.4),
+              borderStrokeWidth: 1,
             ),
           ],
         ),

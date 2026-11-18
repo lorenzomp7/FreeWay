@@ -58,6 +58,16 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
 - Filtri per categoria e raggruppamento degli ostacoli vicini.
 - Navigazione passo-passo con istruzioni vocali in italiano o inglese, ricalcolo
   quando si esce dal percorso e schermo sempre acceso durante il tragitto.
+- All'arrivo l'app dice da che lato della strada è la destinazione ("la
+  destinazione è sulla sinistra"), a schermo e a voce, come "X on your left"
+  di Google Maps: il lato si calcola dalla direzione dell'ultimo tratto.
+- Stati del GPS chiari: un cerchio azzurro intorno alla posizione ne mostra
+  l'incertezza (grande se la posizione è stimata dalla rete); in navigazione
+  il pannello avvisa se la posizione è poco precisa (oltre ±40 m) e, se il
+  GPS tace da 30 secondi e non risponde nemmeno a una richiesta diretta, dice
+  "Segnale GPS perso" (anche a voce) e poi "Segnale GPS ritrovato". Se la
+  posizione non si trova l'app distingue il permesso negato dal segnale
+  assente e suggerisce di spostarsi all'aperto.
 - Avvisi sul percorso, come "This route has stairs" o "Steep hill" di Google
   Maps: con OpenRouteService l'app chiede pendenza, fondo stradale e tipo di
   via e segnala gradini, salite e discese oltre il 7%, pendenze del 4–6% e

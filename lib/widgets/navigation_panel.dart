@@ -12,6 +12,7 @@ class NavigationPanel extends StatelessWidget {
     required this.update,
     required this.firstStep,
     required this.gpsFailed,
+    this.signalLost = false,
     required this.language,
     required this.isMuted,
     required this.onStop,
@@ -22,6 +23,10 @@ class NavigationPanel extends StatelessWidget {
   final NavigationUpdate? update;
   final RouteStep firstStep;
   final bool gpsFailed;
+
+  /// Nessun aggiornamento GPS da un po': si avvisa che lo si sta cercando,
+  /// come "Searching for GPS…" di Google Maps.
+  final bool signalLost;
   final String language;
   final bool isMuted;
   final VoidCallback onStop;
@@ -32,8 +37,9 @@ class NavigationPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final isItalian = language == 'it';
     final step = update?.currentStep ?? firstStep;
-    final instruction =
-        InstructionTranslator(language).translate(step.instruction);
+    final instruction = InstructionTranslator(
+      language,
+    ).translate(step.instruction);
     final emoji = maneuverEmoji(step.maneuverType, step.modifier);
     final remaining = update?.distanceToNextStep ?? 0.0;
     final distance = remaining >= 1000
@@ -43,11 +49,29 @@ class NavigationPanel extends StatelessWidget {
     final progress = update?.progress ?? 0.0;
     final status = gpsFailed
         ? (isItalian
-            ? 'GPS non disponibile. Controlla i permessi di posizione.'
-            : 'GPS unavailable. Check location permissions.')
+              ? 'GPS non disponibile. Controlla i permessi di posizione.'
+              : 'GPS unavailable. Check location permissions.')
         : (isItalian ? 'In attesa del GPS…' : 'Waiting for GPS…');
 
     final children = <Widget>[];
+    final accuracy = update?.accuracy ?? 0;
+    final String? gpsWarning = gpsFailed || update == null
+        ? null
+        : signalLost
+        ? (isItalian
+              ? 'Segnale GPS perso — cerco la posizione…'
+              : 'GPS signal lost — searching…')
+        : accuracy > kWeakAccuracyMeters
+        ? (isItalian
+              ? 'Posizione poco precisa (±${accuracy.round()} m): '
+                    'spostati all\'aperto'
+              : 'Low accuracy (±${accuracy.round()} m): move outdoors')
+        : null;
+    if (gpsWarning != null) {
+      children.add(
+        _Banner(text: gpsWarning, icon: Icons.gps_not_fixed_rounded),
+      );
+    }
     if (!gpsFailed && update?.isOffRoute == true) {
       children.add(
         Container(
@@ -116,11 +140,9 @@ class NavigationPanel extends StatelessWidget {
                     ),
                   const SizedBox(height: 2),
                   Text(
-                    arrived
-                        ? (isItalian
-                            ? 'Sei arrivato/a a destinazione'
-                            : 'You have reached your destination')
-                        : instruction,
+                    // All'arrivo l'istruzione dice anche da che lato è la
+                    // destinazione ("sulla sinistra").
+                    instruction,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -179,8 +201,9 @@ class NavigationPanel extends StatelessWidget {
               ),
             ),
             _NavIconButton(
-              icon:
-                  isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+              icon: isMuted
+                  ? Icons.volume_off_rounded
+                  : Icons.volume_up_rounded,
               tooltip: isMuted
                   ? (isItalian ? 'Attiva voce' : 'Unmute')
                   : (isItalian ? 'Disattiva voce' : 'Mute'),
@@ -239,6 +262,46 @@ class NavigationPanel extends StatelessWidget {
             ],
           ),
           child: Column(mainAxisSize: MainAxisSize.min, children: children),
+        ),
+      ),
+    );
+  }
+}
+
+/// Sopra questa incertezza (in metri) la posizione è segnalata come poco
+/// precisa durante la navigazione.
+const double kWeakAccuracyMeters = 40;
+
+/// Striscia di avviso in cima al pannello (GPS perso o poco preciso).
+class _Banner extends StatelessWidget {
+  const _Banner({required this.text, required this.icon});
+
+  final String text;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        width: double.infinity,
+        color: AppPalette.offRouteBanner,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: Row(
+          children: [
+            Icon(icon, size: 15, color: AppPalette.offRouteText),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                text,
+                style: const TextStyle(
+                  color: AppPalette.offRouteText,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

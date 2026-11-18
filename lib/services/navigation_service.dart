@@ -15,6 +15,7 @@ class NavigationUpdate {
     required this.isOffRoute,
     required this.progress,
     required this.hasArrived,
+    this.accuracy = 0,
   });
 
   final LatLng position;
@@ -25,6 +26,9 @@ class NavigationUpdate {
   /// Avanzamento lungo il percorso, tra 0 e 1.
   final double progress;
   final bool hasArrived;
+
+  /// Precisione della posizione in metri (raggio), 0 se non nota.
+  final double accuracy;
 }
 
 /// Segue la posizione GPS durante la navigazione e calcola la manovra corrente.
@@ -110,9 +114,11 @@ class NavigationService {
     final distanceToNext = stepIndex < steps.length - 1
         ? haversineDistance(current, steps[stepIndex + 1].location)
         : 0.0;
-    final progress =
-        route.points.isEmpty ? 0.0 : nearestPoint / route.points.length;
-    final hasArrived = stepIndex == steps.length - 1 &&
+    final progress = route.points.isEmpty
+        ? 0.0
+        : nearestPoint / route.points.length;
+    final hasArrived =
+        stepIndex == steps.length - 1 &&
         steps.last.maneuverType == 'arrive' &&
         haversineDistance(current, steps.last.location) < 20;
 
@@ -124,6 +130,7 @@ class NavigationService {
         isOffRoute: distanceFromRoute > 50,
         progress: progress.clamp(0.0, 1.0),
         hasArrived: hasArrived,
+        accuracy: position.accuracy.isFinite ? position.accuracy : 0,
       ),
     );
   }

@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import '../models/obstacle.dart';
 import '../models/route_option.dart';
 import '../models/travel_mode.dart';
+import 'arrival_side.dart';
 import 'geo_utils.dart';
 import 'route_warnings.dart';
 
@@ -73,6 +74,8 @@ class RoutingService {
 
     for (final route in candidates) {
       route.obstacleCount = _countObstacles(route.points, obstacles);
+      // "La destinazione è sulla sinistra/destra", come in Google Maps.
+      applyArrivalSide(route, end);
     }
 
     // Rimuove i percorsi praticamente identici.
