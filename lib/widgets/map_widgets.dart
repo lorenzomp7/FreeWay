@@ -69,6 +69,8 @@ class MapControls extends StatelessWidget {
     required this.onLocate,
     required this.isLocating,
     this.onReport,
+    this.onVoiceReport,
+    this.isListening = false,
   });
 
   final VoidCallback onZoomIn;
@@ -78,6 +80,13 @@ class MapControls extends StatelessWidget {
 
   /// Segnala un ostacolo senza dover tenere premuto sulla mappa.
   final VoidCallback? onReport;
+
+  /// Segnala un ostacolo dicendone il tipo; `null` se il browser non ha il
+  /// riconoscimento vocale.
+  final VoidCallback? onVoiceReport;
+
+  /// Il microfono sta ascoltando.
+  final bool isListening;
 
   @override
   Widget build(BuildContext context) {
@@ -133,6 +142,20 @@ class MapControls extends StatelessWidget {
               icon: Icons.add_location_alt_outlined,
               onPressed: onReport!,
               tooltip: 'Segnala un ostacolo qui',
+            ),
+          ),
+        ],
+        if (onVoiceReport != null) ...[
+          const SizedBox(height: 8),
+          Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: decoration(),
+            child: MapControlButton(
+              icon: Icons.mic_none_rounded,
+              onPressed: onVoiceReport!,
+              tooltip: 'Segnala un ostacolo a voce',
+              isLoading: isListening,
+              color: AppPalette.primary,
             ),
           ),
         ],

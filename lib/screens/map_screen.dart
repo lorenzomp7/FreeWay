@@ -30,7 +30,9 @@ import '../services/saved_places_service.dart';
 import '../services/routing_service.dart';
 import '../services/trip_resume_service.dart';
 import '../services/weather_service.dart';
+import '../services/speech_input.dart';
 import '../services/thanks_notifier.dart';
+import '../services/voice_report_matcher.dart';
 import '../services/tts_service.dart';
 import '../services/voice_guidance.dart';
 import '../theme/app_theme.dart';
@@ -83,6 +85,12 @@ class _MapScreenState extends State<MapScreen> {
   );
   final ArrivalQuestionPolicy _arrivalPolicy = ArrivalQuestionPolicy();
   final ThanksNotifier _thanksNotifier = ThanksNotifier();
+  final SpeechInput _speechInput = SpeechInput();
+  bool _isListening = false;
+
+  /// Segnalazione detta a voce in attesa di conferma: punto, frase capita e
+  /// tipo riconosciuto.
+  ({LatLng point, String heard, String type})? _voiceReport;
 
   /// Una posizione stimata dalla rete non sostituisce un buon fix GPS
   /// ottenuto da poco.
@@ -273,6 +281,7 @@ class _MapScreenState extends State<MapScreen> {
     _verifyTimer?.cancel();
     _arrivalTimer?.cancel();
     _deviationTimer?.cancel();
+    _speechInput.cancel();
     _gpsWatchdog?.cancel();
     _navigationService.dispose();
     _obstacleService.dispose();
@@ -1424,7 +1433,9 @@ class _MapScreenState extends State<MapScreen> {
     return left > Duration.zero ? left.inSeconds + 1 : null;
   }
 
-  Future<void> _reportObstacle(LatLng point) async {
+  /// Segnala un ostacolo in [point]. Con [preset] (per esempio un tipo
+  /// detto a voce) non si apre la scheda per sceglierlo.
+  Future<void> _reportObstacle(LatLng point, {ReportDraft? preset}) async {
     final wait = _secondsToWait(_lastReportAt, _reportInterval);
     if (wait != null) {
       _showError(
@@ -1433,7 +1444,7 @@ class _MapScreenState extends State<MapScreen> {
       );
       return;
     }
-    final draft = await showReportObstacleSheet(context);
+    final draft = preset ?? await showReportObstacleSheet(context);
     if (draft == null || !mounted) return;
     final type = draft.type;
     final userId = FirebaseAuth.instance.currentUser?.uid;
@@ -1512,6 +1523,66 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
     await _reportObstacle(point);
+  }
+
+  /// "Segnala a voce": si dice il tipo di ostacolo ("gradino", "auto sul
+  /// marciapiede") e l'app chiede conferma prima di salvarlo nella
+  /// posizione in cui ci si trovava quando si è parlato.
+  Future<void> _reportByVoice() async {
+    if (_isListening) {
+      _speechInput.cancel();
+      return;
+    }
+    if (FirebaseAuth.instance.currentUser == null) return;
+    final point = _userLocation ?? _mapController.camera.center;
+    _ttsService.stop();
+    setState(() {
+      _isListening = true;
+      _voiceReport = null;
+    });
+    _showSnack(
+      _voiceLanguage == 'it'
+          ? 'Ti ascolto: di\' il tipo di ostacolo, per esempio «gradino» o '
+                '«auto sul marciapiede».'
+          : 'Listening: say the obstacle, for example "step" or "parked car".',
+      iconColor: AppColors.of(context).info,
+      icon: Icons.mic_rounded,
+    );
+    final heard = await _speechInput.listen(_voiceLanguage);
+    if (!mounted) return;
+    setState(() => _isListening = false);
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    for (final text in heard) {
+      final type = matchObstacleType(text);
+      if (type != null) {
+        setState(() => _voiceReport = (point: point, heard: text, type: type));
+        return;
+      }
+    }
+    if (heard.isEmpty) {
+      _showError(
+        'Non ho sentito nulla. Controlla che il microfono sia consentito e '
+        'riprova.',
+        Icons.mic_off_rounded,
+      );
+      return;
+    }
+    _showError(
+      'Non ho riconosciuto il tipo di ostacolo in «${heard.first}». '
+      "Sceglilo dall'elenco.",
+      Icons.help_outline_rounded,
+    );
+    await _reportObstacle(point);
+  }
+
+  Future<void> _confirmVoiceReport({required bool fromList}) async {
+    final report = _voiceReport;
+    setState(() => _voiceReport = null);
+    if (report == null) return;
+    await _reportObstacle(
+      report.point,
+      preset: fromList ? null : ReportDraft(report.type),
+    );
   }
 
   Future<void> _confirmObstacle(Obstacle obstacle, String userId) async {
@@ -2161,12 +2232,21 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    if (_isNavigating || _arrivalPrompt != null) {
+    if (_isNavigating || _arrivalPrompt != null || _voiceReport != null) {
       final alertObstacle = _isNavigating ? _routeAlertObstacle : null;
+      final voiceReport = _voiceReport;
       final verify = _isNavigating ? _verifyPrompt : null;
       final deviation = _isNavigating ? _deviationPrompt : null;
       final pass = _isNavigating ? _passPrompt : null;
-      final Widget? prompt = _arrivalPrompt != null
+      final Widget? prompt = voiceReport != null
+          ? VoiceReportCard(
+              heard: voiceReport.heard,
+              type: voiceReport.type,
+              onConfirm: () => _confirmVoiceReport(fromList: false),
+              onChooseFromList: () => _confirmVoiceReport(fromList: true),
+              onCancel: () => setState(() => _voiceReport = null),
+            )
+          : _arrivalPrompt != null
           ? ArrivalEntranceCard(
               onAnswer: _answerArrivalPrompt,
               onSkip: _closeArrivalPrompt,
@@ -2234,6 +2314,14 @@ class _MapScreenState extends State<MapScreen> {
           onLocate: () => _locateUser(showErrors: true),
           isLocating: _isLocatingUser,
           onReport: _isNavigating || choosing != null ? null : _reportHere,
+          // A voce si segnala anche durante la navigazione, senza mani.
+          onVoiceReport:
+              _speechInput.isSupported &&
+                  choosing == null &&
+                  FirebaseAuth.instance.currentUser != null
+              ? _reportByVoice
+              : null,
+          isListening: _isListening,
         ),
       ),
     );

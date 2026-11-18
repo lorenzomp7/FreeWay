@@ -329,5 +329,5 @@ int thanksReceived(Iterable<Obstacle> obstacles, String? userId) {
   if (userId == null) return 0;
   return obstacles
       .where((o) => o.isReportedBy(userId))
-      .fold(0, (sum, o) => sum + o.thankedBy.length);
+      .fold(0, (total, o) => total + o.thankedBy.length);
 }

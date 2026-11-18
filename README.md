@@ -170,6 +170,13 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   collezione `foto` di Firestore insieme alla segnalazione; si vede aprendo la
   scheda dell'ostacolo. La scheda ricorda di non inquadrare persone né
   targhe.
+- "Segnala un ostacolo a voce" (pulsante col microfono, anche durante la
+  navigazione): si dice il tipo di ostacolo ("gradino", "auto sul
+  marciapiede", "cantiere"…) e l'app lo riconosce dalle parole chiave, in
+  italiano o in inglese, poi chiede conferma ("Segnalo «…» qui?") prima di
+  salvarlo nella posizione in cui si è parlato. Se non lo riconosce apre
+  l'elenco dei tipi. Usa il riconoscimento vocale del browser (Chrome, Edge,
+  Safari); dove non c'è il pulsante non compare.
 - Sotto la casella di ricerca, "Incolla l'indirizzo copiato" mette nel campo
   il testo degli appunti e lo cerca.
 - Se durante la navigazione qualcuno segnala un ostacolo sul tratto ancora da

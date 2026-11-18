@@ -354,3 +354,48 @@ class PassabilityCard extends StatelessWidget {
     );
   }
 }
+
+/// Conferma di una segnalazione fatta a voce: "Segnalo «Gradino…» qui?".
+/// Il tipo è riconosciuto dalle parole dette; se è sbagliato si sceglie
+/// dall'elenco.
+class VoiceReportCard extends StatelessWidget {
+  const VoiceReportCard({
+    super.key,
+    required this.heard,
+    required this.type,
+    required this.onConfirm,
+    required this.onChooseFromList,
+    required this.onCancel,
+  });
+
+  /// Quello che il riconoscimento vocale ha capito.
+  final String heard;
+
+  /// Il tipo di ostacolo riconosciuto.
+  final String type;
+  final VoidCallback onConfirm;
+  final VoidCallback onChooseFromList;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PromptCard(
+      icon: Icons.mic_rounded,
+      iconColor: AppPalette.primary,
+      title: 'Segnalo «$type» qui?',
+      message: 'Ho capito: «$heard».',
+      onClose: onCancel,
+      actions: [
+        FilledButton.icon(
+          onPressed: onConfirm,
+          icon: const Icon(Icons.add_location_alt_outlined, size: 18),
+          label: const Text('Segnala'),
+        ),
+        OutlinedButton(
+          onPressed: onChooseFromList,
+          child: const Text("Scegli dall'elenco"),
+        ),
+      ],
+    );
+  }
+}
