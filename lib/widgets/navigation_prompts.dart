@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/entrance_report.dart';
 import '../models/obstacle.dart';
 import '../theme/app_theme.dart';
 
@@ -228,6 +229,49 @@ class ResumeTripCard extends StatelessWidget {
           label: const Text('Riprendi'),
         ),
         TextButton(onPressed: onDismiss, child: const Text('No')),
+      ],
+    );
+  }
+}
+
+/// "Com'era l'ingresso?" all'arrivo, come la domanda sul parcheggio che
+/// alcuni navigatori fanno a destinazione. Le risposte compaiono nella
+/// scheda del luogo per chi ci andrà dopo.
+class ArrivalEntranceCard extends StatelessWidget {
+  const ArrivalEntranceCard({
+    super.key,
+    required this.onAnswer,
+    required this.onSkip,
+  });
+
+  final ValueChanged<EntranceAnswer> onAnswer;
+  final VoidCallback onSkip;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PromptCard(
+      icon: Icons.door_front_door_outlined,
+      iconColor: AppPalette.primary,
+      title: "Com'era l'ingresso?",
+      message:
+          'La tua risposta compare nella scheda del luogo per chi ci '
+          'andrà dopo di te.',
+      onClose: onSkip,
+      actions: [
+        FilledButton.icon(
+          onPressed: () => onAnswer(EntranceAnswer.accessible),
+          icon: const Icon(Icons.accessible_rounded, size: 18),
+          label: Text(EntranceAnswer.accessible.label),
+        ),
+        OutlinedButton.icon(
+          onPressed: () => onAnswer(EntranceAnswer.steps),
+          icon: const Icon(Icons.stairs_outlined, size: 18),
+          label: Text(EntranceAnswer.steps.label),
+        ),
+        OutlinedButton(
+          onPressed: () => onAnswer(EntranceAnswer.notFound),
+          child: Text(EntranceAnswer.notFound.label),
+        ),
       ],
     );
   }

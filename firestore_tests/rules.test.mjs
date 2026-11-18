@@ -105,6 +105,24 @@ await check('foto cancellata da sola rifiutata', assertFails(writeBatch(alice).d
 await age('alice', 'lastRemovalAt', 11);
 await check('foto cancellata con la segnalazione', assertSucceeds((() => { const b = writeBatch(alice); b.delete(doc(alice, 'segnalazioni/p1')); b.delete(doc(alice, 'foto/p1')); b.set(doc(alice, 'limiti/alice'), { lastRemovalAt: serverTimestamp() }, { merge: true }); return b.commit(); })()));
 
+// --- "Com'era l'ingresso?" ---
+const entrance = (uid, extra = {}) => ({ lat: 45.54, lng: 10.22, answer: 'accessibile', timestamp: serverTimestamp(), userId: uid, ...extra });
+const addEntrance = (db, uid, id, data) => { const b = writeBatch(db); b.set(doc(db, 'ingressi/' + id), data ?? entrance(uid)); b.set(doc(db, 'limiti/' + uid), { lastEntranceAt: serverTimestamp() }, { merge: true }); return b.commit(); };
+await check('ospite risponde sull\'ingresso', assertSucceeds(addEntrance(guest, 'guest1', 'i1')));
+await check('ospite legge le risposte', assertSucceeds(getDocs(collection(guest2, 'ingressi'))));
+await check('non autenticato non legge le risposte', assertFails(getDocs(collection(anon, 'ingressi'))));
+await check('seconda risposta subito dopo rifiutata', assertFails(addEntrance(guest, 'guest1', 'i2')));
+await age('guest1', 'lastEntranceAt', 61);
+await check('risposta dopo 61 s accettata', assertSucceeds(addEntrance(guest, 'guest1', 'i2', entrance('guest1', { answer: 'gradini' }))));
+const badEntrance = async (name, data) => { await age('alice', 'lastEntranceAt', 120); await check(name, assertFails(addEntrance(alice, 'alice', 'ibad', data))); };
+await badEntrance('risposta sconosciuta rifiutata', entrance('alice', { answer: 'forse' }));
+await badEntrance('risposta a nome di altri rifiutata', entrance('bob'));
+await badEntrance('risposta con campo extra rifiutata', entrance('alice', { note: 'x' }));
+await badEntrance('risposta con ora del client rifiutata', entrance('alice', { timestamp: Timestamp.fromMillis(0) }));
+await check('risposta senza aggiornare i limiti rifiutata', (async () => { await age('alice', 'lastEntranceAt', 120); await assertFails(setDoc(doc(alice, 'ingressi/i3'), entrance('alice'))); })());
+await check('risposta non modificabile', assertFails(updateDoc(doc(guest, 'ingressi/i1'), { answer: 'gradini' })));
+await check('risposta non cancellabile', assertFails(writeBatch(guest).delete(doc(guest, 'ingressi/i1')).commit()));
+
 await check('altre collezioni chiuse', assertFails(setDoc(doc(alice, 'utenti/alice'), { a: 1 })));
 await env.cleanup();
 console.log(`\n${ok} passati, ${fail} falliti`);

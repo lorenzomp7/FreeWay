@@ -10,11 +10,13 @@ import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../models/entrance_report.dart';
 import '../models/obstacle.dart';
 import '../models/place_accessibility.dart';
 import '../models/route_option.dart';
 import '../models/travel_mode.dart';
 import '../services/along_route_service.dart';
+import '../services/entrance_report_service.dart';
 import '../services/geo_utils.dart';
 import '../services/geocoding_service.dart';
 import '../services/location_service.dart';
@@ -74,6 +76,10 @@ class _MapScreenState extends State<MapScreen> {
   final ObstacleService _obstacleService = ObstacleService(
     FirebaseFirestore.instance,
   );
+  final EntranceReportService _entranceService = EntranceReportService(
+    FirebaseFirestore.instance,
+  );
+  final ArrivalQuestionPolicy _arrivalPolicy = ArrivalQuestionPolicy();
   final NavigationService _navigationService = NavigationService();
   final TtsService _ttsService = TtsService();
 
@@ -159,6 +165,16 @@ class _MapScreenState extends State<MapScreen> {
   Obstacle? _verifyPrompt;
   Timer? _verifyTimer;
 
+  /// Destinazione su cui chiedere "Com'era l'ingresso?", mentre la domanda
+  /// è aperta.
+  LatLng? _arrivalPrompt;
+  Timer? _arrivalTimer;
+  bool _arrivalHandled = false;
+
+  /// Risposte sull'ingresso vicino al luogo aperto nella scheda.
+  EntranceSummary _entranceSummary = const EntranceSummary();
+  int _entranceRequest = 0;
+
   /// Ostacoli già chiesti in questa navigazione: si chiede una volta sola.
   final Set<String> _askedObstacleIds = {};
 
@@ -231,6 +247,7 @@ class _MapScreenState extends State<MapScreen> {
     _ttsService.reset();
     _navigationSubscription?.cancel();
     _verifyTimer?.cancel();
+    _arrivalTimer?.cancel();
     _gpsWatchdog?.cancel();
     _navigationService.dispose();
     _obstacleService.dispose();
@@ -638,6 +655,7 @@ class _MapScreenState extends State<MapScreen> {
   void _loadAccessibility(Map<String, dynamic> place, LatLng point) {
     final request = ++_accessibilityRequest;
     final supported = PlaceAccessibilityService.supports(place);
+    _loadEntranceSummary(point);
     setState(() {
       _destinationPlacePoint = point;
       _placeAccessibility = null;
@@ -653,6 +671,16 @@ class _MapScreenState extends State<MapScreen> {
         if (_stage == SearchPhase.directions) moved = _applyEntrance();
       });
       if (moved && _startPoint != null && !_isNavigating) _calculateRoute();
+    });
+  }
+
+  /// Le risposte "Com'era l'ingresso?" di chi è già arrivato a [point].
+  void _loadEntranceSummary(LatLng point) {
+    final request = ++_entranceRequest;
+    _entranceSummary = const EntranceSummary();
+    _entranceService.near(point).then((summary) {
+      if (!mounted || request != _entranceRequest) return;
+      setState(() => _entranceSummary = summary);
     });
   }
 
@@ -1048,6 +1076,8 @@ class _MapScreenState extends State<MapScreen> {
       _navigationGpsFailed = false;
       _askedObstacleIds.clear();
       _announcedObstacleIds.clear();
+      _arrivalHandled = false;
+      _closeArrivalPromptInState();
       _knownObstacleIds
         ..clear()
         ..addAll(_obstacles.map((o) => o.id));
@@ -1121,7 +1151,10 @@ class _MapScreenState extends State<MapScreen> {
     // l'istruzione si ripeteva a ogni aggiornamento del GPS.
     final speech = _voiceGuidance.next(update, _voiceLanguage);
     if (speech != null) _ttsService.speak(speech, _voiceLanguage);
-    if (update.hasArrived) unawaited(_tripResume.clear());
+    if (update.hasArrived) {
+      unawaited(_tripResume.clear());
+      _maybeAskAboutEntrance();
+    }
     _maybeWarnObstacleAhead(update);
     _maybeAskAboutObstacle(update.position);
 
@@ -1575,6 +1608,60 @@ class _MapScreenState extends State<MapScreen> {
     _verifyTimer = Timer(const Duration(seconds: 45), _closeVerifyPrompt);
   }
 
+  /// All'arrivo chiede com'era l'ingresso, una volta per viaggio e non
+  /// più di qualche volta al giorno (vedi [ArrivalQuestionPolicy]).
+  Future<void> _maybeAskAboutEntrance() async {
+    if (_arrivalHandled) return;
+    _arrivalHandled = true;
+    final destination = _endPoint;
+    if (destination == null || FirebaseAuth.instance.currentUser == null) {
+      return;
+    }
+    if (!await _arrivalPolicy.tryAsk() || !mounted) return;
+    setState(() => _arrivalPrompt = destination);
+    // Prima si lascia finire l'annuncio dell'arrivo.
+    Timer(const Duration(seconds: 4), () {
+      if (!mounted || _arrivalPrompt == null || _voiceLanguage != 'it') return;
+      _ttsService.speak("Com'era l'ingresso?", _voiceLanguage);
+    });
+    _arrivalTimer?.cancel();
+    _arrivalTimer = Timer(const Duration(seconds: 60), _closeArrivalPrompt);
+  }
+
+  /// Da chiamare dentro setState.
+  void _closeArrivalPromptInState() {
+    _arrivalTimer?.cancel();
+    _arrivalPrompt = null;
+  }
+
+  void _closeArrivalPrompt() {
+    if (mounted && _arrivalPrompt != null) {
+      setState(_closeArrivalPromptInState);
+    }
+  }
+
+  Future<void> _answerArrivalPrompt(EntranceAnswer answer) async {
+    final destination = _arrivalPrompt;
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    _closeArrivalPrompt();
+    if (destination == null || userId == null) return;
+    try {
+      await _entranceService.add(destination, answer, userId);
+      if (!mounted) return;
+      _showSnack(
+        "Grazie! La tua risposta aiuta chi andrà lì dopo di te.",
+        iconColor: AppColors.of(context).success,
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile salvare la risposta. Riprova più tardi.',
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
   void _closeVerifyPrompt() {
     _verifyTimer?.cancel();
     if (mounted && _verifyPrompt != null) setState(() => _verifyPrompt = null);
@@ -1886,10 +1973,15 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    if (_isNavigating) {
-      final alertObstacle = _routeAlertObstacle;
-      final verify = _verifyPrompt;
-      final Widget? prompt = alertObstacle != null
+    if (_isNavigating || _arrivalPrompt != null) {
+      final alertObstacle = _isNavigating ? _routeAlertObstacle : null;
+      final verify = _isNavigating ? _verifyPrompt : null;
+      final Widget? prompt = _arrivalPrompt != null
+          ? ArrivalEntranceCard(
+              onAnswer: _answerArrivalPrompt,
+              onSkip: _closeArrivalPrompt,
+            )
+          : alertObstacle != null
           ? RouteAlertCard(
               obstacle: alertObstacle,
               isSearching: _routeAlertSearching,
@@ -2020,6 +2112,7 @@ class _MapScreenState extends State<MapScreen> {
                 nearbyObstacles: _obstaclesNear(_endPoint!),
                 accessibility: _placeAccessibility,
                 isLoadingAccessibility: _isLoadingAccessibility,
+                entranceSummary: _entranceSummary,
                 onDirections: _openDirections,
                 onStart: _startFromPlace,
                 onShare: _sharePlace,

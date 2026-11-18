@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/entrance_report.dart';
 import '../models/place_accessibility.dart';
 import '../services/geocoding_service.dart' show formatDistance;
 import '../theme/app_theme.dart';
@@ -15,6 +16,7 @@ class PlaceSheet extends StatelessWidget {
     required this.nearbyObstacles,
     this.accessibility,
     this.isLoadingAccessibility = false,
+    this.entranceSummary = const EntranceSummary(),
     required this.onDirections,
     required this.onStart,
     required this.onShare,
@@ -35,6 +37,9 @@ class PlaceSheet extends StatelessWidget {
   /// Accessibilità da OpenStreetMap; `null` se non disponibile.
   final PlaceAccessibility? accessibility;
   final bool isLoadingAccessibility;
+
+  /// Risposte "Com'era l'ingresso?" di chi è già arrivato qui.
+  final EntranceSummary entranceSummary;
   final VoidCallback onDirections;
   final VoidCallback onStart;
   final VoidCallback onShare;
@@ -157,6 +162,31 @@ class PlaceSheet extends StatelessWidget {
                             ],
                           )
                         : AccessibilityFacts(info: accessibility!),
+                  ),
+                if (!entranceSummary.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8, right: 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.door_front_door_outlined,
+                          size: 18,
+                          color:
+                              entranceSummary.accessible >=
+                                  entranceSummary.steps
+                              ? colors.success
+                              : colors.warning,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            entranceSummary.label,
+                            style: textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 const SizedBox(height: 12),
                 SingleChildScrollView(

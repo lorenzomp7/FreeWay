@@ -147,13 +147,32 @@ service cloud.firestore {
       allow delete: if signedIn() && !existsAfter(reportPath(reportId));
     }
 
+    // "Com'era l'ingresso?": risposta di chi è arrivato a una destinazione.
+    // Si crea solo a proprio nome, con l'ora del server, e al massimo una
+    // ogni 60 secondi; non si modifica né si cancella.
+    match /ingressi/{answerId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['lat', 'lng', 'answer', 'timestamp', 'userId'])
+        && request.resource.data.keys().hasAll(['lat', 'lng', 'answer', 'timestamp', 'userId'])
+        && request.resource.data.lat is number
+        && request.resource.data.lat >= -90 && request.resource.data.lat <= 90
+        && request.resource.data.lng is number
+        && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
+        && request.resource.data.answer in ['accessibile', 'gradini', 'non_trovato']
+        && request.resource.data.timestamp == request.time
+        && request.resource.data.userId == request.auth.uid
+        && stampsNow('lastEntranceAt');
+    }
+
     match /limiti/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
       allow create, update: if signedIn()
         && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['lastReportAt', 'lastRemovalAt'])
+        && request.resource.data.keys().hasOnly(['lastReportAt', 'lastRemovalAt', 'lastEntranceAt'])
         && validStamp('lastReportAt', 30)
-        && validStamp('lastRemovalAt', 10);
+        && validStamp('lastRemovalAt', 10)
+        && validStamp('lastEntranceAt', 60);
     }
 
     // Tutto il resto del database è chiuso.

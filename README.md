@@ -107,6 +107,12 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   altrui vota, e quando almeno due persone hanno detto che l'ostacolo non c'è
   più (dopo l'ultima conferma) l'app smette di mostrarlo e di usarlo nei
   percorsi. Una conferma successiva lo fa ricomparire.
+- All'arrivo l'app chiede "Com'era l'ingresso?" (Accessibile, Con gradini,
+  Non l'ho trovato), anche a voce. La domanda si chiude da sola dopo 60
+  secondi e compare al massimo 2 volte al giorno e 5 alla settimana. Le
+  risposte vanno nella collezione `ingressi` di Firestore e la scheda del
+  luogo le riassume ("Ingresso secondo chi è arrivato qui: accessibile per 3
+  persone"), contando quelle entro 40 m e dell'ultimo anno.
 - Se l'app si chiude durante la navigazione, alla riapertura (entro 3 ore)
   chiede "Stai ancora andando a…?" e con "Riprendi" ricalcola il percorso
   dalla posizione attuale con lo stesso mezzo.
@@ -219,6 +225,10 @@ richieste; superato quello, l'app torna da sola a OSRM.
 - ognuno può fare al massimo una segnalazione ogni 30 secondi e una rimozione
   ogni 10 secondi (l'ora dell'ultima azione è nel documento `limiti/{uid}`,
   aggiornato nella stessa scrittura);
+- le risposte "Com'era l'ingresso?" (`ingressi/{id}`) hanno solo `lat`,
+  `lng`, `answer` (`accessibile`, `gradini` o `non_trovato`), `timestamp` e
+  `userId`, si creano a proprio nome al massimo una ogni 60 secondi
+  (`lastEntranceAt` in `limiti/{uid}`) e non si modificano né si cancellano;
 - le uniche modifiche ammesse sono "Confermo, c'è ancora" e il voto "Non c'è
   più": si aggiunge il proprio uid a `confirmedBy` o a `notThereBy`, una sola
   volta e non sulle proprie segnalazioni;
