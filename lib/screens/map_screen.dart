@@ -29,6 +29,7 @@ import '../services/saved_places_service.dart';
 import '../services/routing_service.dart';
 import '../services/trip_resume_service.dart';
 import '../services/weather_service.dart';
+import '../services/thanks_notifier.dart';
 import '../services/tts_service.dart';
 import '../services/voice_guidance.dart';
 import '../theme/app_theme.dart';
@@ -80,6 +81,7 @@ class _MapScreenState extends State<MapScreen> {
     FirebaseFirestore.instance,
   );
   final ArrivalQuestionPolicy _arrivalPolicy = ArrivalQuestionPolicy();
+  final ThanksNotifier _thanksNotifier = ThanksNotifier();
   final NavigationService _navigationService = NavigationService();
   final TtsService _ttsService = TtsService();
 
@@ -244,6 +246,7 @@ class _MapScreenState extends State<MapScreen> {
       if (!mounted) return;
       setState(() => _obstacles = active);
       _checkNewObstaclesOnRoute(active);
+      _announceNewThanks(obstacles);
     });
     _mapController.mapEventStream.listen((event) {
       if (!mounted) return;
@@ -1506,6 +1509,10 @@ class _MapScreenState extends State<MapScreen> {
       if (userId != null) await _confirmObstacle(obstacle, userId);
       return;
     }
+    if (action == ObstacleAction.thank) {
+      if (userId != null) await _thankReporter(obstacle, userId);
+      return;
+    }
     final vote = action.passVote;
     if (vote != null) {
       if (userId != null) await _votePass(obstacle, userId, vote);
@@ -1741,6 +1748,42 @@ class _MapScreenState extends State<MapScreen> {
     if (obstacle != null && userId != null) {
       await _votePass(obstacle, userId, vote);
     }
+  }
+
+  Future<void> _thankReporter(Obstacle obstacle, String userId) async {
+    try {
+      await _obstacleService.thank(obstacle.id, userId);
+      if (!mounted) return;
+      _showSnack(
+        'Grazie inviato a chi ha segnalato questo ostacolo.',
+        iconColor: AppColors.of(context).success,
+        icon: Icons.favorite_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile inviare il grazie. Riprova.',
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
+  /// Se le proprie segnalazioni hanno ricevuto nuovi grazie, lo dice.
+  Future<void> _announceNewThanks(List<Obstacle> obstacles) async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    final fresh = await _thanksNotifier.newThanks(
+      userId,
+      thanksReceived(obstacles, userId),
+    );
+    if (fresh == 0 || !mounted) return;
+    _showSnack(
+      fresh == 1
+          ? 'Una persona ti ha ringraziato per una tua segnalazione.'
+          : '$fresh persone ti hanno ringraziato per le tue segnalazioni.',
+      iconColor: AppColors.of(context).success,
+      icon: Icons.favorite_rounded,
+    );
   }
 
   Future<void> _votePass(

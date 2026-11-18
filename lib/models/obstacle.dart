@@ -97,6 +97,7 @@ class Obstacle {
     this.passYesBy = const [],
     this.passHardBy = const [],
     this.passNoBy = const [],
+    this.thankedBy = const [],
   }) : _storedCategory = category;
 
   final String id;
@@ -122,6 +123,9 @@ class Obstacle {
   final List<String> passYesBy;
   final List<String> passHardBy;
   final List<String> passNoBy;
+
+  /// Chi ha ringraziato l'autore della segnalazione.
+  final List<String> thankedBy;
 
   final String? _storedCategory;
 
@@ -155,11 +159,20 @@ class Obstacle {
       passYesBy: _uids(data[PassVote.yes.field]),
       passHardBy: _uids(data[PassVote.hard.field]),
       passNoBy: _uids(data[PassVote.no.field]),
+      thankedBy: _uids(data['thankedBy']),
     );
   }
 
   static List<String> _uids(Object? value) =>
       (value as List?)?.whereType<String>().toList() ?? const [];
+
+  /// [uid] può ringraziare chi ha segnalato: una volta, e solo se la
+  /// segnalazione è di qualcun altro e se ne conosce l'autore.
+  bool canBeThankedBy(String? uid) =>
+      uid != null &&
+      userId != null &&
+      !isReportedBy(uid) &&
+      !thankedBy.contains(uid);
 
   int get passVoteCount =>
       passYesBy.length + passHardBy.length + passNoBy.length;
@@ -309,4 +322,12 @@ class Obstacle {
     }
     return obstacleCategoryOf(type);
   }
+}
+
+/// Quanti "grazie" hanno ricevuto in tutto le segnalazioni di [userId].
+int thanksReceived(Iterable<Obstacle> obstacles, String? userId) {
+  if (userId == null) return 0;
+  return obstacles
+      .where((o) => o.isReportedBy(userId))
+      .fold(0, (sum, o) => sum + o.thankedBy.length);
 }

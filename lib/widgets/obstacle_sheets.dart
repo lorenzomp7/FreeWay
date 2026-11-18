@@ -50,6 +50,7 @@ typedef PhotoLoader = Future<Uint8List?> Function(String obstacleId);
 enum ObstacleAction {
   confirm,
   remove,
+  thank,
   passYes,
   passHard,
   passNo;
@@ -550,6 +551,28 @@ class ObstacleDetailsSheet extends StatelessWidget {
                           ],
                         ),
                       ],
+                      if (obstacle.thankedBy.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.favorite_border_rounded,
+                              color: colors.textTertiary,
+                              size: 15,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                thanksText(
+                                  obstacle.thankedBy.length,
+                                  mine: obstacle.isReportedBy(currentUserId),
+                                ),
+                                style: textTheme.bodySmall,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       if (obstacle.passLabel != null) ...[
                         const SizedBox(height: 6),
                         Row(
@@ -612,6 +635,15 @@ class ObstacleDetailsSheet extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 16),
+                ],
+                if (obstacle.canBeThankedBy(currentUserId)) ...[
+                  OutlinedButton.icon(
+                    onPressed: () =>
+                        Navigator.of(context).pop(ObstacleAction.thank),
+                    icon: const Icon(Icons.favorite_border_rounded, size: 19),
+                    label: const Text("Grazie a chi l'ha segnalato"),
+                  ),
+                  const SizedBox(height: 8),
                 ],
                 if (!obstacle.isReportedBy(currentUserId)) ...[
                   OutlinedButton.icon(
@@ -704,4 +736,15 @@ class _ObstaclePhotoState extends State<ObstaclePhoto> {
       },
     );
   }
+}
+
+/// Riga dei ringraziamenti: chi ha segnalato vede "ti hanno ringraziato".
+String thanksText(int count, {required bool mine}) {
+  final people = count == 1 ? '1 persona' : '$count persone';
+  if (mine) {
+    return count == 1
+        ? '1 persona ti ha ringraziato per questa segnalazione'
+        : '$people ti hanno ringraziato per questa segnalazione';
+  }
+  return 'Ringraziato da $people';
 }

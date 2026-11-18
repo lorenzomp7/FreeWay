@@ -104,6 +104,23 @@ service cloud.firestore {
         && request.auth.uid in after;
     }
 
+    // "Grazie" a chi ha segnalato: si aggiunge il proprio uid, una volta, a
+    // una segnalazione fatta da qualcun altro.
+    function validThank() {
+      let before = resource.data.get('thankedBy', []);
+      let after = request.resource.data.thankedBy;
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['thankedBy', 'lastThankAt'])
+        && request.resource.data.lastThankAt == request.time
+        && resource.data.get('userId', '') != request.auth.uid
+        && !(request.auth.uid in before)
+        && after is list
+        && after.size() == before.size() + 1
+        && after.size() <= 1000
+        && after.hasAll(before)
+        && request.auth.uid in after;
+    }
+
     // "Si riesce a passare in sedia a rotelle?": si aggiunge il proprio uid a
     // una sola delle tre liste (passYesBy, passHardBy, passNoBy), una volta,
     // su una segnalazione altrui.
@@ -141,9 +158,11 @@ service cloud.firestore {
         && stampsNow('lastReportAt');
 
       // Le uniche modifiche ammesse sono la conferma che l'ostacolo c'è
-      // ancora, il voto "non c'è più" e la risposta "si riesce a passare?".
+      // ancora, il voto "non c'è più", la risposta "si riesce a passare?" e
+      // il "grazie" a chi ha segnalato.
       allow update: if signedIn()
-        && (validConfirmation() || validNotThere() || validPassVote());
+        && (validConfirmation() || validNotThere() || validPassVote()
+          || validThank());
 
       // "L'ostacolo non c'è più": chi ha un account può rimuovere qualsiasi
       // segnalazione, un ospite solo le proprie; al massimo una ogni 10 secondi.

@@ -134,6 +134,14 @@ class ObstacleService {
     });
   }
 
+  /// [userId] ringrazia chi ha segnalato l'ostacolo.
+  Future<void> thank(String id, String userId) async {
+    await _collection.doc(id).update({
+      'thankedBy': FieldValue.arrayUnion([userId]),
+      'lastThankAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   /// Registra se secondo [userId] in sedia a rotelle si passa.
   Future<void> votePass(String id, String userId, PassVote vote) async {
     await _collection.doc(id).update({

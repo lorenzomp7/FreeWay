@@ -78,6 +78,15 @@ await check('due risposte insieme rifiutate', assertFails(updateDoc(doc(ctx('dan
 await check('risposta insieme ad altre modifiche rifiutata', assertFails(updateDoc(doc(ctx('dan', 'password'), 'segnalazioni/a1'), { passNoBy: arrayUnion('dan'), lastPassVoteAt: serverTimestamp(), type: 'Altro' })));
 await check('non autenticato non risponde', assertFails(pass(anon, 'x')));
 
+// --- "Grazie" a chi ha segnalato ---
+const thank = (db, uid, id = 'a1') => updateDoc(doc(db, 'segnalazioni/' + id), { thankedBy: arrayUnion(uid), lastThankAt: serverTimestamp() });
+await check('ospite ringrazia chi ha segnalato', assertSucceeds(thank(guest, 'guest1')));
+await check('secondo grazie dello stesso utente rifiutato', assertFails(thank(guest, 'guest1')));
+await check('autrice non ringrazia se stessa', assertFails(thank(alice, 'alice')));
+await check('grazie a nome di altri rifiutato', assertFails(thank(ctx('dan', 'password'), 'eve')));
+await check('grazie con ora del client rifiutato', assertFails(updateDoc(doc(guest2, 'segnalazioni/a1'), { thankedBy: arrayUnion('guest2'), lastThankAt: Timestamp.fromMillis(0) })));
+await check('grazie insieme ad altre modifiche rifiutato', assertFails(updateDoc(doc(guest2, 'segnalazioni/a1'), { thankedBy: arrayUnion('guest2'), lastThankAt: serverTimestamp(), type: 'Altro' })));
+
 // --- rimozione e limite di frequenza ---
 await check('ospite non cancella altrui', assertFails(remove(guest2, 'guest2', 'a1')));
 await check('ospite cancella la propria', assertSucceeds(remove(guest, 'guest1', 'g1')));
