@@ -38,6 +38,12 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
      da solo e si sceglie il mezzo: "Sedia a rotelle" o "A piedi". Ogni
      campo propone "La tua posizione", "Scegli sulla mappa" (sposti la mappa
      sotto il segnaposto e premi "Fatto") e le ricerche recenti.
+- Filtri di accessibilità nella ricerca: toccando la casella della
+  destinazione compaiono "Accessibili in sedia a rotelle", "Parcheggi
+  disabili" e "Bagni accessibili". Scelto un filtro, l'app cerca su
+  OpenStreetMap (tramite Overpass) i luoghi segnati così entro 800 m dal
+  centro della mappa e li elenca dai più vicini; toccandone uno si apre la
+  sua scheda come per gli altri risultati.
 - Una nuova ricerca può partire anche se la precedente è ancora in corso. Le
   ricerche già fatte restano in memoria. Nominatim restituisce l'indirizzo
   dei punti scelti sulla mappa.

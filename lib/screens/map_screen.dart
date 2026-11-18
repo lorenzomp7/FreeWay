@@ -22,6 +22,7 @@ import '../services/geocoding_service.dart';
 import '../services/location_service.dart';
 import '../services/navigation_service.dart';
 import '../services/obstacle_alerts.dart';
+import '../services/nearby_accessible_service.dart';
 import '../services/obstacle_service.dart';
 import '../services/position_filter.dart';
 import '../services/place_accessibility_service.dart';
@@ -86,6 +87,9 @@ class _MapScreenState extends State<MapScreen> {
   final ArrivalQuestionPolicy _arrivalPolicy = ArrivalQuestionPolicy();
   final ThanksNotifier _thanksNotifier = ThanksNotifier();
   final SpeechInput _speechInput = SpeechInput();
+  final NearbyAccessibleService _nearbyService = NearbyAccessibleService();
+  NearbySearch _nearby = const NearbySearch();
+  int _nearbyRequest = 0;
   bool _isListening = false;
 
   /// Segnalazione detta a voce in attesa di conferma: punto, frase capita e
@@ -1525,6 +1529,23 @@ class _MapScreenState extends State<MapScreen> {
     await _reportObstacle(point);
   }
 
+  /// Filtri di accessibilità della ricerca: cerca su OpenStreetMap nella
+  /// zona inquadrata dalla mappa. Con `null` il filtro si toglie.
+  Future<void> _searchNearby(NearbyFilter? filter) async {
+    final request = ++_nearbyRequest;
+    if (filter == null) {
+      setState(() => _nearby = const NearbySearch());
+      return;
+    }
+    setState(() => _nearby = NearbySearch(filter: filter, isLoading: true));
+    final results = await _nearbyService.search(
+      filter,
+      _mapController.camera.center,
+    );
+    if (!mounted || request != _nearbyRequest) return;
+    setState(() => _nearby = NearbySearch(filter: filter, results: results));
+  }
+
   /// "Segnala a voce": si dice il tipo di ostacolo ("gradino", "auto sul
   /// marciapiede") e l'app chiede conferma prima di salvarlo nella
   /// posizione in cui ci si trovava quando si è parlato.
@@ -2119,6 +2140,8 @@ class _MapScreenState extends State<MapScreen> {
               onUseMyLocation: _useMyLocation,
               onChooseOnMap: _chooseOnMap,
               onPaste: _pasteAddress,
+              nearby: _nearby,
+              onNearbyFilter: _searchNearby,
               onClear: _clearPoint,
               onSwap: _swapPoints,
               onCalculate: _calculateRoute,
