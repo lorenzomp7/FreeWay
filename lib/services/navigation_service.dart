@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../models/route_option.dart';
 import 'geo_utils.dart';
+import 'position_filter.dart';
 import 'route_progress.dart';
 
 /// Stato della navigazione passo-passo.
@@ -67,6 +68,9 @@ class NavigationService {
   RouteOption? _route;
   RouteTracker? _tracker;
   final OffRouteDetector _offRoute = OffRouteDetector();
+
+  /// Scarta posizioni vecchie, molto meno precise o con salti impossibili.
+  final PositionFilter _filter = PositionFilter();
   StreamSubscription<Position>? _positionSubscription;
   final StreamController<NavigationUpdate> _controller =
       StreamController<NavigationUpdate>.broadcast();
@@ -82,6 +86,7 @@ class NavigationService {
     _route = route;
     _tracker = RouteTracker(route.points, route.steps);
     _offRoute.reset();
+    _filter.reset();
     try {
       _positionSubscription =
           Geolocator.getPositionStream(
@@ -89,13 +94,14 @@ class NavigationService {
               accuracy: LocationAccuracy.high,
               distanceFilter: 5,
             ),
-          ).listen(
-            (position) => handlePosition(
+          ).listen((position) {
+            final fix = PositionFix(
               LatLng(position.latitude, position.longitude),
               position.accuracy.isFinite ? position.accuracy : 0,
-            ),
-            onError: _controller.addError,
-          );
+              position.timestamp,
+            );
+            if (_filter.accept(fix)) handlePosition(fix.position, fix.accuracy);
+          }, onError: _controller.addError);
     } catch (error, stackTrace) {
       _controller.addError(error, stackTrace);
     }

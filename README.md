@@ -78,6 +78,13 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   "Segnale GPS perso" (anche a voce) e poi "Segnale GPS ritrovato". Se la
   posizione non si trova l'app distingue il permesso negato dal segnale
   assente e suggerisce di spostarsi all'aperto.
+- Filtro della posizione: si usa solo una posizione più recente
+  dell'ultima e, finché l'ultima è fresca, si scartano quelle molto meno
+  precise (per esempio una stima dalla rete dopo un buon fix GPS) e i salti
+  impossibili da raggiungere a 8 m/s tenendo conto dell'incertezza. Dopo
+  tre scarti di fila la posizione si accetta comunque. Fuori dalla
+  navigazione una stima dalla rete non sostituisce un fix GPS degli ultimi 2
+  minuti.
 - Avvisi sul percorso, come "This route has stairs" o "Steep hill" di Google
   Maps: con OpenRouteService l'app chiede pendenza, fondo stradale e tipo di
   via e segnala gradini, salite e discese oltre il 7%, pendenze del 4–6% e

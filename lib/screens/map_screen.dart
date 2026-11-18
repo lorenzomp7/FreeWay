@@ -23,6 +23,7 @@ import '../services/location_service.dart';
 import '../services/navigation_service.dart';
 import '../services/obstacle_alerts.dart';
 import '../services/obstacle_service.dart';
+import '../services/position_filter.dart';
 import '../services/place_accessibility_service.dart';
 import '../services/recent_places_service.dart';
 import '../services/saved_places_service.dart';
@@ -82,6 +83,13 @@ class _MapScreenState extends State<MapScreen> {
   );
   final ArrivalQuestionPolicy _arrivalPolicy = ArrivalQuestionPolicy();
   final ThanksNotifier _thanksNotifier = ThanksNotifier();
+
+  /// Una posizione stimata dalla rete non sostituisce un buon fix GPS
+  /// ottenuto da poco.
+  final PositionFilter _userFix = PositionFilter(
+    staleAfter: const Duration(minutes: 2),
+    maxSpeed: 50,
+  );
   final NavigationService _navigationService = NavigationService();
   final TtsService _ttsService = TtsService();
 
@@ -1151,6 +1159,9 @@ class _MapScreenState extends State<MapScreen> {
       _navigationUpdate = update;
       _userLocation = update.position;
       _userAccuracy = update.accuracy > 0 ? update.accuracy : null;
+      _userFix.remember(
+        PositionFix(update.position, update.accuracy, DateTime.now()),
+      );
       _gpsSignalLost = false;
       // Le tappe raggiunte non servono più a un eventuale ricalcolo.
       _stops = _stops
@@ -1310,6 +1321,15 @@ class _MapScreenState extends State<MapScreen> {
     if (!mounted) return;
     setState(() => _isLocatingUser = false);
     final position = result.position;
+    if (position != null &&
+        !_userFix.accept(
+          PositionFix(position, result.accuracy ?? 0, DateTime.now()),
+        )) {
+      // Resta la posizione precedente, più precisa e ancora recente.
+      final kept = _userLocation;
+      if (kept != null) _mapController.move(kept, 16);
+      return;
+    }
     if (position != null) {
       setState(() {
         _userLocation = _center = position;
