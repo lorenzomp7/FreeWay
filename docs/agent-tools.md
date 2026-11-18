@@ -146,9 +146,10 @@ fallimenti. Non pubblica il sito e non richiede chiavi AI.
 - Vibetest: import riuscito e protocollo MCP verificato con `initialize` e
   `tools/list`; nessuna chiamata al modello AI durante questa verifica.
 - Test browser Playwright superati su GitHub su desktop e telefono (prima
-  esecuzione del workflow `agent-qa.yml`, commit `c3ac909`). In locale l'app
-  si avvia solo se il browser raggiunge `www.gstatic.com`, da cui arrivano
-  Firebase e CanvasKit.
+  esecuzione del workflow `agent-qa.yml`, commit `c3ac909`) e in un ambiente
+  cloud di Claude Code con Chromium 153, sia con la build in `/` sia sotto
+  `/FreeWay/`. L'app si avvia solo se il browser raggiunge `www.gstatic.com`,
+  da cui arrivano Firebase e CanvasKit.
 - Container Use richiede Docker e un compilatore Go autentico, assenti
   nell'ambiente di verifica; configurato ma non collaudato in esecuzione.
 - Syncfusion resta un checkout opzionale di esempi, senza dipendenze nell'app.

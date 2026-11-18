@@ -8,7 +8,10 @@ test('accesso visibile e utilizzabile con tastiera e schermo piccolo', async ({ 
   await expect(page.getByRole('button', { name: 'Continua come ospite' })).toBeVisible();
   const email = page.getByRole('textbox', { name: /email/i });
   await expect(email).toBeVisible();
-  await email.fill('qa@example.invalid');
+  // Flutter accetta il testo solo dalla tastiera: fill() lascia il campo vuoto
+  // con alcune versioni di Chromium.
+  await email.click();
+  await email.pressSequentially('qa@example.invalid');
   await expect(email).toHaveValue('qa@example.invalid');
   await email.press('Tab');
   await expect(email).not.toBeFocused();
