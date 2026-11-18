@@ -13,10 +13,19 @@ service cloud.firestore {
       return request.auth.token.firebase.sign_in_provider == 'anonymous';
     }
 
+    function reportPath(reportId) {
+      return /databases/$(database)/documents/segnalazioni/$(reportId);
+    }
+
+    function photoPath(reportId) {
+      return /databases/$(database)/documents/foto/$(reportId);
+    }
+
     // Una segnalazione valida ha i campi scritti dall'app; la categoria è
-    // facoltativa perché le versioni precedenti non la salvavano.
-    function validReport(data) {
-      return data.keys().hasOnly(['lat', 'lng', 'type', 'category', 'timestamp', 'userId'])
+    // facoltativa perché le versioni precedenti non la salvavano. Con
+    // hasPhoto la foto va salvata nella stessa scrittura.
+    function validReport(data, reportId) {
+      return data.keys().hasOnly(['lat', 'lng', 'type', 'category', 'timestamp', 'userId', 'hasPhoto'])
         && data.keys().hasAll(['lat', 'lng', 'type', 'timestamp', 'userId'])
         && (!('category' in data) || data.category in [
           'Dislivello e pavimentazione',
@@ -29,7 +38,9 @@ service cloud.firestore {
         && data.lng is number && data.lng >= -180 && data.lng <= 180
         && data.type is string && data.type.size() > 0 && data.type.size() <= 100
         && data.timestamp == request.time
-        && data.userId == request.auth.uid;
+        && data.userId == request.auth.uid
+        && (!('hasPhoto' in data)
+          || (data.hasPhoto == true && existsAfter(photoPath(reportId))));
     }
 
     // --- Limite di frequenza -------------------------------------------------
@@ -100,7 +111,7 @@ service cloud.firestore {
       // Si crea solo a proprio nome, con l'ora del server e campi validi, e al
       // massimo una segnalazione ogni 30 secondi.
       allow create: if signedIn()
-        && validReport(request.resource.data)
+        && validReport(request.resource.data, reportId)
         && stampsNow('lastReportAt');
 
       // Le uniche modifiche ammesse sono la conferma che l'ostacolo c'è
@@ -112,6 +123,28 @@ service cloud.firestore {
       allow delete: if signedIn()
         && (!isGuest() || resource.data.userId == request.auth.uid)
         && stampsNow('lastRemovalAt');
+    }
+
+    // Foto di una segnalazione, compressa dall'app (JPEG in base64, meno di
+    // circa 500 KB). Sta in una collezione a parte perché la mappa carica le
+    // segnalazioni senza le foto, che si leggono solo aprendo la scheda.
+    match /foto/{reportId} {
+      allow read: if signedIn();
+
+      // Solo insieme alla propria segnalazione, nella stessa scrittura.
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['data', 'userId', 'timestamp'])
+        && request.resource.data.data is string
+        && request.resource.data.data.size() > 0
+        && request.resource.data.data.size() <= 700000
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.timestamp == request.time
+        && !exists(reportPath(reportId))
+        && getAfter(reportPath(reportId)).data.userId == request.auth.uid
+        && getAfter(reportPath(reportId)).data.get('hasPhoto', false) == true;
+
+      // Si cancella solo insieme alla segnalazione.
+      allow delete: if signedIn() && !existsAfter(reportPath(reportId));
     }
 
     match /limiti/{uid} {

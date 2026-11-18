@@ -1,16 +1,50 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/obstacle.dart';
+import '../services/obstacle_service.dart';
 import '../theme/app_theme.dart';
 import 'common.dart';
 
-/// Chiede il tipo di ostacolo da segnalare; restituisce `null` se annullato.
-Future<String?> showReportObstacleSheet(BuildContext context) {
-  return showAppBottomSheet<String>(
+/// Tipo di ostacolo scelto e, se c'è, la foto.
+class ReportDraft {
+  const ReportDraft(this.type, {this.photo});
+
+  final String type;
+  final Uint8List? photo;
+}
+
+/// Scatta o sceglie una foto; `null` se annullato.
+typedef PhotoPicker = Future<Uint8List?> Function(ImageSource source);
+
+/// Foto ridotta a 1280 px e compressa, così resta sotto il limite delle
+/// regole di Firestore anche quando viene da una fotocamera moderna.
+Future<Uint8List?> pickReportPhoto(ImageSource source) async {
+  final file = await ImagePicker().pickImage(
+    source: source,
+    maxWidth: 1280,
+    maxHeight: 1280,
+    imageQuality: 70,
+  );
+  return file?.readAsBytes();
+}
+
+/// Chiede il tipo di ostacolo da segnalare e una foto facoltativa;
+/// restituisce `null` se annullato.
+Future<ReportDraft?> showReportObstacleSheet(
+  BuildContext context, {
+  PhotoPicker pickPhoto = pickReportPhoto,
+}) {
+  return showAppBottomSheet<ReportDraft>(
     context,
-    (_) => const ReportObstacleSheet(),
+    (_) => ReportObstacleSheet(pickPhoto: pickPhoto),
   );
 }
+
+/// Carica la foto di una segnalazione.
+typedef PhotoLoader = Future<Uint8List?> Function(String obstacleId);
 
 /// Azione scelta nella scheda di un ostacolo.
 enum ObstacleAction { confirm, remove }
@@ -20,12 +54,14 @@ Future<ObstacleAction?> showObstacleDetailsSheet(
   BuildContext context,
   Obstacle obstacle, {
   String? currentUserId,
+  PhotoLoader? loadPhoto,
 }) {
   return showAppBottomSheet<ObstacleAction>(
     context,
     (_) => ObstacleDetailsSheet(
       obstacle: obstacle,
       currentUserId: currentUserId,
+      loadPhoto: loadPhoto,
     ),
   );
 }
@@ -87,7 +123,9 @@ String timeAgo(DateTime date, {DateTime? now}) {
 }
 
 class ReportObstacleSheet extends StatefulWidget {
-  const ReportObstacleSheet({super.key});
+  const ReportObstacleSheet({super.key, this.pickPhoto = pickReportPhoto});
+
+  final PhotoPicker pickPhoto;
 
   @override
   State<ReportObstacleSheet> createState() => _ReportObstacleSheetState();
@@ -95,6 +133,110 @@ class ReportObstacleSheet extends StatefulWidget {
 
 class _ReportObstacleSheetState extends State<ReportObstacleSheet> {
   String? _selected;
+  Uint8List? _photo;
+  bool _pickingPhoto = false;
+
+  Future<void> _addPhoto(ImageSource source) async {
+    setState(() => _pickingPhoto = true);
+    Uint8List? bytes;
+    try {
+      bytes = await widget.pickPhoto(source);
+    } catch (_) {
+      bytes = null;
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(content: Text('Non è stato possibile aprire la foto.')),
+        );
+      }
+    }
+    if (!mounted) return;
+    if (bytes != null && !ObstacleService.photoFits(bytes)) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('La foto è troppo grande: prova con un\'altra.'),
+        ),
+      );
+      bytes = null;
+    }
+    setState(() {
+      _pickingPhoto = false;
+      if (bytes != null) _photo = bytes;
+    });
+  }
+
+  Widget _photoSection(BuildContext context, AppColors colors) {
+    final textTheme = Theme.of(context).textTheme;
+    final photo = _photo;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              Icon(Icons.photo_camera_outlined, color: colors.textTertiary, size: 16),
+              const SizedBox(width: 8),
+              Text('FOTO (FACOLTATIVA)', style: textTheme.labelSmall),
+            ],
+          ),
+        ),
+        if (photo != null)
+          Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Image.memory(
+                  photo,
+                  height: 160,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  semanticLabel: 'Foto dell\'ostacolo',
+                ),
+              ),
+              Positioned(
+                top: 6,
+                right: 6,
+                child: IconButton.filledTonal(
+                  tooltip: 'Togli la foto',
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  onPressed: () => setState(() => _photo = null),
+                ),
+              ),
+            ],
+          )
+        else if (_pickingPhoto)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => _addPhoto(ImageSource.camera),
+                icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                label: const Text('Scatta una foto'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => _addPhoto(ImageSource.gallery),
+                icon: const Icon(Icons.photo_library_outlined, size: 18),
+                label: const Text('Scegli dalla galleria'),
+              ),
+            ],
+          ),
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            'Aiuta gli altri a capire l\'ostacolo. Non inquadrare persone '
+            'né targhe: la foto è visibile a chi usa FreeWay.',
+            style: textTheme.bodySmall?.copyWith(color: colors.textTertiary),
+          ),
+        ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -129,6 +271,7 @@ class _ReportObstacleSheetState extends State<ReportObstacleSheet> {
       }
       items.add(const SizedBox(height: 12));
     }
+    items.add(_photoSection(context, colors));
 
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: screen.height * 0.85),
@@ -165,9 +308,10 @@ class _ReportObstacleSheetState extends State<ReportObstacleSheet> {
                 Expanded(
                   flex: 2,
                   child: FilledButton.icon(
-                    onPressed: _selected == null
+                    onPressed: _selected == null || _pickingPhoto
                         ? null
-                        : () => Navigator.of(context).pop(_selected),
+                        : () => Navigator.of(context)
+                            .pop(ReportDraft(_selected!, photo: _photo)),
                     icon: const Icon(Icons.send_rounded, size: 18),
                     label: const Text('Invia segnalazione'),
                   ),
@@ -255,10 +399,14 @@ class ObstacleDetailsSheet extends StatelessWidget {
     super.key,
     required this.obstacle,
     this.currentUserId,
+    this.loadPhoto,
   });
 
   final Obstacle obstacle;
   final String? currentUserId;
+
+  /// Per leggere la foto, se la segnalazione ne ha una.
+  final PhotoLoader? loadPhoto;
 
   String get _formattedDate {
     final date = obstacle.reportedAt;
@@ -319,6 +467,12 @@ class ObstacleDetailsSheet extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      if (obstacle.hasPhoto && loadPhoto != null) ...[
+                        ObstaclePhoto(
+                          load: () => loadPhoto!(obstacle.id),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       Text(obstacle.type, style: textTheme.titleMedium),
                       const SizedBox(height: 12),
                       Row(
@@ -434,6 +588,60 @@ class ObstacleDetailsSheet extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Foto della segnalazione, caricata solo quando si apre la scheda.
+class ObstaclePhoto extends StatefulWidget {
+  const ObstaclePhoto({super.key, required this.load});
+
+  final Future<Uint8List?> Function() load;
+
+  @override
+  State<ObstaclePhoto> createState() => _ObstaclePhotoState();
+}
+
+class _ObstaclePhotoState extends State<ObstaclePhoto> {
+  late final Future<Uint8List?> _photo = widget.load();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    Widget placeholder(Widget child) => Container(
+          height: 180,
+          width: double.infinity,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: child,
+        );
+    final unavailable = placeholder(
+      Text('Foto non disponibile', style: textTheme.bodySmall),
+    );
+    return FutureBuilder<Uint8List?>(
+      future: _photo,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return placeholder(const CircularProgressIndicator());
+        }
+        final bytes = snapshot.data;
+        if (bytes == null) return unavailable;
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Image.memory(
+            bytes,
+            height: 180,
+            width: double.infinity,
+            fit: BoxFit.cover,
+            semanticLabel: 'Foto dell\'ostacolo segnalato',
+            errorBuilder: (_, _, _) => unavailable,
+          ),
+        );
+      },
     );
   }
 }

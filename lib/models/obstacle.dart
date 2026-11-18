@@ -80,6 +80,7 @@ class Obstacle {
     this.lastConfirmedAt,
     this.notThereBy = const [],
     this.lastNotThereAt,
+    this.hasPhoto = false,
   }) : _storedCategory = category;
 
   final String id;
@@ -97,6 +98,9 @@ class Obstacle {
   /// Chi ha detto "non c'è più" senza poterlo rimuovere (gli ospiti).
   final List<String> notThereBy;
   final DateTime? lastNotThereAt;
+
+  /// C'è una foto in `foto/{id}`, da caricare solo aprendo la scheda.
+  final bool hasPhoto;
 
   final String? _storedCategory;
 
@@ -126,6 +130,7 @@ class Obstacle {
           (data['notThereBy'] as List?)?.whereType<String>().toList() ??
           const [],
       lastNotThereAt: notThere is Timestamp ? notThere.toDate() : null,
+      hasPhoto: data['hasPhoto'] == true,
     );
   }
 

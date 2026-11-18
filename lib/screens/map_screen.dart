@@ -454,6 +454,14 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
     final name = kind == SavedKind.home ? 'Casa' : 'Lavoro';
+    // Il cursore torna nella casella, pronto per scrivere l'indirizzo. Sul
+    // web il tocco sul pulsante sposta il focus della pagina: si toglie e si
+    // rimette, così la tastiera torna a scrivere nella casella.
+    final focus = isStart ? _startFocus : _endFocus;
+    focus.unfocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) focus.requestFocus();
+    });
     _showSnack(
       'Cerca il tuo indirizzo, poi nella sua scheda premi «Salva» e scegli '
       '«$name».',
@@ -1297,8 +1305,9 @@ class _MapScreenState extends State<MapScreen> {
       );
       return;
     }
-    final type = await showReportObstacleSheet(context);
-    if (type == null || !mounted) return;
+    final draft = await showReportObstacleSheet(context);
+    if (draft == null || !mounted) return;
+    final type = draft.type;
     final userId = FirebaseAuth.instance.currentUser?.uid;
     if (userId == null) return;
 
@@ -1318,8 +1327,14 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
+    bool photoSaved;
     try {
-      await _obstacleService.add(point, type, userId);
+      photoSaved = await _obstacleService.add(
+        point,
+        type,
+        userId,
+        photo: draft.photo,
+      );
       _lastReportAt = DateTime.now();
     } on FirebaseException catch (error) {
       if (!mounted) return;
@@ -1339,6 +1354,15 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
     if (!mounted) return;
+    if (!photoSaved) {
+      _showSnack(
+        'Ostacolo segnalato, ma la foto non è stata salvata. Grazie per il '
+        'contributo!',
+        iconColor: AppColors.of(context).warning,
+        icon: Icons.no_photography_outlined,
+      );
+      return;
+    }
     _showSnack(
       'Ostacolo segnalato. Grazie per il contributo!',
       iconColor: AppColors.of(context).success,
@@ -1386,6 +1410,7 @@ class _MapScreenState extends State<MapScreen> {
       context,
       obstacle,
       currentUserId: userId,
+      loadPhoto: _obstacleService.loadPhoto,
     );
     if (action == null || !mounted) return;
     if (action == ObstacleAction.confirm) {
@@ -1419,7 +1444,11 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
     try {
-      await _obstacleService.remove(obstacle.id, userId);
+      await _obstacleService.remove(
+        obstacle.id,
+        userId,
+        hasPhoto: obstacle.hasPhoto,
+      );
       _lastRemovalAt = DateTime.now();
       if (!mounted) return;
       _showSnack(

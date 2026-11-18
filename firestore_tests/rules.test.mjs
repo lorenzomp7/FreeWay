@@ -75,6 +75,36 @@ await age('alice', 'lastRemovalAt', 11);
 await check('rimozione dopo 11 s accettata', assertSucceeds(remove(alice, 'alice', 's2')));
 await check('rimozione non cambia il limite delle segnalazioni', (async () => { await age('alice', 'lastReportAt', 60); await assertSucceeds(add(alice, 'alice', 'a9')); })());
 
+// --- foto ---
+const photo = (uid, extra = {}) => ({ data: '/9j/4AAQSkZJRg==', userId: uid, timestamp: serverTimestamp(), ...extra });
+const addWithPhoto = (db, uid, id, { reportData, photoData, withPhoto = true } = {}) => {
+  const b = writeBatch(db);
+  b.set(doc(db, 'segnalazioni/' + id), reportData ?? report(uid, { hasPhoto: true }));
+  if (withPhoto) b.set(doc(db, 'foto/' + id), photoData ?? photo(uid));
+  b.set(doc(db, 'limiti/' + uid), { lastReportAt: serverTimestamp() }, { merge: true });
+  return b.commit();
+};
+const fresh = () => age('alice', 'lastReportAt', 60);
+await fresh();
+await check('segnalazione con foto accettata', assertSucceeds(addWithPhoto(alice, 'alice', 'p1')));
+await check('ospite legge la foto', assertSucceeds(getDocs(collection(guest, 'foto'))));
+await check('non autenticato non legge le foto', assertFails(getDocs(collection(anon, 'foto'))));
+await fresh();
+await check('hasPhoto senza foto rifiutato', assertFails(addWithPhoto(alice, 'alice', 'p2', { withPhoto: false })));
+await fresh();
+await check('foto senza hasPhoto rifiutata', assertFails(addWithPhoto(alice, 'alice', 'p3', { reportData: report('alice') })));
+await fresh();
+await check('foto a nome di altri rifiutata', assertFails(addWithPhoto(alice, 'alice', 'p4', { photoData: photo('bob') })));
+await fresh();
+await check('foto troppo grande rifiutata', assertFails(addWithPhoto(alice, 'alice', 'p5', { photoData: photo('alice', { data: 'a'.repeat(700001) }) })));
+await fresh();
+await check('foto con campo extra rifiutata', assertFails(addWithPhoto(alice, 'alice', 'p6', { photoData: photo('alice', { extra: 1 }) })));
+await check('foto aggiunta a segnalazione esistente rifiutata', assertFails(setDoc(doc(alice, 'foto/a9'), photo('alice'))));
+await check('foto sovrascritta rifiutata', assertFails(setDoc(doc(guest, 'foto/p1'), photo('guest1'))));
+await check('foto cancellata da sola rifiutata', assertFails(writeBatch(alice).delete(doc(alice, 'foto/p1')).commit()));
+await age('alice', 'lastRemovalAt', 11);
+await check('foto cancellata con la segnalazione', assertSucceeds((() => { const b = writeBatch(alice); b.delete(doc(alice, 'segnalazioni/p1')); b.delete(doc(alice, 'foto/p1')); b.set(doc(alice, 'limiti/alice'), { lastRemovalAt: serverTimestamp() }, { merge: true }); return b.commit(); })()));
+
 await check('altre collezioni chiuse', assertFails(setDoc(doc(alice, 'utenti/alice'), { a: 1 })));
 await env.cleanup();
 console.log(`\n${ok} passati, ${fail} falliti`);

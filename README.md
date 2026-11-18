@@ -100,11 +100,34 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
 - Se l'app si chiude durante la navigazione, alla riapertura (entro 3 ore)
   chiede "Stai ancora andando a…?" e con "Riprendi" ricalcola il percorso
   dalla posizione attuale con lo stesso mezzo.
-- "Bagni accessibili lungo il percorso" nella scheda dei percorsi: cerca su
-  OpenStreetMap (tramite Overpass) i bagni accessibili in sedia a rotelle
-  entro 80 m dal tracciato e li mostra sulla mappa, con la distanza dalla
+- "Cerca lungo il percorso" nella scheda dei percorsi, come "Search along
+  route" di Google Maps: bagni accessibili in sedia a rotelle, panchine (anche
+  le fermate con panchina) e fontanelle entro 80 m dal tracciato, cercati su
+  OpenStreetMap tramite Overpass e mostrati sulla mappa con la distanza dalla
   partenza. La scheda ricorda anche che i percorsi possono non riflettere le
   condizioni reali della strada.
+- Tappe intermedie: toccando un bagno, una panchina o una fontanella lungo il
+  percorso lo si aggiunge come tappa (fino a 3). Il percorso passa dalle
+  tappe, che si tolgono dalla scheda; in navigazione l'app dice "Hai
+  raggiunto la tappa".
+- Avvisi meteo con Open-Meteo (gratuito, senza chiave): con pioggia, neve,
+  temperature vicine allo zero o caldo intenso la scheda dei percorsi lo dice
+  (rampe scivolose, ghiaccio, fontanelle) e la navigazione lo ripete a voce
+  alla partenza.
+- Impostazioni della voce in navigazione: voce sì o no, lingua, volume
+  (bassa, media, alta) e velocità (lenta, normale, veloce), con "Prova la
+  voce". Le scelte restano sul dispositivo. Toccando l'istruzione la si
+  riascolta.
+- Casa, Lavoro e luoghi salvati, come in Google Maps: nella scheda del luogo
+  "Salva" lo memorizza come Casa, Lavoro o con un nome a scelta. Toccando la
+  casella di ricerca compaiono le scorciatoie Casa e Lavoro e i luoghi
+  salvati; mentre si scrive i salvati vengono per primi. Restano sul
+  dispositivo, come le ricerche recenti.
+- Foto nelle segnalazioni: si può scattare o scegliere una foto
+  dell'ostacolo. L'app la riduce a 1280 px e la comprime, poi la salva nella
+  collezione `foto` di Firestore insieme alla segnalazione; si vede aprendo la
+  scheda dell'ostacolo. La scheda ricorda di non inquadrare persone né
+  targhe.
 - Sotto la casella di ricerca, "Incolla l'indirizzo copiato" mette nel campo
   il testo degli appunti e lo cerca.
 - Se durante la navigazione qualcuno segnala un ostacolo sul tratto ancora da
@@ -177,7 +200,12 @@ richieste; superato quello, l'app torna da sola a OSRM.
 - solo gli utenti che hanno fatto accesso (anche come ospiti) le vedono;
 - una segnalazione si crea solo a proprio nome, con l'ora del server e con i
   soli campi `lat`, `lng`, `type`, `category` (facoltativo), `timestamp`,
-  `userId` validi;
+  `userId` e `hasPhoto` (facoltativo) validi;
+- la foto (`foto/{id}`) si salva solo nella stessa scrittura della propria
+  segnalazione con `hasPhoto`, è lunga al massimo 700.000 caratteri in base64
+  (circa 500 KB), non si modifica e si cancella solo insieme alla
+  segnalazione. Le foto stanno in Firestore e non in Firebase Storage, che
+  ora richiede il piano a pagamento Blaze;
 - ognuno può fare al massimo una segnalazione ogni 30 secondi e una rimozione
   ogni 10 secondi (l'ora dell'ultima azione è nel documento `limiti/{uid}`,
   aggiornato nella stessa scrittura);
