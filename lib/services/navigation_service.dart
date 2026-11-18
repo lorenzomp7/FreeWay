@@ -26,6 +26,7 @@ class NavigationUpdate {
     this.remainingDistance = 0,
     this.distanceFromRoute = 0,
     this.snappedPosition,
+    this.speed = 0,
   });
 
   final LatLng position;
@@ -61,6 +62,9 @@ class NavigationUpdate {
 
   /// Punto del tracciato più vicino alla posizione.
   final LatLng? snappedPosition;
+
+  /// Velocità in metri al secondo, 0 se non nota.
+  final double speed;
 }
 
 /// Segue la posizione GPS durante la navigazione e calcola la manovra corrente.
@@ -100,7 +104,15 @@ class NavigationService {
               position.accuracy.isFinite ? position.accuracy : 0,
               position.timestamp,
             );
-            if (_filter.accept(fix)) handlePosition(fix.position, fix.accuracy);
+            if (_filter.accept(fix)) {
+              handlePosition(
+                fix.position,
+                fix.accuracy,
+                speed: position.speed.isFinite && position.speed > 0
+                    ? position.speed
+                    : 0,
+              );
+            }
           }, onError: _controller.addError);
     } catch (error, stackTrace) {
       _controller.addError(error, stackTrace);
@@ -133,7 +145,11 @@ class NavigationService {
 
   /// Calcola lo stato per una nuova posizione e lo manda su [updates].
   @visibleForTesting
-  NavigationUpdate? handlePosition(LatLng current, double accuracy) {
+  NavigationUpdate? handlePosition(
+    LatLng current,
+    double accuracy, {
+    double speed = 0,
+  }) {
     final route = _route;
     final tracker = _tracker;
     if (route == null || tracker == null || route.steps.isEmpty) return null;
@@ -172,6 +188,7 @@ class NavigationService {
       remainingDistance: remaining,
       distanceFromRoute: fix.offset,
       snappedPosition: fix.snapped,
+      speed: speed,
     );
     _controller.add(update);
     return update;

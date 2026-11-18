@@ -46,7 +46,10 @@ class VoiceGuidance {
   }
 
   /// La frase da dire per [update], oppure `null` se non c'è nulla di nuovo.
-  String? next(NavigationUpdate update, String language) {
+  ///
+  /// Con [brief] si dice solo la manovra quando è il momento (con il "poi"),
+  /// l'arrivo e il fuori percorso: niente "Prosegui per" né "Tra 100 metri".
+  String? next(NavigationUpdate update, String language, {bool brief = false}) {
     final it = language == 'it';
     if (update.hasArrived) {
       if (_arrivedSaid) return null;
@@ -86,6 +89,8 @@ class VoiceGuidance {
       }
       return text;
     }
+
+    if (brief) return null;
 
     if (distance <= prepareDistance) {
       if (!_said.add(_Stage.prepare)) return null;

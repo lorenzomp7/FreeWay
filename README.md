@@ -66,8 +66,11 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   Si è fuori percorso solo con due posizioni di fila oltre 30–70 m dal
   tracciato (la soglia cresce con l'incertezza del GPS; con più di ±60 m la
   posizione non decide), e si ricalcola al massimo ogni 10 secondi. Un
-  ostacolo segnalato sul percorso viene annunciato a voce quando è tra 25 e
-  80 m più avanti lungo il tracciato.
+  ostacolo segnalato sul percorso viene annunciato a voce circa 45 secondi
+  prima alla velocità attuale (tra 35 e 80 m più avanti lungo il tracciato;
+  80 m se la velocità non è nota). Gli avvisi non si accavallano: un
+  ostacolo non si annuncia nello stesso momento di una manovra, e tra due
+  avvisi di ostacoli passano almeno 8 secondi.
 - All'arrivo l'app dice da che lato della strada è la destinazione ("la
   destinazione è sulla sinistra"), a schermo e a voce, come "X on your left"
   di Google Maps: il lato si calcola dalla direzione dell'ultimo tratto.
@@ -152,9 +155,10 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   temperature vicine allo zero o caldo intenso la scheda dei percorsi lo dice
   (rampe scivolose, ghiaccio, fontanelle) e la navigazione lo ripete a voce
   alla partenza.
-- Impostazioni della voce in navigazione: voce sì o no, lingua, volume
-  (bassa, media, alta) e velocità (lenta, normale, veloce), con "Prova la
-  voce". Le scelte restano sul dispositivo. Toccando l'istruzione la si
+- Impostazioni della voce in navigazione: voce sì o no, lingua, annunci
+  (completi o brevi: solo la manovra quando è il momento, l'arrivo e gli
+  ostacoli), volume (bassa, media, alta) e velocità (lenta, normale,
+  veloce), con "Prova la voce". Le scelte restano sul dispositivo. Toccando l'istruzione la si
   riascolta.
 - Casa, Lavoro e luoghi salvati, come in Google Maps: nella scheda del luogo
   "Salva" lo memorizza come Casa, Lavoro o con un nome a scelta. Toccando la

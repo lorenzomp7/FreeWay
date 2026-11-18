@@ -119,6 +119,7 @@ class _MapScreenState extends State<MapScreen> {
 
   /// Ostacoli di cui si è già avvisato in questa navigazione.
   final Set<String> _announcedObstacleIds = {};
+  DateTime? _lastObstacleWarningAt;
   bool _isLocatingStart = false;
   bool _isLocatingEnd = false;
   bool _isLocatingUser = false;
@@ -1179,13 +1180,19 @@ class _MapScreenState extends State<MapScreen> {
 
     // Gli annunci arrivano a tappe (prosegui, tra 100 metri, ora): prima
     // l'istruzione si ripeteva a ogni aggiornamento del GPS.
-    final speech = _voiceGuidance.next(update, _voiceLanguage);
+    final speech = _voiceGuidance.next(
+      update,
+      _voiceLanguage,
+      brief: _ttsService.guidance == VoiceGuidanceMode.brief,
+    );
     if (speech != null) _ttsService.speak(speech, _voiceLanguage);
     if (update.hasArrived) {
       unawaited(_tripResume.clear());
       _maybeAskAboutEntrance();
     }
-    _maybeWarnObstacleAhead(update);
+    // Un avviso alla volta: se è appena stata detta una manovra, l'ostacolo
+    // si annuncia al prossimo aggiornamento.
+    if (speech == null) _maybeWarnObstacleAhead(update);
     _maybeAskAboutObstacle(update.position);
 
     if (!update.isOffRoute && update.snappedPosition != null) {
@@ -1204,20 +1211,29 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   /// Avvisa a voce di un ostacolo segnalato sul percorso prima di
-  /// arrivarci (entro 80 m lungo il tracciato), una volta per ostacolo.
+  /// arrivarci (circa 45 secondi prima, tra 35 e 80 m lungo il tracciato),
+  /// una volta per ostacolo.
   void _maybeWarnObstacleAhead(NavigationUpdate update) {
     final tracker = _navigationService.tracker;
     if (tracker == null || update.hasArrived || update.isOffRoute) return;
     final along = tracker.totalLength - update.remainingDistance;
+    // Tra due avvisi di ostacoli passano almeno 8 secondi.
+    final last = _lastObstacleWarningAt;
+    if (last != null &&
+        DateTime.now().difference(last) < const Duration(seconds: 8)) {
+      return;
+    }
     final ahead = obstacleAheadToAnnounce(
       tracker,
       along,
       _obstacles,
       _announcedObstacleIds,
       FirebaseAuth.instance.currentUser?.uid,
+      maxAhead: aheadWarningDistance(update.speed),
     );
     if (ahead == null) return;
     _announcedObstacleIds.add(ahead.obstacle.id);
+    _lastObstacleWarningAt = DateTime.now();
     final spoken = VoiceGuidance.spokenDistance(ahead.distance, _voiceLanguage);
     _ttsService.speak(
       _voiceLanguage == 'it'

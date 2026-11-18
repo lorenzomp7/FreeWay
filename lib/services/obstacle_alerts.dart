@@ -81,6 +81,21 @@ List<Obstacle> obstaclesAhead(
 /// Fin dove, lungo il percorso, si avvisa di un ostacolo segnalato.
 const double kAheadWarningDistance = 80;
 
+/// Secondi di anticipo con cui avvisare di un ostacolo, alla velocità
+/// attuale.
+const double kAheadWarningSeconds = 45;
+
+/// Distanza a cui avvisare di un ostacolo andando a [speed] metri al
+/// secondo: circa [kAheadWarningSeconds] secondi prima, tra 35 e 80 m.
+/// Chi va piano (in sedia a rotelle, su una salita) non sente l'avviso
+/// un minuto e mezzo prima di arrivarci. Senza velocità nota: 80 m.
+double aheadWarningDistance(double speed) {
+  if (!speed.isFinite || speed < 0.3) return kAheadWarningDistance;
+  return (speed * kAheadWarningSeconds)
+      .clamp(kVerifyRadius + 10, kAheadWarningDistance)
+      .toDouble();
+}
+
 /// Un ostacolo segnalato sul percorso davanti a chi naviga.
 class ObstacleAhead {
   const ObstacleAhead(this.obstacle, this.distance);
