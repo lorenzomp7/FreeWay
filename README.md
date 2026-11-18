@@ -58,6 +58,22 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
 - Filtri per categoria e raggruppamento degli ostacoli vicini.
 - Navigazione passo-passo con istruzioni vocali in italiano o inglese, ricalcolo
   quando si esce dal percorso e schermo sempre acceso durante il tragitto.
+- Avvisi sul percorso, come "This route has stairs" o "Steep hill" di Google
+  Maps: con OpenRouteService l'app chiede pendenza, fondo stradale e tipo di
+  via e segnala gradini, salite e discese oltre il 7%, pendenze del 4–6% e
+  fondi sconnessi (ghiaia, ciottoli, sterrato…), con i metri. In sedia a
+  rotelle i percorsi con gradini, salite ripide o lavori scendono in classifica
+  e perdono punti di accessibilità. Con OSRM questi dati non ci sono e la
+  scheda lo dice.
+- Durante la navigazione, passando a meno di 25 m da un ostacolo segnalato da
+  altri l'app chiede "C'è ancora?" (anche a voce): "C'è ancora" lo conferma,
+  "Non c'è più" lo toglie (solo con un account, o se è tuo), "Non so" chiude.
+  Si chiede una volta per ostacolo e la domanda sparisce dopo 45 secondi o
+  quando ci si allontana.
+- Se durante la navigazione qualcuno segnala un ostacolo sul tratto ancora da
+  fare, l'app avvisa (anche a voce), cerca un percorso che lo eviti e propone
+  "Usa il nuovo percorso" con i minuti in più o in meno; se non ce n'è uno lo
+  dice.
 - Accessibilità: supporto ai lettori di schermo attivo da subito sul web,
   etichette per pulsanti e segnaposti della mappa, testi con contrasto almeno
   4,5:1 e niente animazione della posizione se il sistema chiede di ridurre i

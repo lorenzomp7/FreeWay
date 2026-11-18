@@ -9,6 +9,7 @@ import '../models/obstacle.dart';
 import '../models/route_option.dart';
 import '../models/travel_mode.dart';
 import 'geo_utils.dart';
+import 'route_warnings.dart';
 
 const String kUserAgent = 'FreeWayApp/2.0 (freeway-accessibility-app)';
 
@@ -94,9 +95,13 @@ class RoutingService {
       return unique;
     }
 
+    // In sedia a rotelle conta prima evitare ostacoli segnalati, poi gradini,
+    // salite ripide e lavori, infine la lunghezza.
     unique.sort((a, b) {
       final byObstacles = a.obstacleCount.compareTo(b.obstacleCount);
       if (byObstacles != 0) return byObstacles;
+      final byWarnings = a.hardWarningCount.compareTo(b.hardWarningCount);
+      if (byWarnings != 0) return byWarnings;
       return a.distance.compareTo(b.distance);
     });
 
@@ -174,6 +179,7 @@ class RoutingService {
       ],
       'instructions': true,
       'units': 'm',
+      'extra_info': kOrsExtraInfo,
       if (alternatives)
         'alternative_routes': {
           'target_count': 3,
@@ -302,13 +308,20 @@ class RoutingService {
         }
       }
 
-      result.add(RouteOption(
+      final route = RouteOption(
         points: points,
         distance: (summary['distance'] as num?)?.toDouble() ?? 0,
         duration: (summary['duration'] as num?)?.toDouble() ?? 0,
         steps: steps,
         index: i,
-      ));
+      );
+      final extras = properties['extras'];
+      if (extras is Map<String, dynamic>) {
+        route
+          ..warnings = parseRouteWarnings(extras, points)
+          ..hasTerrainData = true;
+      }
+      result.add(route);
     }
     return result;
   }

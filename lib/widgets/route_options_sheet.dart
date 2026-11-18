@@ -71,7 +71,7 @@ class RouteOptionsSheet extends StatelessWidget {
               ),
             ),
             SizedBox(
-              height: 122,
+              height: 150,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
@@ -84,6 +84,9 @@ class RouteOptionsSheet extends StatelessWidget {
                 ),
               ),
             ),
+            if (selectedIndex < routes.length &&
+                routes[selectedIndex].warnings.isNotEmpty)
+              RouteWarningsList(warnings: routes[selectedIndex].warnings),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
               child: SizedBox(
@@ -114,7 +117,11 @@ _ObstacleBadge _obstacleBadge(BuildContext context, RouteOption route) {
   final colors = AppColors.of(context);
   final count = route.obstacleCount;
   if (count == 0) {
-    return _ObstacleBadge(colors.success, 'Nessun ostacolo', colors.successSoft);
+    return _ObstacleBadge(
+      colors.success,
+      'Nessun ostacolo',
+      colors.successSoft,
+    );
   }
   if (count <= 2) {
     return _ObstacleBadge(
@@ -192,7 +199,9 @@ class RouteCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Text(
                   route.distanceText,
-                  style: textTheme.bodyMedium?.copyWith(color: colors.textTertiary),
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: colors.textTertiary,
+                  ),
                 ),
               ],
             ),
@@ -236,8 +245,130 @@ class RouteCard extends StatelessWidget {
                 ),
               ],
             ),
+            _TerrainLine(route: route),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Riga della scheda con le difficoltà del terreno: la più grave e quante
+/// altre ce ne sono.
+class _TerrainLine extends StatelessWidget {
+  const _TerrainLine({required this.route});
+
+  final RouteOption route;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    final warnings = route.warnings;
+    if (!route.hasTerrainData && warnings.isEmpty) {
+      return Text(
+        'Pendenze non disponibili',
+        maxLines: 1,
+        style: textTheme.bodySmall?.copyWith(color: colors.textTertiary),
+      );
+    }
+    if (warnings.isEmpty) {
+      return Row(
+        children: [
+          Icon(Icons.terrain_rounded, color: colors.success, size: 14),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              'Senza gradini né salite',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: textTheme.bodySmall?.copyWith(color: colors.success),
+            ),
+          ),
+        ],
+      );
+    }
+    final first = warnings.first;
+    final color = first.isHard ? colors.danger : colors.warning;
+    final more = warnings.length > 1 ? ' +${warnings.length - 1}' : '';
+    return Row(
+      children: [
+        Icon(routeWarningIcon(first.kind), color: color, size: 14),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Text(
+            '${first.shortLabel}$more',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: textTheme.bodySmall?.copyWith(color: color),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+IconData routeWarningIcon(RouteWarningKind kind) {
+  switch (kind) {
+    case RouteWarningKind.steps:
+      return Icons.stairs_rounded;
+    case RouteWarningKind.steepUp:
+      return Icons.trending_up_rounded;
+    case RouteWarningKind.steepDown:
+      return Icons.trending_down_rounded;
+    case RouteWarningKind.moderateSlope:
+      return Icons.show_chart_rounded;
+    case RouteWarningKind.roughSurface:
+      return Icons.grain_rounded;
+    case RouteWarningKind.construction:
+      return Icons.construction_rounded;
+  }
+}
+
+/// Elenco delle difficoltà del percorso selezionato, come gli avvisi
+/// "This route has stairs" di Google Maps.
+class RouteWarningsList extends StatelessWidget {
+  const RouteWarningsList({super.key, required this.warnings});
+
+  final List<RouteWarning> warnings;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 6,
+        children: [
+          for (final warning in warnings)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: warning.isHard ? colors.dangerSoft : colors.warningSoft,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    routeWarningIcon(warning.kind),
+                    size: 14,
+                    color: warning.isHard ? colors.danger : colors.warning,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    warning.label,
+                    style: textTheme.bodySmall?.copyWith(
+                      color: warning.isHard ? colors.danger : colors.warning,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -272,10 +403,9 @@ class RecommendedChip extends StatelessWidget {
           const SizedBox(width: 4),
           Text(
             label,
-            style: Theme.of(context)
-                .textTheme
-                .labelSmall
-                ?.copyWith(color: color, letterSpacing: 0.2),
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: color, letterSpacing: 0.2),
           ),
         ],
       ),

@@ -18,6 +18,7 @@ import '../services/geocoding_service.dart';
 import '../services/instruction_translator.dart';
 import '../services/location_service.dart';
 import '../services/navigation_service.dart';
+import '../services/obstacle_alerts.dart';
 import '../services/obstacle_service.dart';
 import '../services/recent_places_service.dart';
 import '../services/routing_service.dart';
@@ -25,6 +26,7 @@ import '../services/tts_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/map_widgets.dart';
 import '../widgets/navigation_panel.dart';
+import '../widgets/navigation_prompts.dart';
 import '../widgets/obstacle_sheets.dart';
 import '../widgets/place_sheet.dart';
 import '../widgets/route_options_sheet.dart';
@@ -99,6 +101,23 @@ class _MapScreenState extends State<MapScreen> {
   bool _showReportHint = true;
 
   List<Obstacle> _obstacles = [];
+
+  /// Ostacolo su cui si sta chiedendo "C'è ancora?" durante la navigazione.
+  Obstacle? _verifyPrompt;
+  Timer? _verifyTimer;
+
+  /// Ostacoli già chiesti in questa navigazione: si chiede una volta sola.
+  final Set<String> _askedObstacleIds = {};
+
+  /// Ostacoli noti all'inizio della navigazione o già valutati: quelli nuovi
+  /// sul percorso fanno cercare un'alternativa.
+  final Set<String> _knownObstacleIds = {};
+
+  /// Avviso di un nuovo ostacolo sul percorso e l'eventuale alternativa.
+  Obstacle? _routeAlertObstacle;
+  List<RouteOption>? _routeAlertRoutes;
+  bool _routeAlertSearching = false;
+  int _routeAlertExtraMinutes = 0;
   String _selectedCategory = 'Tutti';
   final List<String> _categories = [
     'Tutti',
@@ -132,7 +151,9 @@ class _MapScreenState extends State<MapScreen> {
       // Gli ostacoli temporanei non confermati da tempo non compaiono né
       // sulla mappa né nel calcolo dei percorsi.
       final active = obstacles.where((o) => !o.isExpired()).toList();
-      if (mounted) setState(() => _obstacles = active);
+      if (!mounted) return;
+      setState(() => _obstacles = active);
+      _checkNewObstaclesOnRoute(active);
     });
     _mapController.mapEventStream.listen((event) {
       if (!mounted) return;
@@ -147,6 +168,7 @@ class _MapScreenState extends State<MapScreen> {
     _ttsService.stop();
     _ttsService.reset();
     _navigationSubscription?.cancel();
+    _verifyTimer?.cancel();
     _navigationService.dispose();
     _obstacleService.dispose();
     _geocodingService.dispose();
@@ -652,7 +674,7 @@ class _MapScreenState extends State<MapScreen> {
     _mapController.fitCamera(
       CameraFit.bounds(
         bounds: LatLngBounds.fromPoints(points),
-        padding: const EdgeInsets.fromLTRB(48, 150, 48, 260),
+        padding: const EdgeInsets.fromLTRB(48, 150, 48, 300),
       ),
     );
   }
@@ -673,6 +695,11 @@ class _MapScreenState extends State<MapScreen> {
       _isNavigating = true;
       _navigationFirstStep = route.steps.first;
       _navigationGpsFailed = false;
+      _askedObstacleIds.clear();
+      _knownObstacleIds
+        ..clear()
+        ..addAll(_obstacles.map((o) => o.id));
+      _clearRouteAlert();
     });
     _keepScreenOn(true);
     _navigationSubscription?.cancel();
@@ -712,6 +739,7 @@ class _MapScreenState extends State<MapScreen> {
           : 'In $distance, $instruction';
     }
     _ttsService.speak(speech, _voiceLanguage);
+    _maybeAskAboutObstacle(update.position);
 
     if (update.isOffRoute && !_isRecalculating && _endPoint != null) {
       _recalculate(update.position);
@@ -758,10 +786,13 @@ class _MapScreenState extends State<MapScreen> {
     _navigationSubscription?.cancel();
     _navigationSubscription = null;
     _navigationService.stop();
+    _verifyTimer?.cancel();
     setState(() {
       _isNavigating = false;
       _navigationUpdate = null;
       _navigationFirstStep = null;
+      _verifyPrompt = null;
+      _clearRouteAlert();
     });
     _fitRoute();
   }
@@ -946,8 +977,18 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
     if (userId == null) return;
+    await _removeObstacle(obstacle, userId);
+  }
+
+  /// Un ospite può togliere solo le proprie segnalazioni (regole Firestore).
+  bool _canRemove(Obstacle obstacle, String? userId) {
+    if (userId == null) return false;
     final user = FirebaseAuth.instance.currentUser;
-    if ((user?.isAnonymous ?? false) && !obstacle.isReportedBy(userId)) {
+    return !(user?.isAnonymous ?? false) || obstacle.isReportedBy(userId);
+  }
+
+  Future<void> _removeObstacle(Obstacle obstacle, String userId) async {
+    if (!_canRemove(obstacle, userId)) {
       _showError(
         'Per rimuovere le segnalazioni di altri utenti accedi con un account '
         '(non come ospite).',
@@ -972,7 +1013,10 @@ class _MapScreenState extends State<MapScreen> {
         iconColor: AppColors.of(context).success,
         icon: Icons.check_circle_rounded,
       );
-      if (_startPoint != null && _endPoint != null) _calculateRoute();
+      // Durante la navigazione il percorso resta quello in corso.
+      if (!_isNavigating && _startPoint != null && _endPoint != null) {
+        _calculateRoute();
+      }
     } on FirebaseException catch (error) {
       if (!mounted) return;
       _showError(
@@ -990,6 +1034,141 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  // --- Domande e avvisi durante la navigazione ------------------------------
+
+  /// Come Google Maps chiede "Is construction still there?", passando vicino
+  /// a un ostacolo segnalato si chiede se c'è ancora.
+  void _maybeAskAboutObstacle(LatLng position) {
+    final current = _verifyPrompt;
+    if (current != null) {
+      // Ostacolo superato da un pezzo: la domanda non serve più.
+      if (haversineDistance(position, current.position) >
+          kVerifyDismissRadius) {
+        _closeVerifyPrompt();
+      }
+      return;
+    }
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final obstacle = obstacleToVerify(
+      position,
+      _obstacles,
+      _askedObstacleIds,
+      userId,
+    );
+    if (obstacle == null) return;
+    _askedObstacleIds.add(obstacle.id);
+    setState(() => _verifyPrompt = obstacle);
+    _ttsService.speak(
+      _voiceLanguage == 'it'
+          ? "C'è ancora questo ostacolo? ${obstacle.type}"
+          : 'Is this obstacle still there?',
+      _voiceLanguage,
+    );
+    // Senza risposta la domanda sparisce da sola.
+    _verifyTimer?.cancel();
+    _verifyTimer = Timer(const Duration(seconds: 45), _closeVerifyPrompt);
+  }
+
+  void _closeVerifyPrompt() {
+    _verifyTimer?.cancel();
+    if (mounted && _verifyPrompt != null) setState(() => _verifyPrompt = null);
+  }
+
+  Future<void> _answerVerifyPrompt({required bool stillThere}) async {
+    final obstacle = _verifyPrompt;
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    _closeVerifyPrompt();
+    if (obstacle == null || userId == null) return;
+    if (stillThere) {
+      await _confirmObstacle(obstacle, userId);
+    } else {
+      await _removeObstacle(obstacle, userId);
+    }
+  }
+
+  /// Un ostacolo appena segnalato sul tratto ancora da fare: si avvisa e si
+  /// cerca un percorso che lo eviti ("Rerouting to avoid road closure").
+  Future<void> _checkNewObstaclesOnRoute(List<Obstacle> active) async {
+    if (!_isNavigating || _routes.isEmpty || _endPoint == null) {
+      return;
+    }
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final fresh = active
+        .where((o) => !_knownObstacleIds.contains(o.id))
+        // Le proprie segnalazioni non sono una sorpresa.
+        .where((o) => !o.isReportedBy(userId))
+        .toList();
+    _knownObstacleIds.addAll(active.map((o) => o.id));
+    if (fresh.isEmpty || _routeAlertObstacle != null) return;
+
+    final position = _navigationUpdate?.position ?? _userLocation;
+    if (position == null) return;
+    final route = _routes[_selectedRouteIndex];
+    final blocking = obstaclesAhead(route.points, position, fresh);
+    if (blocking.isEmpty) return;
+
+    final obstacle = blocking.first;
+    setState(() {
+      _routeAlertObstacle = obstacle;
+      _routeAlertSearching = true;
+      _routeAlertRoutes = null;
+    });
+    _ttsService.speak(
+      _voiceLanguage == 'it'
+          ? 'Attenzione: nuovo ostacolo sul percorso. ${obstacle.type}'
+          : 'Warning: new obstacle on your route.',
+      _voiceLanguage,
+    );
+
+    List<RouteOption> routes = const [];
+    try {
+      routes = await _routingService.getRoutes(
+        position,
+        _endPoint!,
+        _obstacles,
+        mode: _travelMode,
+      );
+    } catch (_) {
+      routes = const [];
+    }
+    if (!mounted || !_isNavigating || _routeAlertObstacle != obstacle) return;
+    final avoiding = routes
+        .where((r) => r.steps.isNotEmpty)
+        .where((r) => !blocking.any((o) => routePassesNear(r.points, o)))
+        .toList();
+    final remaining = route.duration * (1 - (_navigationUpdate?.progress ?? 0));
+    setState(() {
+      _routeAlertSearching = false;
+      _routeAlertRoutes = avoiding.isEmpty ? null : avoiding;
+      _routeAlertExtraMinutes = avoiding.isEmpty
+          ? 0
+          : ((avoiding.first.duration - remaining) / 60).round();
+    });
+  }
+
+  void _clearRouteAlert() {
+    _routeAlertObstacle = null;
+    _routeAlertRoutes = null;
+    _routeAlertSearching = false;
+    _routeAlertExtraMinutes = 0;
+  }
+
+  void _useAlternativeRoute() {
+    final routes = _routeAlertRoutes;
+    if (routes == null || routes.isEmpty) return;
+    setState(() {
+      _routes = routes;
+      _selectedRouteIndex = 0;
+      _routePoints = routes.first.points;
+      _clearRouteAlert();
+    });
+    _navigationService.start(routes.first);
+    _ttsService.speak(
+      _voiceLanguage == 'it' ? 'Nuovo percorso' : 'New route',
+      _voiceLanguage,
+    );
+  }
+
   // --- Zoom ----------------------------------------------------------------
 
   static const double _minZoom = 3;
@@ -1004,6 +1183,10 @@ class _MapScreenState extends State<MapScreen> {
     _zoom = (_zoom - 1).clamp(_minZoom, _maxZoom).toDouble();
     _mapController.move(_center, _zoom);
   }
+
+  int get _selectedRouteWarningCount => _selectedRouteIndex < _routes.length
+      ? _routes[_selectedRouteIndex].warnings.length
+      : 0;
 
   // --- UI ------------------------------------------------------------------
 
@@ -1025,7 +1208,7 @@ class _MapScreenState extends State<MapScreen> {
         : choosing != null
         ? 96
         : hasRoutes
-        ? 268
+        ? 300 + 32.0 * _selectedRouteWarningCount
         : showPlaceSheet
         ? 196
         : (_showReportHint ? 80 : 32);
@@ -1168,6 +1351,51 @@ class _MapScreenState extends State<MapScreen> {
           ),
         ),
       );
+    }
+
+    if (_isNavigating) {
+      final alertObstacle = _routeAlertObstacle;
+      final verify = _verifyPrompt;
+      final Widget? prompt = alertObstacle != null
+          ? RouteAlertCard(
+              obstacle: alertObstacle,
+              isSearching: _routeAlertSearching,
+              hasAlternative: _routeAlertRoutes != null,
+              extraMinutes: _routeAlertExtraMinutes,
+              onUseAlternative: _useAlternativeRoute,
+              onKeepRoute: () => setState(_clearRouteAlert),
+            )
+          : verify != null
+          ? ObstacleVerifyCard(
+              obstacle: verify,
+              canRemove: _canRemove(
+                verify,
+                FirebaseAuth.instance.currentUser?.uid,
+              ),
+              onStillThere: () => _answerVerifyPrompt(stillThere: true),
+              onGone: () => _answerVerifyPrompt(stillThere: false),
+              onSkip: _closeVerifyPrompt,
+            )
+          : null;
+      if (prompt != null) {
+        children.add(
+          Positioned(
+            left: 12,
+            right: 64,
+            bottom: 24,
+            child: SafeArea(
+              top: false,
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 480),
+                  child: prompt,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
     }
 
     children.add(
