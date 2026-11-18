@@ -55,6 +55,16 @@ await check('seconda conferma dello stesso utente rifiutata', assertFails(confir
 await check('autrice non può confermare', assertFails(confirm(alice, 'alice')));
 await check('conferma a nome di altri rifiutata', assertFails(confirm(ctx('dan', 'password'), 'eve')));
 
+// --- voti "non c'è più" ---
+const notThere = (db, uid, id = 'a1') => updateDoc(doc(db, 'segnalazioni/' + id), { notThereBy: arrayUnion(uid), lastNotThereAt: serverTimestamp() });
+await check('ospite vota che non c\'è più', assertSucceeds(notThere(guest2, 'guest2')));
+await check('secondo voto dello stesso utente rifiutato', assertFails(notThere(guest2, 'guest2')));
+await check('autrice non può votare la propria', assertFails(notThere(alice, 'alice')));
+await check('voto a nome di altri rifiutato', assertFails(notThere(ctx('dan', 'password'), 'eve')));
+await check('voto con ora del client rifiutato', assertFails(updateDoc(doc(guest, 'segnalazioni/a1'), { notThereBy: arrayUnion('guest1'), lastNotThereAt: Timestamp.fromMillis(0) })));
+await check('voto insieme ad altre modifiche rifiutato', assertFails(updateDoc(doc(guest, 'segnalazioni/a1'), { notThereBy: arrayUnion('guest1'), lastNotThereAt: serverTimestamp(), type: 'Altro' })));
+await check('non autenticato non vota', assertFails(notThere(anon, 'x')));
+
 // --- rimozione e limite di frequenza ---
 await check('ospite non cancella altrui', assertFails(remove(guest2, 'guest2', 'a1')));
 await check('ospite cancella la propria', assertSucceeds(remove(guest, 'guest1', 'g1')));

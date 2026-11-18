@@ -354,6 +354,28 @@ class ObstacleDetailsSheet extends StatelessWidget {
                           ],
                         ),
                       ],
+                      if (obstacle.notThereBy.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.remove_done_rounded,
+                              color: colors.textTertiary,
+                              size: 15,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                obstacle.notThereBy.length == 1
+                                    ? "1 persona dice che non c'è più"
+                                    : '${obstacle.notThereBy.length} persone '
+                                        "dicono che non c'è più",
+                                style: textTheme.bodySmall,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       if (obstacle.confirmationCount > 0) ...[
                         const SizedBox(height: 6),
                         Row(

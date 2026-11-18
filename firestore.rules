@@ -75,6 +75,24 @@ service cloud.firestore {
         && request.auth.uid in after;
     }
 
+    // "Non c'è più" come voto: si aggiunge solo il proprio uid, una volta, a
+    // una segnalazione fatta da qualcun altro. L'app nasconde l'ostacolo
+    // quando i voti sono almeno due e più recenti dell'ultima conferma.
+    function validNotThere() {
+      let before = resource.data.get('notThereBy', []);
+      let after = request.resource.data.notThereBy;
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['notThereBy', 'lastNotThereAt'])
+        && request.resource.data.lastNotThereAt == request.time
+        && resource.data.get('userId', '') != request.auth.uid
+        && !(request.auth.uid in before)
+        && after is list
+        && after.size() == before.size() + 1
+        && after.size() <= 1000
+        && after.hasAll(before)
+        && request.auth.uid in after;
+    }
+
     match /segnalazioni/{reportId} {
       // Le segnalazioni sono visibili a tutti gli utenti dell'app (ospiti inclusi).
       allow read: if signedIn();
@@ -85,8 +103,9 @@ service cloud.firestore {
         && validReport(request.resource.data)
         && stampsNow('lastReportAt');
 
-      // L'unica modifica ammessa è la conferma che l'ostacolo c'è ancora.
-      allow update: if signedIn() && validConfirmation();
+      // Le uniche modifiche ammesse sono la conferma che l'ostacolo c'è
+      // ancora e il voto "non c'è più".
+      allow update: if signedIn() && (validConfirmation() || validNotThere());
 
       // "L'ostacolo non c'è più": chi ha un account può rimuovere qualsiasi
       // segnalazione, un ospite solo le proprie; al massimo una ogni 10 secondi.

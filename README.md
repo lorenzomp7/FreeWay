@@ -93,6 +93,20 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   "Non c'è più" lo toglie (solo con un account, o se è tuo), "Non so" chiude.
   Si chiede una volta per ostacolo e la domanda sparisce dopo 45 secondi o
   quando ci si allontana.
+- "Non c'è più" anche per gli ospiti: chi non può rimuovere una segnalazione
+  altrui vota, e quando almeno due persone hanno detto che l'ostacolo non c'è
+  più (dopo l'ultima conferma) l'app smette di mostrarlo e di usarlo nei
+  percorsi. Una conferma successiva lo fa ricomparire.
+- Se l'app si chiude durante la navigazione, alla riapertura (entro 3 ore)
+  chiede "Stai ancora andando a…?" e con "Riprendi" ricalcola il percorso
+  dalla posizione attuale con lo stesso mezzo.
+- "Bagni accessibili lungo il percorso" nella scheda dei percorsi: cerca su
+  OpenStreetMap (tramite Overpass) i bagni accessibili in sedia a rotelle
+  entro 80 m dal tracciato e li mostra sulla mappa, con la distanza dalla
+  partenza. La scheda ricorda anche che i percorsi possono non riflettere le
+  condizioni reali della strada.
+- Sotto la casella di ricerca, "Incolla l'indirizzo copiato" mette nel campo
+  il testo degli appunti e lo cerca.
 - Se durante la navigazione qualcuno segnala un ostacolo sul tratto ancora da
   fare, l'app avvisa (anche a voce), cerca un percorso che lo eviti e propone
   "Usa il nuovo percorso" con i minuti in più o in meno; se non ce n'è uno lo
@@ -167,8 +181,9 @@ richieste; superato quello, l'app torna da sola a OSRM.
 - ognuno può fare al massimo una segnalazione ogni 30 secondi e una rimozione
   ogni 10 secondi (l'ora dell'ultima azione è nel documento `limiti/{uid}`,
   aggiornato nella stessa scrittura);
-- l'unica modifica ammessa è "Confermo, c'è ancora": si aggiunge il proprio
-  uid a `confirmedBy`, una sola volta e non sulle proprie segnalazioni;
+- le uniche modifiche ammesse sono "Confermo, c'è ancora" e il voto "Non c'è
+  più": si aggiunge il proprio uid a `confirmedBy` o a `notThereBy`, una sola
+  volta e non sulle proprie segnalazioni;
 - chi ha un account può rimuovere qualsiasi segnalazione ("L'ostacolo non c'è
   più"), un ospite solo le proprie;
 - il resto del database è chiuso.

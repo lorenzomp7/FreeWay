@@ -185,7 +185,9 @@ class _MapScreenState extends State<MapScreen> {
     _obstacleService.listen((obstacles) {
       // Gli ostacoli temporanei non confermati da tempo non compaiono né
       // sulla mappa né nel calcolo dei percorsi.
-      final active = obstacles.where((o) => !o.isExpired()).toList();
+      // Spariscono anche gli ostacoli che almeno due persone hanno detto
+      // non esserci più.
+      final active = obstacles.where((o) => !o.isHidden()).toList();
       if (!mounted) return;
       setState(() => _obstacles = active);
       _checkNewObstaclesOnRoute(active);
@@ -1249,12 +1251,10 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _removeObstacle(Obstacle obstacle, String userId) async {
+    // Un ospite non può cancellare le segnalazioni altrui: il suo "non c'è
+    // più" diventa un voto, e con due voti l'ostacolo sparisce.
     if (!_canRemove(obstacle, userId)) {
-      _showError(
-        'Per rimuovere le segnalazioni di altri utenti accedi con un account '
-        '(non come ospite).',
-        Icons.lock_outline_rounded,
-      );
+      await _voteNotThere(obstacle, userId);
       return;
     }
     final wait = _secondsToWait(_lastRemovalAt, _removalInterval);
@@ -1290,6 +1290,37 @@ class _MapScreenState extends State<MapScreen> {
       if (!mounted) return;
       _showError(
         "Non è stato possibile rimuovere l'ostacolo.",
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
+  Future<void> _voteNotThere(Obstacle obstacle, String userId) async {
+    if (!obstacle.canVoteNotThereBy(userId)) {
+      _showSnack(
+        "Hai già detto che questo ostacolo non c'è più. Grazie!",
+        icon: Icons.info_outline_rounded,
+      );
+      return;
+    }
+    try {
+      await _obstacleService.voteNotThere(obstacle.id, userId);
+      if (!mounted) return;
+      final hides =
+          obstacle.notThereBy.length + 1 >= Obstacle.notThereVotesToHide;
+      _showSnack(
+        hides
+            ? "Grazie! Anche altri l'avevano segnalato: l'ostacolo è stato "
+                  'tolto dalla mappa.'
+            : 'Grazie! Se anche un\'altra persona lo conferma, l\'ostacolo '
+                  'sparisce dalla mappa.',
+        iconColor: AppColors.of(context).success,
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile registrare la risposta. Riprova.',
         Icons.error_outline_rounded,
       );
     }
@@ -1635,10 +1666,8 @@ class _MapScreenState extends State<MapScreen> {
           : verify != null
           ? ObstacleVerifyCard(
               obstacle: verify,
-              canRemove: _canRemove(
-                verify,
-                FirebaseAuth.instance.currentUser?.uid,
-              ),
+              // Chi non può rimuovere vota: "Non c'è più" c'è sempre.
+              canRemove: true,
               onStillThere: () => _answerVerifyPrompt(stillThere: true),
               onGone: () => _answerVerifyPrompt(stillThere: false),
               onSkip: _closeVerifyPrompt,

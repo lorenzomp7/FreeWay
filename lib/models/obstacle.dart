@@ -78,6 +78,8 @@ class Obstacle {
     String? category,
     this.confirmedBy = const [],
     this.lastConfirmedAt,
+    this.notThereBy = const [],
+    this.lastNotThereAt,
   }) : _storedCategory = category;
 
   final String id;
@@ -92,6 +94,10 @@ class Obstacle {
   final List<String> confirmedBy;
   final DateTime? lastConfirmedAt;
 
+  /// Chi ha detto "non c'è più" senza poterlo rimuovere (gli ospiti).
+  final List<String> notThereBy;
+  final DateTime? lastNotThereAt;
+
   final String? _storedCategory;
 
   factory Obstacle.fromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
@@ -101,6 +107,7 @@ class Obstacle {
   factory Obstacle.fromMap(String id, Map<String, dynamic> data) {
     final timestamp = data['timestamp'];
     final confirmed = data['lastConfirmedAt'];
+    final notThere = data['lastNotThereAt'];
     return Obstacle(
       id: id,
       position: LatLng(
@@ -111,9 +118,14 @@ class Obstacle {
       reportedAt: timestamp is Timestamp ? timestamp.toDate() : null,
       userId: data['userId'] as String?,
       category: data['category'] as String?,
-      confirmedBy: (data['confirmedBy'] as List?)?.whereType<String>().toList() ??
+      confirmedBy:
+          (data['confirmedBy'] as List?)?.whereType<String>().toList() ??
           const [],
       lastConfirmedAt: confirmed is Timestamp ? confirmed.toDate() : null,
+      notThereBy:
+          (data['notThereBy'] as List?)?.whereType<String>().toList() ??
+          const [],
+      lastNotThereAt: notThere is Timestamp ? notThere.toDate() : null,
     );
   }
 
@@ -147,6 +159,26 @@ class Obstacle {
     return expiry != null && (now ?? DateTime.now()).isAfter(expiry);
   }
 
+  /// Voti "non c'è più" che bastano a togliere l'ostacolo dalla mappa.
+  static const int notThereVotesToHide = 2;
+
+  /// Almeno due persone hanno detto che non c'è più, e dopo di loro nessuno
+  /// ha confermato che c'è ancora (come i voti "Still there / Not there" di
+  /// Google Maps).
+  bool get isDismissedByVotes {
+    if (notThereBy.length < notThereVotesToHide) return false;
+    final confirmed = lastConfirmedAt;
+    final voted = lastNotThereAt;
+    return confirmed == null || (voted != null && voted.isAfter(confirmed));
+  }
+
+  /// Da non mostrare né usare nei percorsi: scaduto o tolto dai voti.
+  bool isHidden([DateTime? now]) => isExpired(now) || isDismissedByVotes;
+
+  /// [uid] può votare che l'ostacolo non c'è più.
+  bool canVoteNotThereBy(String? uid) =>
+      uid != null && !isReportedBy(uid) && !notThereBy.contains(uid);
+
   /// La segnalazione è stata fatta da [uid].
   bool isReportedBy(String? uid) => uid != null && userId == uid;
 
@@ -178,7 +210,10 @@ class Obstacle {
   }
 
   Color get color {
-    if (_has('rampa') || _has('ascensore') || _has('Gradino') || _has('ripido')) {
+    if (_has('rampa') ||
+        _has('ascensore') ||
+        _has('Gradino') ||
+        _has('ripido')) {
       return const Color(0xFFD92D20);
     }
     if (_has('Buche') ||

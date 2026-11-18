@@ -156,4 +156,50 @@ void main() {
       );
     });
   });
+
+  group("voti \"non c'è più\"", () {
+    Obstacle withVotes(
+      List<String> votes, {
+      DateTime? votedAt,
+      DateTime? confirmedAt,
+    }) => Obstacle(
+      id: 'v',
+      position: const LatLng(45.54, 10.22),
+      type: 'Gradino',
+      userId: 'autore',
+      notThereBy: votes,
+      lastNotThereAt: votedAt,
+      lastConfirmedAt: confirmedAt,
+    );
+
+    test('un voto non basta, due nascondono l\'ostacolo', () {
+      final now = DateTime(2026, 11, 18);
+      expect(withVotes(['a'], votedAt: now).isHidden(now), isFalse);
+      expect(withVotes(['a', 'b'], votedAt: now).isHidden(now), isTrue);
+    });
+
+    test('una conferma dopo i voti lo fa ricomparire', () {
+      final voted = DateTime(2026, 11, 18, 10);
+      expect(
+        withVotes(['a', 'b'], votedAt: voted, confirmedAt: voted.add(
+          const Duration(hours: 1),
+        )).isDismissedByVotes,
+        isFalse,
+      );
+      expect(
+        withVotes(['a', 'b'], votedAt: voted, confirmedAt: voted.subtract(
+          const Duration(hours: 1),
+        )).isDismissedByVotes,
+        isTrue,
+      );
+    });
+
+    test("chi può votare: non l'autore e non due volte", () {
+      final o = withVotes(['a']);
+      expect(o.canVoteNotThereBy('b'), isTrue);
+      expect(o.canVoteNotThereBy('a'), isFalse);
+      expect(o.canVoteNotThereBy('autore'), isFalse);
+      expect(o.canVoteNotThereBy(null), isFalse);
+    });
+  });
 }

@@ -69,6 +69,15 @@ class ObstacleService {
     });
   }
 
+  /// Registra che [userId] non ha trovato l'ostacolo. Con due voti più
+  /// recenti dell'ultima conferma l'app smette di mostrarlo.
+  Future<void> voteNotThere(String id, String userId) async {
+    await _collection.doc(id).update({
+      'notThereBy': FieldValue.arrayUnion([userId]),
+      'lastNotThereAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   /// Rimuove una segnalazione aggiornando `limiti/{uid}`; con regole più
   /// vecchie che non conoscono `limiti` ripiega sulla sola rimozione.
   Future<void> remove(String id, String userId) async {
