@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:freeway/models/obstacle.dart';
+import 'package:freeway/models/travel_mode.dart';
 import 'package:freeway/services/geo_utils.dart';
 import 'package:freeway/services/routing_service.dart';
 import 'package:http/http.dart' as http;
@@ -118,31 +119,36 @@ void main() {
   });
 
   group('getRoutes', () {
-    test('con la chiave usa il profilo sedia a rotelle ed evita gli ostacoli',
-        () async {
-      final requests = <Map<String, dynamic>>[];
-      final client = MockClient((request) async {
-        expect(request.url.host, 'api.openrouteservice.org');
-        expect(request.url.path, '/v2/directions/wheelchair/geojson');
-        expect(request.headers['Authorization'], 'test-key');
-        final body = jsonDecode(request.body) as Map<String, dynamic>;
-        requests.add(body);
-        final avoids = body['options']?['avoid_polygons'] != null;
-        return http.Response(jsonEncode(avoids ? detour : straight), 200);
-      });
-      final service = RoutingService(client: client, orsApiKey: 'test-key');
+    test(
+      'con la chiave usa il profilo sedia a rotelle ed evita gli ostacoli',
+      () async {
+        final requests = <Map<String, dynamic>>[];
+        final client = MockClient((request) async {
+          expect(request.url.host, 'api.openrouteservice.org');
+          expect(request.url.path, '/v2/directions/wheelchair/geojson');
+          expect(request.headers['Authorization'], 'test-key');
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          requests.add(body);
+          final avoids = body['options']?['avoid_polygons'] != null;
+          return http.Response(jsonEncode(avoids ? detour : straight), 200);
+        });
+        final service = RoutingService(client: client, orsApiKey: 'test-key');
 
-      final routes = await service.getRoutes(start, end, [obstacle]);
+        final routes = await service.getRoutes(start, end, [obstacle]);
 
-      expect(requests, hasLength(2));
-      expect(requests.where((b) => b['alternative_routes'] != null), hasLength(1));
-      expect(routes, hasLength(2));
-      expect(routes.first.obstacleCount, 0);
-      expect(routes.first.distance, 690);
-      expect(routes.first.label, 'Evita ostacoli');
-      expect(routes.first.isRecommended, isTrue);
-      expect(routes.last.obstacleCount, 1);
-    });
+        expect(requests, hasLength(2));
+        expect(
+          requests.where((b) => b['alternative_routes'] != null),
+          hasLength(1),
+        );
+        expect(routes, hasLength(2));
+        expect(routes.first.obstacleCount, 0);
+        expect(routes.first.distance, 690);
+        expect(routes.first.label, 'Evita ostacoli');
+        expect(routes.first.isRecommended, isTrue);
+        expect(routes.last.obstacleCount, 1);
+      },
+    );
 
     test('senza ostacoli vicini fa una sola richiesta', () async {
       var calls = 0;
@@ -186,6 +192,45 @@ void main() {
       expect(service.usesWheelchairProfile, isFalse);
       await service.getRoutes(start, end, []);
       expect(hosts, everyElement('router.project-osrm.org'));
+    });
+
+    test('a piedi usa foot-walking e non chiede zone da evitare', () async {
+      final requests = <http.Request>[];
+      final client = MockClient((request) async {
+        requests.add(request);
+        return http.Response(jsonEncode(straight), 200);
+      });
+      final service = RoutingService(client: client, orsApiKey: 'test-key');
+
+      final routes = await service.getRoutes(start, end, [
+        obstacle,
+      ], mode: TravelMode.walking);
+
+      expect(requests, hasLength(1));
+      expect(requests.single.url.path, '/v2/directions/foot-walking/geojson');
+      final body = jsonDecode(requests.single.body) as Map<String, dynamic>;
+      expect(body['options'], isNull);
+      // L'ostacolo non viene evitato, ma resta contato sul percorso.
+      expect(routes.single.obstacleCount, 1);
+      expect(routes.single.label, 'Più veloce');
+    });
+
+    test('a piedi senza chiave usa OSRM senza deviazioni', () async {
+      var calls = 0;
+      final client = MockClient((request) async {
+        calls++;
+        expect(request.url.host, 'router.project-osrm.org');
+        return http.Response(jsonEncode(osrmResponse), 200);
+      });
+      final service = RoutingService(client: client, orsApiKey: '');
+
+      final routes = await service.getRoutes(start, end, [
+        obstacle,
+      ], mode: TravelMode.walking);
+
+      // Nessuna richiesta in più per girare intorno all'ostacolo.
+      expect(calls, 1);
+      expect(routes.single.label, 'Più veloce');
     });
   });
 }

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:freeway/services/geocoding_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:latlong2/latlong.dart';
 
 http.Response photonResult(String name) => http.Response(
   jsonEncode({
@@ -102,4 +103,71 @@ void main() {
       expect((await service.search('Brescia')).single['name'], 'Brescia');
     },
   );
+
+  test('favorisce i luoghi vicini alla zona inquadrata', () async {
+    final origins = <String>[];
+    final service = GeocodingService(
+      client: MockClient((request) async {
+        final q = request.url.queryParameters;
+        origins.add('${q['lat']},${q['lon']}');
+        return photonResult('Duomo');
+      }),
+    );
+    addTearDown(service.dispose);
+
+    await service.search('duomo', near: const LatLng(45.4642, 9.19));
+    await service.search('duomo', near: const LatLng(45.4650, 9.191));
+    await service.search('duomo', near: const LatLng(45.54, 10.22));
+
+    // Due ricerche nella stessa zona usano la memoria, la terza no.
+    expect(origins, ['45.4642,9.19', '45.54,10.22']);
+  });
+
+  test(
+    'un luogo con nome mostra la via nel sottotitolo e il suo tipo',
+    () async {
+      final service = GeocodingService(
+        client: MockClient((request) async {
+          return http.Response(
+            jsonEncode({
+              'features': [
+                {
+                  'properties': {
+                    'name': 'Farmacia Centrale',
+                    'street': 'Corso Zanardelli',
+                    'housenumber': '12',
+                    'city': 'Brescia',
+                    'state': 'Lombardia',
+                    'osm_key': 'amenity',
+                    'osm_value': 'pharmacy',
+                  },
+                  'geometry': {
+                    'coordinates': [10.22, 45.54],
+                  },
+                },
+              ],
+            }),
+            200,
+          );
+        }),
+      );
+      addTearDown(service.dispose);
+
+      final place = (await service.search('farmacia')).single;
+      expect(place['kind'], 'health');
+      final label = formatPlace(place);
+      expect(label.title, 'Farmacia Centrale');
+      expect(label.subtitle, 'Corso Zanardelli 12, Brescia, Lombardia');
+    },
+  );
+
+  test('placeKind e formatDistance', () {
+    expect(placeKind('place', 'city'), 'city');
+    expect(placeKind('highway', 'residential'), 'street');
+    expect(placeKind('highway', 'bus_stop'), 'transit');
+    expect(placeKind('shop', 'bakery'), 'shop');
+    expect(formatDistance(347), '350 m');
+    expect(formatDistance(1234), '1,2 km');
+    expect(formatDistance(23600), '24 km');
+  });
 }

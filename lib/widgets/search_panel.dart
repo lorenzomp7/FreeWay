@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 
+import '../models/travel_mode.dart';
+import '../services/geo_utils.dart';
 import '../services/geocoding_service.dart';
 import '../theme/app_theme.dart';
 
@@ -9,90 +12,160 @@ typedef PointCallback = void Function({required bool isStart});
 /// casella di ricerca di Google Maps.
 const double kSearchPanelMaxWidth = 408;
 
-/// Pannello di ricerca in due fasi, come in Google Maps:
-///
-/// * ricerca: un solo campo per cercare il luogo da raggiungere;
-/// * indicazioni: partenza e arrivo, suggerimenti e calcolo del percorso.
+/// Le fasi della ricerca, nello stesso ordine di Google Maps.
+enum SearchPhase {
+  /// Un solo campo per cercare un luogo. Toccandolo compaiono le ricerche
+  /// recenti, scrivendo i suggerimenti.
+  search,
+
+  /// Luogo trovato: la mappa lo evidenzia e in basso c'è la sua scheda con
+  /// "Indicazioni".
+  place,
+
+  /// Partenza, arrivo e mezzo, poi il calcolo del percorso.
+  directions,
+}
+
+/// Una riga dell'elenco sotto la casella di ricerca.
+class SearchItem {
+  const SearchItem(this.place, {this.isRecent = false});
+
+  final Map<String, dynamic> place;
+
+  /// Viene dalla cronologia: icona dell'orologio e pulsante per toglierlo.
+  final bool isRecent;
+}
+
+/// Pannello di ricerca in alto, come la casella di Google Maps.
 class SearchPanel extends StatelessWidget {
   const SearchPanel({
     super.key,
-    required this.isDirectionsMode,
+    required this.stage,
     required this.startController,
     required this.endController,
-    required this.startSuggestions,
-    required this.endSuggestions,
+    required this.startFocus,
+    required this.endFocus,
+    required this.startItems,
+    required this.endItems,
+    required this.recentPlaces,
+    required this.noResultsForStart,
+    required this.noResultsForEnd,
+    required this.userLocation,
     required this.isLocatingStart,
     required this.isLocatingEnd,
     required this.isCalculating,
     required this.canCalculate,
+    required this.hasStartPoint,
+    required this.hasEndPoint,
+    required this.travelMode,
     required this.onStartChanged,
     required this.onEndChanged,
+    required this.onSubmitted,
     required this.onSelectSuggestion,
+    required this.onRemoveRecent,
     required this.onUseMyLocation,
+    required this.onChooseOnMap,
     required this.onClear,
     required this.onSwap,
     required this.onCalculate,
+    required this.onTravelModeChanged,
     required this.onOpenDirections,
     required this.onCloseDirections,
+    required this.onClosePlace,
   });
 
-  final bool isDirectionsMode;
+  final SearchPhase stage;
   final TextEditingController startController;
   final TextEditingController endController;
-  final List<Map<String, dynamic>> startSuggestions;
-  final List<Map<String, dynamic>> endSuggestions;
+  final FocusNode startFocus;
+  final FocusNode endFocus;
+
+  /// Suggerimenti per il campo della partenza e per quello dell'arrivo.
+  final List<SearchItem> startItems;
+  final List<SearchItem> endItems;
+
+  /// Cronologia completa, mostrata quando il campo attivo è vuoto.
+  final List<Map<String, dynamic>> recentPlaces;
+
+  /// Testo cercato senza risultati, o `null`.
+  final String? noResultsForStart;
+  final String? noResultsForEnd;
+  final LatLng? userLocation;
   final bool isLocatingStart;
   final bool isLocatingEnd;
   final bool isCalculating;
   final bool canCalculate;
+
+  /// Il campo contiene un luogo già scelto (non un testo in fase di ricerca).
+  final bool hasStartPoint;
+  final bool hasEndPoint;
+  final TravelMode travelMode;
   final ValueChanged<String> onStartChanged;
   final ValueChanged<String> onEndChanged;
-  final void Function(Map<String, dynamic> place, bool isStart) onSelectSuggestion;
+  final void Function(bool isStart) onSubmitted;
+  final void Function(Map<String, dynamic> place, bool isStart)
+  onSelectSuggestion;
+  final ValueChanged<Map<String, dynamic>> onRemoveRecent;
   final PointCallback onUseMyLocation;
+  final PointCallback onChooseOnMap;
   final PointCallback onClear;
   final VoidCallback onSwap;
   final VoidCallback onCalculate;
+  final ValueChanged<TravelMode> onTravelModeChanged;
   final VoidCallback onOpenDirections;
   final VoidCallback onCloseDirections;
+  final VoidCallback onClosePlace;
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
-    final children = isDirectionsMode
+    final isDirections = stage == SearchPhase.directions;
+    final children = isDirections
         ? _buildDirections(context, colors)
         : _buildSearch(context);
 
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(isDirectionsMode ? 24 : 28),
-        boxShadow: softShadow(colors),
+    // Toccare un suggerimento non deve togliere il fuoco al campo prima che
+    // il tocco arrivi alla riga (sul web il campo perde il fuoco subito).
+    return TextFieldTapRegion(
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: colors.surface,
+          border: Border.all(color: colors.border),
+          borderRadius: BorderRadius.circular(isDirections ? 24 : 28),
+          boxShadow: softShadow(colors),
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: children),
       ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: children),
     );
   }
 
-  /// Fase 1: un solo campo per cercare la destinazione.
+  /// Fasi "ricerca" e "luogo": un solo campo per la destinazione.
   List<Widget> _buildSearch(BuildContext context) {
+    final colors = AppColors.of(context);
+    final isPlace = stage == SearchPhase.place;
     return [
       Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 6, 4),
+        padding: EdgeInsets.fromLTRB(isPlace ? 4 : 16, 4, 6, 4),
         child: Row(
           children: [
-            Icon(
-              Icons.search_rounded,
-              size: 22,
-              color: AppColors.of(context).textSecondary,
-            ),
-            const SizedBox(width: 12),
+            if (isPlace)
+              SmallIconButton(
+                icon: Icons.arrow_back_rounded,
+                onTap: onClosePlace,
+                tooltip: 'Torna alla ricerca',
+              )
+            else
+              Icon(Icons.search_rounded, size: 22, color: colors.textSecondary),
+            SizedBox(width: isPlace ? 4 : 12),
             Expanded(
               child: SearchField(
                 controller: endController,
+                focusNode: endFocus,
                 hint: 'Cerca un luogo',
                 isLoading: isLocatingEnd,
                 onChanged: onEndChanged,
+                onSubmitted: () => onSubmitted(false),
                 onClear: () => onClear(isStart: false),
               ),
             ),
@@ -101,22 +174,21 @@ class SearchPanel extends StatelessWidget {
           ],
         ),
       ),
-      if (endSuggestions.isNotEmpty)
-        SuggestionsList(
-          suggestions: List.of(endSuggestions),
+      if (endFocus.hasFocus)
+        _dropdown(
           isStart: false,
-          onSelect: onSelectSuggestion,
+          query: endController.text,
+          items: endItems,
+          noResultsFor: noResultsForEnd,
+          showLocationShortcuts: false,
         ),
     ];
   }
 
-  /// Fase 2: scelta della partenza e calcolo del percorso.
+  /// Fase "indicazioni": partenza, arrivo, mezzo e calcolo del percorso.
   List<Widget> _buildDirections(BuildContext context, AppColors colors) {
-    final suggestions = startSuggestions.isNotEmpty
-        ? startSuggestions
-        : (endSuggestions.isNotEmpty ? endSuggestions : const <Map<String, dynamic>>[]);
-    final suggestionsForStart = startSuggestions.isNotEmpty;
-
+    final focusedStart = startFocus.hasFocus;
+    final focusedEnd = endFocus.hasFocus;
     return [
       Padding(
         padding: const EdgeInsets.fromLTRB(4, 4, 8, 4),
@@ -125,7 +197,7 @@ class SearchPanel extends StatelessWidget {
             SmallIconButton(
               icon: Icons.arrow_back_rounded,
               onTap: onCloseDirections,
-              tooltip: 'Torna alla ricerca',
+              tooltip: 'Chiudi le indicazioni',
             ),
             const SizedBox(width: 2),
             const RouteDots(),
@@ -136,22 +208,22 @@ class SearchPanel extends StatelessWidget {
                 children: [
                   SearchField(
                     controller: startController,
+                    focusNode: startFocus,
                     hint: 'Scegli il punto di partenza',
-                    // Se manca la partenza il cursore va subito qui.
-                    autofocus: startController.text.isEmpty,
                     isLoading: isLocatingStart,
                     onChanged: onStartChanged,
+                    onSubmitted: () => onSubmitted(true),
                     onClear: () => onClear(isStart: true),
-                    onUseMyLocation: () => onUseMyLocation(isStart: true),
                   ),
                   Divider(height: 1, thickness: 1, color: colors.border),
                   SearchField(
                     controller: endController,
+                    focusNode: endFocus,
                     hint: 'Scegli la destinazione',
                     isLoading: isLocatingEnd,
                     onChanged: onEndChanged,
+                    onSubmitted: () => onSubmitted(false),
                     onClear: () => onClear(isStart: false),
-                    onUseMyLocation: () => onUseMyLocation(isStart: false),
                   ),
                 ],
               ),
@@ -161,42 +233,364 @@ class SearchPanel extends StatelessWidget {
           ],
         ),
       ),
-      if (suggestions.isNotEmpty)
-        SuggestionsList(
-          suggestions: List.of(suggestions),
-          isStart: suggestionsForStart,
-          onSelect: onSelectSuggestion,
-        ),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        child: SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: isCalculating || !canCalculate ? null : onCalculate,
-            icon: isCalculating
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.directions_walk_rounded, size: 20),
-            label: Text(
-              isCalculating ? 'Calcolo in corso…' : 'Calcola percorso pedonale',
+      if (focusedStart || focusedEnd)
+        _dropdown(
+          isStart: focusedStart,
+          query: focusedStart ? startController.text : endController.text,
+          items: focusedStart ? startItems : endItems,
+          noResultsFor: focusedStart ? noResultsForStart : noResultsForEnd,
+          showLocationShortcuts: true,
+        )
+      else ...[
+        TravelModeBar(selected: travelMode, onSelected: onTravelModeChanged),
+        if (isCalculating)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: LinearProgressIndicator(
+              minHeight: 3,
+              semanticsLabel: 'Calcolo del percorso in corso',
             ),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size(0, 44),
-              textStyle: Theme.of(context)
-                  .textTheme
-                  .labelLarge
-                  ?.copyWith(fontSize: 14, color: Colors.white),
+          )
+        else if (canCalculate)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: onCalculate,
+                icon: Icon(travelMode.icon, size: 20),
+                label: const Text('Calcola percorso'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 44),
+                  textStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontSize: 14,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
             ),
           ),
+      ],
+    ];
+  }
+
+  Widget _dropdown({
+    required bool isStart,
+    required String query,
+    required List<SearchItem> items,
+    required String? noResultsFor,
+    required bool showLocationShortcuts,
+  }) {
+    // Campo vuoto, o con il luogo già scelto: si mostrano scorciatoie e
+    // ricerche recenti, così si può cambiare idea con un tocco.
+    final showZeroState =
+        query.trim().isEmpty || (isStart ? hasStartPoint : hasEndPoint);
+    return SearchDropdown(
+      isStart: isStart,
+      items: showZeroState
+          ? [
+              for (final place in recentPlaces)
+                SearchItem(place, isRecent: true),
+            ]
+          : items,
+      showRecentHeader: showZeroState,
+      noResultsFor: showZeroState ? null : noResultsFor,
+      userLocation: userLocation,
+      showLocationShortcuts: showLocationShortcuts,
+      onSelect: onSelectSuggestion,
+      onRemoveRecent: onRemoveRecent,
+      onUseMyLocation: () => onUseMyLocation(isStart: isStart),
+      onChooseOnMap: () => onChooseOnMap(isStart: isStart),
+    );
+  }
+}
+
+/// Elenco sotto la casella: scorciatoie, ricerche recenti e suggerimenti.
+class SearchDropdown extends StatelessWidget {
+  const SearchDropdown({
+    super.key,
+    required this.isStart,
+    required this.items,
+    required this.showRecentHeader,
+    required this.noResultsFor,
+    required this.userLocation,
+    required this.showLocationShortcuts,
+    required this.onSelect,
+    required this.onRemoveRecent,
+    required this.onUseMyLocation,
+    required this.onChooseOnMap,
+  });
+
+  final bool isStart;
+  final List<SearchItem> items;
+  final bool showRecentHeader;
+  final String? noResultsFor;
+  final LatLng? userLocation;
+  final bool showLocationShortcuts;
+  final void Function(Map<String, dynamic> place, bool isStart) onSelect;
+  final ValueChanged<Map<String, dynamic>> onRemoveRecent;
+  final VoidCallback onUseMyLocation;
+  final VoidCallback onChooseOnMap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    final rows = <Widget>[
+      if (showLocationShortcuts) ...[
+        SearchRow(
+          icon: Icons.my_location_rounded,
+          iconColor: AppPalette.startGreen,
+          title: 'La tua posizione',
+          onTap: onUseMyLocation,
+        ),
+        SearchRow(
+          icon: Icons.push_pin_outlined,
+          title: 'Scegli sulla mappa',
+          onTap: onChooseOnMap,
+        ),
+      ],
+      if (noResultsFor != null)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: Row(
+            children: [
+              Icon(
+                Icons.search_off_rounded,
+                color: colors.textTertiary,
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Nessun risultato per «$noResultsFor». Controlla il nome o '
+                  'aggiungi la città.',
+                  style: textTheme.bodyMedium,
+                ),
+              ),
+            ],
+          ),
+        ),
+      if (showRecentHeader)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+          child: Text(
+            'Recenti',
+            style: textTheme.labelMedium?.copyWith(color: colors.textSecondary),
+          ),
+        ),
+      if (showRecentHeader && items.isEmpty)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+          child: Text(
+            'I luoghi che cerchi compariranno qui.',
+            style: textTheme.bodySmall,
+          ),
+        ),
+      for (final item in items) _placeRow(item),
+    ];
+    if (rows.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 320),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: colors.border)),
+      ),
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        children: rows,
+      ),
+    );
+  }
+
+  Widget _placeRow(SearchItem item) {
+    final place = item.place;
+    final label = formatPlace(place);
+    final location = userLocation;
+    String? distance;
+    final lat = double.tryParse('${place['lat']}');
+    final lon = double.tryParse('${place['lon']}');
+    if (location != null && lat != null && lon != null) {
+      distance = formatDistance(haversineDistance(location, LatLng(lat, lon)));
+    }
+    return SearchRow(
+      icon: item.isRecent
+          ? Icons.history_rounded
+          : placeKindIcon(place['kind']),
+      title: label.title,
+      subtitle: label.subtitle,
+      trailingText: distance,
+      onTap: () => onSelect(place, isStart),
+      onRemove: item.isRecent ? () => onRemoveRecent(place) : null,
+    );
+  }
+}
+
+IconData placeKindIcon(Object? kind) {
+  switch (kind) {
+    case 'city':
+      return Icons.location_city_rounded;
+    case 'street':
+      return Icons.signpost_outlined;
+    case 'address':
+      return Icons.home_outlined;
+    case 'transit':
+      return Icons.directions_bus_outlined;
+    case 'health':
+      return Icons.local_hospital_outlined;
+    case 'food':
+      return Icons.restaurant_outlined;
+    case 'shop':
+      return Icons.storefront_outlined;
+    default:
+      return Icons.place_outlined;
+  }
+}
+
+/// Riga dell'elenco: icona, nome, indirizzo e distanza da te.
+class SearchRow extends StatelessWidget {
+  const SearchRow({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    this.subtitle = '',
+    this.iconColor,
+    this.trailingText,
+    this.onRemove,
+  });
+
+  final IconData icon;
+  final Color? iconColor;
+  final String title;
+  final String subtitle;
+  final String? trailingText;
+  final VoidCallback onTap;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(16, 6, onRemove != null ? 4 : 16, 6),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 40,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: colors.surfaceMuted,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      icon,
+                      color: iconColor ?? colors.textSecondary,
+                      size: 18,
+                    ),
+                  ),
+                  if (trailingText != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        trailingText!,
+                        maxLines: 1,
+                        style: textTheme.labelSmall?.copyWith(
+                          fontSize: 10,
+                          color: colors.textTertiary,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.titleSmall,
+                  ),
+                  if (subtitle.isNotEmpty)
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: textTheme.bodySmall,
+                    ),
+                ],
+              ),
+            ),
+            if (onRemove != null)
+              SmallIconButton(
+                icon: Icons.close_rounded,
+                onTap: onRemove,
+                tooltip: 'Elimina dalla cronologia',
+              ),
+          ],
         ),
       ),
-    ];
+    );
+  }
+}
+
+/// I mezzi tra cui scegliere, come la riga di icone delle indicazioni di
+/// Google Maps.
+class TravelModeBar extends StatelessWidget {
+  const TravelModeBar({
+    super.key,
+    required this.selected,
+    required this.onSelected,
+    this.padding = const EdgeInsets.fromLTRB(12, 2, 12, 10),
+  });
+
+  final TravelMode selected;
+  final ValueChanged<TravelMode> onSelected;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    return Padding(
+      padding: padding,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final mode in TravelMode.values)
+            ChoiceChip(
+              avatar: Icon(
+                mode.icon,
+                size: 18,
+                color: mode == selected ? Colors.white : colors.textSecondary,
+              ),
+              label: Text(mode.label),
+              selected: mode == selected,
+              showCheckmark: false,
+              selectedColor: AppPalette.primary,
+              backgroundColor: colors.surface,
+              side: BorderSide(color: colors.border),
+              labelStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: mode == selected ? Colors.white : colors.textPrimary,
+              ),
+              onSelected: (_) => onSelected(mode),
+            ),
+        ],
+      ),
+    );
   }
 }
 
@@ -287,19 +681,19 @@ class SearchField extends StatelessWidget {
     required this.isLoading,
     required this.onChanged,
     required this.onClear,
-    this.onUseMyLocation,
-    this.autofocus = false,
+    this.focusNode,
+    this.onSubmitted,
   });
 
   final TextEditingController controller;
+  final FocusNode? focusNode;
   final String hint;
   final bool isLoading;
   final ValueChanged<String> onChanged;
   final VoidCallback onClear;
 
-  /// Se `null` il pulsante "Usa la mia posizione" non viene mostrato.
-  final VoidCallback? onUseMyLocation;
-  final bool autofocus;
+  /// Invio sulla tastiera: si sceglie il primo suggerimento.
+  final VoidCallback? onSubmitted;
 
   @override
   Widget build(BuildContext context) {
@@ -312,14 +706,17 @@ class SearchField extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: controller,
-              autofocus: autofocus,
+              focusNode: focusNode,
               onChanged: onChanged,
+              onSubmitted: (_) => onSubmitted?.call(),
               style: theme.textTheme.bodyLarge?.copyWith(fontSize: 15),
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
                 hintText: hint,
-                hintStyle: theme.textTheme.bodyLarge
-                    ?.copyWith(fontSize: 15, color: colors.textTertiary),
+                hintStyle: theme.textTheme.bodyLarge?.copyWith(
+                  fontSize: 15,
+                  color: colors.textTertiary,
+                ),
                 isDense: true,
                 filled: false,
                 contentPadding: EdgeInsets.zero,
@@ -328,17 +725,6 @@ class SearchField extends StatelessWidget {
                 focusedBorder: InputBorder.none,
               ),
             ),
-          ),
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: controller,
-            builder: (context, value, _) {
-              if (value.text.isEmpty) return const SizedBox.shrink();
-              return SmallIconButton(
-                icon: Icons.close_rounded,
-                onTap: onClear,
-                tooltip: 'Cancella',
-              );
-            },
           ),
           if (isLoading)
             const Padding(
@@ -349,11 +735,17 @@ class SearchField extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             )
-          else if (onUseMyLocation != null)
-            SmallIconButton(
-              icon: Icons.my_location_rounded,
-              onTap: onUseMyLocation,
-              tooltip: 'Usa la mia posizione',
+          else
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: controller,
+              builder: (context, value, _) {
+                if (value.text.isEmpty) return const SizedBox.shrink();
+                return SmallIconButton(
+                  icon: Icons.close_rounded,
+                  onTap: onClear,
+                  tooltip: 'Cancella',
+                );
+              },
             ),
         ],
       ),
@@ -382,7 +774,11 @@ class SmallIconButton extends StatelessWidget {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(8),
-          child: Icon(icon, color: AppColors.of(context).textTertiary, size: 20),
+          child: Icon(
+            icon,
+            color: AppColors.of(context).textTertiary,
+            size: 20,
+          ),
         ),
       ),
     );
@@ -420,106 +816,27 @@ class SwapButton extends StatelessWidget {
   }
 }
 
-class SuggestionsList extends StatelessWidget {
-  const SuggestionsList({
-    super.key,
-    required this.suggestions,
-    required this.isStart,
-    required this.onSelect,
-  });
-
-  final List<Map<String, dynamic>> suggestions;
-  final bool isStart;
-  final void Function(Map<String, dynamic> place, bool isStart) onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = AppColors.of(context);
-    final textTheme = Theme.of(context).textTheme;
-    return Container(
-      constraints: const BoxConstraints(maxHeight: 260),
-      decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: colors.border)),
-      ),
-      child: ListView.separated(
-        shrinkWrap: true,
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: suggestions.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 2),
-        itemBuilder: (context, index) {
-          final place = suggestions[index];
-          final label = formatPlace(place);
-          return InkWell(
-            onTap: () => onSelect(place, isStart),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Row(
-                children: [
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: colors.surfaceMuted,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      Icons.place_outlined,
-                      color: colors.textSecondary,
-                      size: 18,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          label.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: textTheme.titleSmall,
-                        ),
-                        if (label.subtitle.isNotEmpty)
-                          Text(
-                            label.subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: textTheme.bodySmall,
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
 /// Barra compatta mostrata quando il pannello di ricerca è chiuso.
 class CollapsedSearchBar extends StatelessWidget {
   const CollapsedSearchBar({
     super.key,
     required this.startText,
     required this.endText,
+    required this.travelMode,
     required this.onTap,
   });
 
   final String startText;
   final String endText;
+  final TravelMode travelMode;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
-    final style = Theme.of(context)
-        .textTheme
-        .bodyLarge
-        ?.copyWith(fontSize: 15, fontWeight: FontWeight.w500);
+    final style = Theme.of(
+      context,
+    ).textTheme.bodyLarge?.copyWith(fontSize: 15, fontWeight: FontWeight.w500);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -536,7 +853,7 @@ class CollapsedSearchBar extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const Icon(Icons.route_rounded, size: 20, color: AppPalette.primary),
+              Icon(travelMode.icon, size: 20, color: AppPalette.primary),
               const SizedBox(width: 12),
               Expanded(
                 child: Row(

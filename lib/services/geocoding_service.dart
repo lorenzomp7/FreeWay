@@ -27,10 +27,13 @@ class GeocodingService {
 
   /// Cerca [query] dopo 300 ms di inattività e passa i risultati a [onResults].
   /// I risultati di una ricerca superata da una più recente vengono scartati.
+  /// Con [near] i luoghi vicini a quel punto vengono prima, come in Google
+  /// Maps, che favorisce la zona inquadrata.
   void searchDebounced(
     String query,
     void Function(List<Map<String, dynamic>> results) onResults, {
     required void Function() onError,
+    LatLng? near,
   }) {
     cancelSearch();
     final generation = _generation;
@@ -41,7 +44,7 @@ class GeocodingService {
     }
     _debounce = Timer(const Duration(milliseconds: 300), () async {
       try {
-        final results = await search(trimmed);
+        final results = await search(trimmed, near: near);
         if (generation == _generation) onResults(results);
       } on Exception {
         if (generation == _generation) onError();
@@ -54,8 +57,13 @@ class GeocodingService {
     _generation++;
   }
 
-  Future<List<Map<String, dynamic>>> search(String query) async {
-    final key = query.trim().toLowerCase();
+  Future<List<Map<String, dynamic>>> search(String query, {LatLng? near}) async {
+    final origin = near ?? _searchOrigin;
+    // Spostarsi di qualche centinaio di metri non cambia i risultati: la
+    // memoria vale per celle di circa 10 km.
+    final key = '${query.trim().toLowerCase()}|'
+        '${origin.latitude.toStringAsFixed(1)},'
+        '${origin.longitude.toStringAsFixed(1)}';
     final cached = _cache.remove(key);
     if (cached != null) {
       _cache[key] = cached; // Torna in fondo: è la più recente.
@@ -65,8 +73,8 @@ class GeocodingService {
     final uri = Uri.https('photon.komoot.io', '/api/', {
       'q': query.trim(),
       'limit': '8',
-      'lat': '${_searchOrigin.latitude}',
-      'lon': '${_searchOrigin.longitude}',
+      'lat': '${origin.latitude}',
+      'lon': '${origin.longitude}',
     });
     final response = await _client.get(uri).timeout(_requestTimeout);
     if (response.statusCode != 200) {
@@ -109,12 +117,20 @@ class GeocodingService {
     final name = properties['name'] ?? streetAddress;
     if (name == null) return null;
     final city = properties['city'] ?? properties['locality'];
+    final hasOwnName = properties['name'] != null;
     return {
       'name': name,
       'display_name': name,
       'lat': coordinates[1],
       'lon': coordinates[0],
+      'kind': placeKind(
+        '${properties['osm_key'] ?? ''}',
+        '${properties['osm_value'] ?? ''}',
+      ),
       'address': {
+        // Per un luogo con nome (un negozio, una piazza) la via è parte
+        // dell'indirizzo; per un indirizzo è già il titolo.
+        if (hasOwnName && streetAddress != null) 'street': streetAddress,
         'city': city == name ? null : city,
         'state': properties['state'] ?? properties['country'],
       },
@@ -177,6 +193,53 @@ class GeocodingService {
   }
 }
 
+/// Tipo di luogo, per scegliere l'icona del suggerimento.
+enum PlaceKind { city, street, address, transit, health, food, shop, poi }
+
+String placeKind(String osmKey, String osmValue) {
+  final PlaceKind kind;
+  if (osmKey == 'place' &&
+      const {'city', 'town', 'village', 'hamlet', 'municipality', 'suburb',
+          'quarter', 'neighbourhood', 'county', 'state', 'country'}
+          .contains(osmValue)) {
+    kind = PlaceKind.city;
+  } else if (osmKey == 'place' && osmValue == 'house') {
+    kind = PlaceKind.address;
+  } else if (osmKey == 'highway' &&
+      const {'bus_stop', 'platform'}.contains(osmValue)) {
+    kind = PlaceKind.transit;
+  } else if (osmKey == 'highway') {
+    kind = PlaceKind.street;
+  } else if (osmKey == 'railway' || osmKey == 'public_transport') {
+    kind = PlaceKind.transit;
+  } else if (osmKey == 'building' && osmValue != 'yes') {
+    kind = PlaceKind.poi;
+  } else if (osmKey == 'building') {
+    kind = PlaceKind.address;
+  } else if (osmKey == 'healthcare' ||
+      const {'hospital', 'clinic', 'doctors', 'pharmacy', 'dentist'}
+          .contains(osmValue)) {
+    kind = PlaceKind.health;
+  } else if (const {'restaurant', 'cafe', 'bar', 'pub', 'fast_food',
+      'ice_cream'}.contains(osmValue)) {
+    kind = PlaceKind.food;
+  } else if (osmKey == 'shop') {
+    kind = PlaceKind.shop;
+  } else {
+    kind = PlaceKind.poi;
+  }
+  return kind.name;
+}
+
+/// Distanza leggibile all'italiana: "350 m", "1,2 km", "24 km".
+String formatDistance(double meters) {
+  if (meters < 1000) return '${(meters / 10).round() * 10} m';
+  if (meters < 10000) {
+    return '${(meters / 1000).toStringAsFixed(1).replaceAll('.', ',')} km';
+  }
+  return '${(meters / 1000).round()} km';
+}
+
 /// Titolo e sottotitolo di un suggerimento di ricerca.
 class PlaceLabel {
   const PlaceLabel({required this.subtitle, required this.title});
@@ -201,6 +264,7 @@ PlaceLabel formatPlace(Map<String, dynamic> place) {
       address?['municipality'];
   final region = address?['county'] ?? address?['state'];
   final subtitle = [
+    address?['street'],
     city,
     region,
   ].where((part) => part != null && part.toString().isNotEmpty).join(', ');

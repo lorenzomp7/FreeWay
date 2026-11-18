@@ -23,19 +23,32 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
 - Mappa OpenStreetMap con tema chiaro e scuro e posizione dell'utente (GPS, con
   stima tramite IP se il GPS non è disponibile). Lo zoom arriva al livello
   19 con le tile native di OpenStreetMap.
-- Barra di ricerca compatta sulla mappa, con selezione di partenza e
-  arrivo in modalità indicazioni. Su schermi piccoli il suggerimento per
-  segnalare un ostacolo occupa meno spazio.
-- Ricerca di città, indirizzi e altri luoghi con suggerimenti Photon mentre
-  digiti. Una nuova ricerca può partire anche se la precedente è ancora in
-  corso. Le ricerche già fatte restano in memoria. Nominatim restituisce
-  l'indirizzo della posizione attuale.
-- Calcolo dei percorsi con il profilo "sedia a rotelle" di OpenRouteService,
+- Ricerca con gli stessi passaggi di Google Maps:
+  1. toccando la casella compaiono le ricerche recenti, salvate sul
+     dispositivo (si possono togliere una a una);
+  2. mentre digiti arrivano i suggerimenti Photon, con icona del tipo di
+     luogo e distanza da te; prima i luoghi vicini alla zona inquadrata e
+     quelli già cercati. Invio sceglie il primo risultato; se non c'è nulla
+     l'app lo dice;
+  3. scelto un luogo, la mappa ci va, lo evidenzia e mostra la sua scheda
+     con distanza, ostacoli segnalati vicino e i pulsanti "Indicazioni",
+     "Avvia" (percorso dalla tua posizione e navigazione subito) e
+     "Condividi" (copia un link OpenStreetMap);
+  4. in "Indicazioni" la partenza è la tua posizione, il percorso si calcola
+     da solo e si sceglie il mezzo: "Sedia a rotelle" o "A piedi". Ogni
+     campo propone "La tua posizione", "Scegli sulla mappa" (sposti la mappa
+     sotto il segnaposto e premi "Fatto") e le ricerche recenti.
+- Una nuova ricerca può partire anche se la precedente è ancora in corso. Le
+  ricerche già fatte restano in memoria. Nominatim restituisce l'indirizzo
+  dei punti scelti sulla mappa.
+- Calcolo dei percorsi in sedia a rotelle con il profilo di OpenRouteService,
   che evita gradini, pendenze e fondi sconnessi; gli ostacoli segnalati vengono
   passati come zone da evitare. Senza chiave OpenRouteService (o se il servizio
   non risponde) l'app usa il profilo pedonale di OSRM e prova una deviazione
   intorno al primo ostacolo. Ogni percorso riceve un punteggio di accessibilità
-  in base agli ostacoli lungo il tragitto.
+  in base agli ostacoli lungo il tragitto. Con "A piedi" l'app cerca il
+  percorso più veloce (profilo `foot-walking` o pedonale di OSRM) e conta
+  gli ostacoli senza deviare.
 - Segnalazione condivisa degli ostacoli su Cloud Firestore (collezione
   `segnalazioni`): si tiene premuto sulla mappa oppure si usa il pulsante
   "Segnala un ostacolo qui". Toccando un ostacolo se ne vedono i dettagli, si
@@ -75,8 +88,8 @@ linux/, macos/, windows/    configurazione Flutter per desktop
 
 ## Avvio
 
-Serve Flutter 3.35 o successivo (la versione pubblicata è stata verificata con
-Flutter 3.47).
+Serve Flutter 3.47 o successivo (lo richiede `shared_preferences`, che salva
+le ricerche recenti; l'ultima verifica è stata fatta con Flutter 3.50).
 
 ```bash
 flutter pub get

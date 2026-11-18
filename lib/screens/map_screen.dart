@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
@@ -11,18 +12,21 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/obstacle.dart';
 import '../models/route_option.dart';
+import '../models/travel_mode.dart';
 import '../services/geo_utils.dart';
 import '../services/geocoding_service.dart';
 import '../services/instruction_translator.dart';
 import '../services/location_service.dart';
 import '../services/navigation_service.dart';
 import '../services/obstacle_service.dart';
+import '../services/recent_places_service.dart';
 import '../services/routing_service.dart';
 import '../services/tts_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/map_widgets.dart';
 import '../widgets/navigation_panel.dart';
 import '../widgets/obstacle_sheets.dart';
+import '../widgets/place_sheet.dart';
 import '../widgets/route_options_sheet.dart';
 import '../widgets/search_panel.dart';
 import '../widgets/top_bar.dart';
@@ -40,8 +44,9 @@ class _MapScreenState extends State<MapScreen> {
   final LocationService _locationService = LocationService();
   final RoutingService _routingService = RoutingService();
   final GeocodingService _geocodingService = GeocodingService();
-  final ObstacleService _obstacleService =
-      ObstacleService(FirebaseFirestore.instance);
+  final ObstacleService _obstacleService = ObstacleService(
+    FirebaseFirestore.instance,
+  );
   final NavigationService _navigationService = NavigationService();
   final TtsService _ttsService = TtsService();
 
@@ -70,13 +75,27 @@ class _MapScreenState extends State<MapScreen> {
 
   final TextEditingController _startController = TextEditingController();
   final TextEditingController _endController = TextEditingController();
-  List<Map<String, dynamic>> _startSuggestions = [];
-  List<Map<String, dynamic>> _endSuggestions = [];
+  final FocusNode _startFocus = FocusNode(debugLabel: 'partenza');
+  final FocusNode _endFocus = FocusNode(debugLabel: 'arrivo');
+  List<SearchItem> _startItems = [];
+  List<SearchItem> _endItems = [];
+  String? _noResultsStart;
+  String? _noResultsEnd;
   bool _isSearchExpanded = true;
 
-  /// `false`: un solo campo per cercare la destinazione. `true`: partenza e
-  /// arrivo per calcolare il percorso, come le "Indicazioni" di Google Maps.
-  bool _isDirectionsMode = false;
+  final RecentPlacesService _recentPlaces = RecentPlacesService();
+  List<Map<String, dynamic>> _recents = [];
+
+  /// Ricerca, luogo trovato o indicazioni, come in Google Maps.
+  SearchPhase _stage = SearchPhase.search;
+
+  /// Il luogo cercato, mostrato nella sua scheda e ritrovato chiudendo le
+  /// indicazioni.
+  Map<String, dynamic>? _selectedPlace;
+  TravelMode _travelMode = TravelMode.wheelchair;
+
+  /// `true` o `false` mentre si sceglie sulla mappa la partenza o l'arrivo.
+  bool? _choosingOnMapFor;
   bool _showReportHint = true;
 
   List<Obstacle> _obstacles = [];
@@ -103,6 +122,12 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
     _locateUser();
+    // Il pannello mostra recenti e suggerimenti solo per il campo attivo.
+    _startFocus.addListener(_onFocusChanged);
+    _endFocus.addListener(_onFocusChanged);
+    _recentPlaces.load().then((recents) {
+      if (mounted) setState(() => _recents = recents);
+    });
     _obstacleService.listen((obstacles) {
       // Gli ostacoli temporanei non confermati da tempo non compaiono né
       // sulla mappa né nel calcolo dei percorsi.
@@ -127,48 +152,71 @@ class _MapScreenState extends State<MapScreen> {
     _geocodingService.dispose();
     _startController.dispose();
     _endController.dispose();
+    _startFocus.dispose();
+    _endFocus.dispose();
     super.dispose();
+  }
+
+  void _onFocusChanged() {
+    if (!mounted) return;
+    setState(() {
+      // Toccando la barra compatta il pannello si riapre.
+      if (_startFocus.hasFocus || _endFocus.hasFocus) _isSearchExpanded = true;
+    });
   }
 
   void _showSnack(String message, {Color? iconColor, required IconData icon}) {
     final colors = AppColors.of(context);
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(SnackBar(
-      backgroundColor: Theme.of(context).brightness == Brightness.dark
-          ? colors.surfaceElevated
-          : AppPalette.snackBarLight,
-      duration: const Duration(seconds: 4),
-      content: Row(
-        children: [
-          Icon(icon, color: iconColor ?? Colors.white, size: 18),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              message,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: Colors.white),
+    messenger.showSnackBar(
+      SnackBar(
+        backgroundColor: Theme.of(context).brightness == Brightness.dark
+            ? colors.surfaceElevated
+            : AppPalette.snackBarLight,
+        duration: const Duration(seconds: 4),
+        content: Row(
+          children: [
+            Icon(icon, color: iconColor ?? Colors.white, size: 18),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: Colors.white),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ));
+    );
   }
 
-  void _showError(String message, IconData icon) => _showSnack(message, icon: icon);
+  void _showError(String message, IconData icon) =>
+      _showSnack(message, icon: icon);
 
   // --- Ricerca indirizzi ---------------------------------------------------
 
   void _onSearchChanged(String query, bool isStart) {
+    final recentMatches = [
+      for (final place in _recentPlaces.matching(query))
+        SearchItem(place, isRecent: true),
+    ];
     setState(() {
-      _startSuggestions = [];
-      _endSuggestions = [];
       if (isStart) {
         _startPoint = null;
+        _startItems = recentMatches;
+        _noResultsStart = null;
       } else {
         _endPoint = null;
+        _endItems = recentMatches;
+        _noResultsEnd = null;
+        // Si sta cercando un altro luogo: la scheda del precedente si chiude.
+        if (_stage == SearchPhase.place) {
+          _stage = SearchPhase.search;
+          _selectedPlace = null;
+        }
       }
       _isCalculating = false;
       _routes = [];
@@ -179,10 +227,16 @@ class _MapScreenState extends State<MapScreen> {
       (results) {
         if (!mounted) return;
         setState(() {
+          final items = _mergeResults(recentMatches, results);
+          final noResults = items.isEmpty && query.trim().length >= 2
+              ? query.trim()
+              : null;
           if (isStart) {
-            _startSuggestions = results;
+            _startItems = items;
+            _noResultsStart = noResults;
           } else {
-            _endSuggestions = results;
+            _endItems = items;
+            _noResultsEnd = noResults;
           }
         });
       },
@@ -193,57 +247,167 @@ class _MapScreenState extends State<MapScreen> {
           Icons.error_outline_rounded,
         );
       },
+      near: _center,
     );
+  }
+
+  /// Prima i luoghi della cronologia, poi i suggerimenti non già presenti.
+  List<SearchItem> _mergeResults(
+    List<SearchItem> recent,
+    List<Map<String, dynamic>> results,
+  ) {
+    return [
+      ...recent,
+      for (final place in results)
+        if (!recent.any((r) => RecentPlacesService.isSamePlace(r.place, place)))
+          SearchItem(place),
+    ];
+  }
+
+  /// Invio sulla tastiera: come in Google Maps si va al primo risultato.
+  Future<void> _onSubmitted(bool isStart) async {
+    final controller = isStart ? _startController : _endController;
+    final query = controller.text.trim();
+    if (query.length < 2 || (isStart ? _startPoint : _endPoint) != null) return;
+    final items = isStart ? _startItems : _endItems;
+    if (items.isNotEmpty) {
+      _selectSuggestion(items.first.place, isStart);
+      return;
+    }
+    _geocodingService.cancelSearch();
+    setState(() => isStart ? _isLocatingStart = true : _isLocatingEnd = true);
+    try {
+      final results = await _geocodingService.search(query, near: _center);
+      if (!mounted || controller.text.trim() != query) return;
+      if (results.isNotEmpty) {
+        _selectSuggestion(results.first, isStart);
+      } else {
+        setState(() {
+          if (isStart) {
+            _noResultsStart = query;
+          } else {
+            _noResultsEnd = query;
+          }
+        });
+      }
+    } on Exception {
+      if (!mounted) return;
+      _showError(
+        'Ricerca temporaneamente non disponibile. Riprova.',
+        Icons.error_outline_rounded,
+      );
+    } finally {
+      if (mounted) {
+        setState(
+          () => isStart ? _isLocatingStart = false : _isLocatingEnd = false,
+        );
+      }
+    }
+  }
+
+  /// Testo del campo per un luogo scelto: il nome e la città.
+  String _fieldText(Map<String, dynamic> place) {
+    final label = formatPlace(place);
+    final address = place['address'] as Map<String, dynamic>?;
+    final city =
+        address?['city'] ??
+        address?['town'] ??
+        address?['village'] ??
+        address?['municipality'];
+    if (city == null || city == label.title) return label.title;
+    return '${label.title}, $city';
   }
 
   void _selectSuggestion(Map<String, dynamic> place, bool isStart) {
     _geocodingService.cancelSearch();
     final lat = double.parse(place['lat'].toString());
     final lon = double.parse(place['lon'].toString());
-    final label = formatPlace(place);
-    var text = label.title;
-    if (label.subtitle.isNotEmpty) text = '$text, ${label.subtitle.split(',').first}';
-
     final point = LatLng(lat, lon);
-    setState(() => _setPoint(isStart, point, text));
     FocusScope.of(context).unfocus();
+    setState(() {
+      _setPoint(isStart, point, _fieldText(place));
+      if (_stage != SearchPhase.directions) {
+        // Come in Google Maps: la mappa va sul luogo, lo evidenzia e mostra
+        // la sua scheda; il percorso si chiede con "Indicazioni".
+        _stage = SearchPhase.place;
+        _selectedPlace = place;
+      }
+    });
+    unawaited(
+      _recentPlaces.add(place).then((recents) {
+        if (mounted) setState(() => _recents = recents);
+      }),
+    );
 
-    if (!_isDirectionsMode) {
-      // Trovata la destinazione, si passa alla scelta della partenza.
+    if (_stage == SearchPhase.place) {
       _mapController.move(point, 17);
-      _openDirections();
     } else if (_startPoint != null && _endPoint != null) {
       _calculateRoute();
+    } else {
+      // Manca ancora l'altro estremo: il cursore va lì.
+      (isStart ? _endFocus : _startFocus).requestFocus();
     }
   }
 
-  /// Passa alle indicazioni. Se la posizione dell'utente è già nota la usa
-  /// come partenza e calcola subito il percorso; altrimenti il cursore va sul
-  /// campo della partenza.
+  Future<void> _removeRecent(Map<String, dynamic> place) async {
+    final recents = await _recentPlaces.remove(place);
+    if (!mounted) return;
+    setState(() {
+      _recents = recents;
+      _startItems = _startItems
+          .where(
+            (i) =>
+                !i.isRecent || !RecentPlacesService.isSamePlace(i.place, place),
+          )
+          .toList();
+      _endItems = _endItems
+          .where(
+            (i) =>
+                !i.isRecent || !RecentPlacesService.isSamePlace(i.place, place),
+          )
+          .toList();
+    });
+  }
+
+  /// Passa alle indicazioni. Come in Google Maps la partenza è la tua
+  /// posizione, se nota, e il percorso si calcola subito; altrimenti il
+  /// cursore va sul campo che manca.
   void _openDirections() {
+    _geocodingService.cancelSearch();
     final location = _userLocation;
     setState(() {
-      _isDirectionsMode = true;
+      _stage = SearchPhase.directions;
       _isSearchExpanded = true;
+      _endItems = [];
+      _noResultsEnd = null;
       if (_startPoint == null && location != null) {
         _setPoint(true, location, 'La tua posizione');
       }
     });
-    if (_startPoint != null && _endPoint != null) _calculateRoute();
+    if (_startPoint != null && _endPoint != null) {
+      _calculateRoute();
+    } else if (_endPoint == null) {
+      _endFocus.requestFocus();
+    } else {
+      _startFocus.requestFocus();
+    }
   }
 
-  /// Torna alla ricerca semplice: la destinazione resta, la partenza e i
-  /// percorsi vengono tolti.
+  /// Chiude le indicazioni: si torna alla scheda del luogo (o alla ricerca)
+  /// e la partenza e i percorsi vengono tolti.
   void _closeDirections() {
     _geocodingService.cancelSearch();
     FocusScope.of(context).unfocus();
     setState(() {
-      _isDirectionsMode = false;
+      _stage = _endPoint != null && _selectedPlace != null
+          ? SearchPhase.place
+          : SearchPhase.search;
       _isSearchExpanded = true;
       _startController.clear();
-      _startSuggestions = [];
+      _startItems = [];
+      _noResultsStart = null;
       _startPoint = null;
-      _endSuggestions = [];
+      _endItems = [];
       _isCalculating = false;
       _routes = [];
       _routePoints = [];
@@ -253,15 +417,31 @@ class _MapScreenState extends State<MapScreen> {
     if (end != null) _mapController.move(end, 17);
   }
 
+  /// Chiude la scheda del luogo e torna alla casella di ricerca vuota.
+  void _closePlace() {
+    _geocodingService.cancelSearch();
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _stage = SearchPhase.search;
+      _selectedPlace = null;
+      _endPoint = null;
+      _endController.clear();
+      _endItems = [];
+      _noResultsEnd = null;
+    });
+  }
+
   void _setPoint(bool isStart, LatLng point, String text) {
     if (isStart) {
       _startPoint = point;
       _startController.text = text;
-      _startSuggestions = [];
+      _startItems = [];
+      _noResultsStart = null;
     } else {
       _endPoint = point;
       _endController.text = text;
-      _endSuggestions = [];
+      _endItems = [];
+      _noResultsEnd = null;
     }
   }
 
@@ -270,18 +450,27 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       if (isStart) {
         _startController.clear();
-        _startSuggestions = [];
+        _startItems = [];
+        _noResultsStart = null;
         _startPoint = null;
       } else {
         _endController.clear();
-        _endSuggestions = [];
+        _endItems = [];
+        _noResultsEnd = null;
         _endPoint = null;
+        if (_stage == SearchPhase.place) {
+          _stage = SearchPhase.search;
+          _selectedPlace = null;
+        }
       }
       _routePoints = [];
       _isCalculating = false;
       _routes = [];
       _isSearchExpanded = true;
     });
+    // Come in Google Maps la "x" lascia il cursore nel campo, con le
+    // ricerche recenti sotto.
+    (isStart ? _startFocus : _endFocus).requestFocus();
   }
 
   void _swapPoints() {
@@ -293,17 +482,107 @@ class _MapScreenState extends State<MapScreen> {
       final startText = _startController.text;
       _startController.text = _endController.text;
       _endController.text = startText;
-      _startSuggestions = [];
-      _endSuggestions = [];
+      _startItems = [];
+      _endItems = [];
+      _noResultsStart = null;
+      _noResultsEnd = null;
     });
     if (_startPoint != null && _endPoint != null) _calculateRoute();
   }
 
+  void _setTravelMode(TravelMode mode) {
+    if (mode == _travelMode) return;
+    setState(() => _travelMode = mode);
+    if (_startPoint != null && _endPoint != null) _calculateRoute();
+  }
+
+  // --- Scegli sulla mappa -------------------------------------------------
+
+  void _chooseOnMap({required bool isStart}) {
+    _geocodingService.cancelSearch();
+    FocusScope.of(context).unfocus();
+    final current = isStart ? _startPoint : _endPoint;
+    setState(() => _choosingOnMapFor = isStart);
+    if (current != null) _mapController.move(current, 17);
+  }
+
+  Future<void> _confirmChooseOnMap() async {
+    final isStart = _choosingOnMapFor;
+    if (isStart == null) return;
+    final point = _mapController.camera.center;
+    setState(() {
+      _choosingOnMapFor = null;
+      _setPoint(isStart, point, 'Punto sulla mappa');
+    });
+    if (_startPoint != null && _endPoint != null) {
+      _calculateRoute();
+    } else {
+      (isStart ? _endFocus : _startFocus).requestFocus();
+    }
+    final address = await _geocodingService.reverse(point);
+    if (!mounted || address == null || address.isEmpty) return;
+    // Il punto potrebbe essere già cambiato nel frattempo.
+    if ((isStart ? _startPoint : _endPoint) != point) return;
+    setState(
+      () => (isStart ? _startController : _endController).text = address,
+    );
+  }
+
+  // --- Scheda del luogo ---------------------------------------------------
+
+  /// "Avvia" della scheda: percorso dalla tua posizione e navigazione subito.
+  Future<void> _startFromPlace() async {
+    if (_userLocation == null) await _locateUser(showErrors: true);
+    if (!mounted) return;
+    final location = _userLocation;
+    if (location == null) {
+      // Senza posizione si sceglie la partenza a mano.
+      _openDirections();
+      return;
+    }
+    setState(() {
+      _stage = SearchPhase.directions;
+      _setPoint(true, location, 'La tua posizione');
+    });
+    await _calculateRoute(startNavigation: true);
+  }
+
+  Future<void> _sharePlace() async {
+    final point = _endPoint;
+    final place = _selectedPlace;
+    if (point == null || place == null) return;
+    final lat = point.latitude.toStringAsFixed(6);
+    final lon = point.longitude.toStringAsFixed(6);
+    final text =
+        '${_fieldText(place)}\n'
+        'https://www.openstreetmap.org/?mlat=$lat&mlon=$lon#map=18/$lat/$lon';
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+      if (!mounted) return;
+      _showSnack(
+        'Link del luogo copiato negli appunti.',
+        iconColor: AppColors.of(context).success,
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile copiare il link.',
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
+  int _obstaclesNear(LatLng point, {double radius = 150}) => _obstacles
+      .where((o) => haversineDistance(o.position, point) <= radius)
+      .length;
+
   // --- Percorsi ------------------------------------------------------------
 
-  Future<void> _calculateRoute() async {
+  Future<void> _calculateRoute({bool startNavigation = false}) async {
     final start = _startPoint;
     final end = _endPoint;
+    final mode = _travelMode;
     if (start == null || end == null) return;
     FocusScope.of(context).unfocus();
     setState(() {
@@ -311,8 +590,18 @@ class _MapScreenState extends State<MapScreen> {
       _routes = [];
     });
     try {
-      final routes = await _routingService.getRoutes(start, end, _obstacles);
-      if (!mounted || _startPoint != start || _endPoint != end) return;
+      final routes = await _routingService.getRoutes(
+        start,
+        end,
+        _obstacles,
+        mode: mode,
+      );
+      if (!mounted ||
+          _startPoint != start ||
+          _endPoint != end ||
+          _travelMode != mode) {
+        return;
+      }
       setState(() {
         _routes = routes;
         _selectedRouteIndex = 0;
@@ -321,8 +610,14 @@ class _MapScreenState extends State<MapScreen> {
         _isSearchExpanded = routes.isEmpty;
       });
       _fitRoute();
+      if (startNavigation) _startNavigation();
     } catch (_) {
-      if (!mounted || _startPoint != start || _endPoint != end) return;
+      if (!mounted ||
+          _startPoint != start ||
+          _endPoint != end ||
+          _travelMode != mode) {
+        return;
+      }
       setState(() => _isCalculating = false);
       _showError(
         'Non è stato possibile calcolare il percorso. Riprova.',
@@ -354,10 +649,12 @@ class _MapScreenState extends State<MapScreen> {
     final points = List<LatLng>.of(_routePoints);
     if (_startPoint != null) points.add(_startPoint!);
     if (_endPoint != null) points.add(_endPoint!);
-    _mapController.fitCamera(CameraFit.bounds(
-      bounds: LatLngBounds.fromPoints(points),
-      padding: const EdgeInsets.fromLTRB(48, 150, 48, 260),
-    ));
+    _mapController.fitCamera(
+      CameraFit.bounds(
+        bounds: LatLngBounds.fromPoints(points),
+        padding: const EdgeInsets.fromLTRB(48, 150, 48, 260),
+      ),
+    );
   }
 
   // --- Navigazione ---------------------------------------------------------
@@ -398,8 +695,9 @@ class _MapScreenState extends State<MapScreen> {
     });
     _mapController.move(update.position, 17.5);
 
-    final instruction = InstructionTranslator(_voiceLanguage)
-        .translate(update.currentStep.instruction);
+    final instruction = InstructionTranslator(
+      _voiceLanguage,
+    ).translate(update.currentStep.instruction);
     final distance = update.distanceToNextStep >= 1000
         ? '${(update.distanceToNextStep / 1000).toStringAsFixed(1)} chilometri'
         : '${update.distanceToNextStep.round()} metri';
@@ -423,7 +721,12 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _recalculate(LatLng from) async {
     _isRecalculating = true;
     try {
-      final routes = await _routingService.getRoutes(from, _endPoint!, _obstacles);
+      final routes = await _routingService.getRoutes(
+        from,
+        _endPoint!,
+        _obstacles,
+        mode: _travelMode,
+      );
       if (mounted &&
           routes.isNotEmpty &&
           routes.first.steps.isNotEmpty &&
@@ -482,49 +785,45 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  /// "La tua posizione" come partenza o arrivo, come in Google Maps.
   Future<void> _useMyLocation({required bool isStart}) async {
-    setState(() {
-      if (isStart) {
-        _isLocatingStart = true;
-      } else {
-        _isLocatingEnd = true;
-      }
-    });
-    final result = await _locationService.getCurrentLocation();
-    if (!mounted) return;
-    setState(() {
-      if (isStart) {
-        _isLocatingStart = false;
-      } else {
-        _isLocatingEnd = false;
-      }
-    });
-
-    final position = result.position;
-    if (position == null) {
-      _showError(
-        result.error ?? 'Posizione non disponibile',
-        Icons.location_disabled_rounded,
+    _geocodingService.cancelSearch();
+    FocusScope.of(context).unfocus();
+    final known = _userLocation;
+    if (known != null) {
+      setState(() => _setPoint(isStart, known, 'La tua posizione'));
+    } else {
+      setState(() => isStart ? _isLocatingStart = true : _isLocatingEnd = true);
+      final result = await _locationService.getCurrentLocation();
+      if (!mounted) return;
+      setState(
+        () => isStart ? _isLocatingStart = false : _isLocatingEnd = false,
       );
-      return;
+      final position = result.position;
+      if (position == null) {
+        _showError(
+          result.error ?? 'Posizione non disponibile',
+          Icons.location_disabled_rounded,
+        );
+        return;
+      }
+      setState(() {
+        _center = _userLocation = position;
+        _setPoint(isStart, position, 'La tua posizione');
+      });
+      if (result.isApproximate) {
+        _showError(
+          'Posizione rilevata dalla rete. Per il GPS preciso consenti la '
+          'posizione dal lucchetto nella barra del browser.',
+          Icons.gps_not_fixed_rounded,
+        );
+      }
     }
-
-    setState(() => _center = _userLocation = position);
-    _mapController.move(position, 16);
-    final address = await _geocodingService.reverse(position);
-    final label = address != null && address.isNotEmpty
-        ? '$address (La mia posizione)'
-        : 'La mia posizione attuale';
-    if (!mounted) return;
-    setState(() => _setPoint(isStart, position, label));
-    if (result.isApproximate) {
-      _showError(
-        'Posizione rilevata dalla rete. Per il GPS preciso consenti la '
-        'posizione dal lucchetto nella barra del browser.',
-        Icons.gps_not_fixed_rounded,
-      );
+    if (_startPoint != null && _endPoint != null) {
+      _calculateRoute();
+    } else {
+      (isStart ? _endFocus : _startFocus).requestFocus();
     }
-    if (_startPoint != null && _endPoint != null) _calculateRoute();
   }
 
   // --- Ostacoli ------------------------------------------------------------
@@ -712,154 +1011,248 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final hasRoutes = _routes.isNotEmpty;
-    final double controlsBottom =
-        _isNavigating ? 32 : (hasRoutes ? 268 : (_showReportHint ? 80 : 32));
+    final choosing = _choosingOnMapFor;
+    final showPlaceSheet =
+        _stage == SearchPhase.place &&
+        _selectedPlace != null &&
+        _endPoint != null &&
+        !hasRoutes &&
+        !_isNavigating &&
+        choosing == null;
+    final searchFocused = _startFocus.hasFocus || _endFocus.hasFocus;
+    final double controlsBottom = _isNavigating
+        ? 32
+        : choosing != null
+        ? 96
+        : hasRoutes
+        ? 268
+        : showPlaceSheet
+        ? 196
+        : (_showReportHint ? 80 : 32);
 
     final children = <Widget>[
       _buildMap(context),
       const Positioned(left: 12, bottom: 4, child: OsmAttribution()),
     ];
 
-    if (!_isNavigating) {
+    if (choosing != null) {
+      children.addAll(_buildChooseOnMap(choosing));
+    } else if (!_isNavigating) {
       final Widget search = _isSearchExpanded
           ? SearchPanel(
-              key: ValueKey(
-                _isDirectionsMode ? 'search-directions' : 'search-place',
-              ),
-              isDirectionsMode: _isDirectionsMode,
+              key: ValueKey('search-${_stage.name}'),
+              stage: _stage,
               startController: _startController,
               endController: _endController,
-              startSuggestions: _startSuggestions,
-              endSuggestions: _endSuggestions,
+              startFocus: _startFocus,
+              endFocus: _endFocus,
+              startItems: _startItems,
+              endItems: _endItems,
+              recentPlaces: _recents,
+              noResultsForStart: _noResultsStart,
+              noResultsForEnd: _noResultsEnd,
+              userLocation: _userLocation,
               isLocatingStart: _isLocatingStart,
               isLocatingEnd: _isLocatingEnd,
               isCalculating: _isCalculating,
-              canCalculate: _startPoint != null && _endPoint != null,
+              canCalculate:
+                  _startPoint != null && _endPoint != null && !hasRoutes,
+              hasStartPoint: _startPoint != null,
+              hasEndPoint: _endPoint != null,
+              travelMode: _travelMode,
               onStartChanged: (q) => _onSearchChanged(q, true),
               onEndChanged: (q) => _onSearchChanged(q, false),
+              onSubmitted: _onSubmitted,
               onSelectSuggestion: _selectSuggestion,
+              onRemoveRecent: _removeRecent,
               onUseMyLocation: _useMyLocation,
+              onChooseOnMap: _chooseOnMap,
               onClear: _clearPoint,
               onSwap: _swapPoints,
               onCalculate: _calculateRoute,
+              onTravelModeChanged: _setTravelMode,
               onOpenDirections: _openDirections,
               onCloseDirections: _closeDirections,
+              onClosePlace: _closePlace,
             )
-          : CollapsedSearchBar(
+          : Column(
               key: const ValueKey('search-collapsed'),
-              startText: _startController.text,
-              endText: _endController.text,
-              onTap: () => setState(() => _isSearchExpanded = true),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CollapsedSearchBar(
+                  startText: _startController.text,
+                  endText: _endController.text,
+                  travelMode: _travelMode,
+                  onTap: () => setState(() => _isSearchExpanded = true),
+                ),
+                // Come in Google Maps il mezzo si cambia anche con i
+                // percorsi già sullo schermo.
+                if (hasRoutes || _isCalculating)
+                  TravelModeBar(
+                    selected: _travelMode,
+                    onSelected: _setTravelMode,
+                    padding: const EdgeInsets.only(top: 8),
+                  ),
+              ],
             );
 
-      children.add(SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  TopBar(onLogout: () => FirebaseAuth.instance.signOut()),
-                ],
-              ),
-              const SizedBox(height: 12),
-              // Sugli schermi larghi il pannello resta stretto e a sinistra,
-              // come la casella di ricerca di Google Maps.
-              Align(
-                alignment: Alignment.centerLeft,
-                child: ConstrainedBox(
-                  constraints:
-                      const BoxConstraints(maxWidth: kSearchPanelMaxWidth),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 240),
-                      child: search,
+      children.add(
+        SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    TopBar(onLogout: () => FirebaseAuth.instance.signOut()),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                // Sugli schermi larghi il pannello resta stretto e a sinistra,
+                // come la casella di ricerca di Google Maps.
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: kSearchPanelMaxWidth,
+                    ),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 240),
+                        child: search,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              CategoryFilterBar(
-                categories: _categories,
-                selected: _selectedCategory,
-                countFor: _countForCategory,
-                onSelected: (category) =>
-                    setState(() => _selectedCategory = category),
-              ),
-            ],
+                // Mentre si cerca, i filtri non coprono i suggerimenti.
+                if (!searchFocused) ...[
+                  const SizedBox(height: 12),
+                  CategoryFilterBar(
+                    categories: _categories,
+                    selected: _selectedCategory,
+                    countFor: _countForCategory,
+                    onSelected: (category) =>
+                        setState(() => _selectedCategory = category),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
-      ));
+      );
     }
 
     if (_isNavigating) {
-      children.add(Positioned(
-        top: 0,
-        left: 0,
-        right: 0,
-        child: NavigationPanel(
-          update: _navigationUpdate,
-          firstStep: _navigationFirstStep!,
-          gpsFailed: _navigationGpsFailed,
-          language: _voiceLanguage,
-          isMuted: _ttsService.muted,
-          onStop: _stopNavigation,
-          onToggleMute: () => setState(() {
-            _ttsService.muted = !_ttsService.muted;
-            if (_ttsService.muted) _ttsService.stop();
-          }),
-          onLanguageChanged: (language) =>
-              setState(() => _voiceLanguage = language),
-        ),
-      ));
-    }
-
-    children.add(AnimatedPositioned(
-      right: 12,
-      bottom: controlsBottom,
-      duration: const Duration(milliseconds: 240),
-      curve: Curves.easeOutCubic,
-      child: MapControls(
-        onZoomIn: _zoomIn,
-        onZoomOut: _zoomOut,
-        onLocate: () => _locateUser(showErrors: true),
-        isLocating: _isLocatingUser,
-        onReport: _isNavigating ? null : _reportHere,
-      ),
-    ));
-
-    if (!hasRoutes && !_isNavigating && _showReportHint) {
-      children.add(Positioned(
-        left: 12,
-        right: 60,
-        bottom: 24,
-        // Allineato a sinistra: la pillola è larga quanto il suo testo
-        // invece di occupare tutta la larghezza dello schermo.
-        child: Align(
-          alignment: Alignment.bottomLeft,
-          child: ReportHint(
-            onClose: () => setState(() => _showReportHint = false),
+      children.add(
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: NavigationPanel(
+            update: _navigationUpdate,
+            firstStep: _navigationFirstStep!,
+            gpsFailed: _navigationGpsFailed,
+            language: _voiceLanguage,
+            isMuted: _ttsService.muted,
+            onStop: _stopNavigation,
+            onToggleMute: () => setState(() {
+              _ttsService.muted = !_ttsService.muted;
+              if (_ttsService.muted) _ttsService.stop();
+            }),
+            onLanguageChanged: (language) =>
+                setState(() => _voiceLanguage = language),
           ),
         ),
-      ));
+      );
     }
 
-    if (hasRoutes && !_isNavigating) {
-      children.add(Positioned(
-        left: 0,
-        right: 0,
-        bottom: 0,
-        child: RouteOptionsSheet(
-          routes: _routes,
-          selectedIndex: _selectedRouteIndex,
-          onSelect: _selectRoute,
-          onStart: _startNavigation,
-          onClose: _closeRoutes,
+    children.add(
+      AnimatedPositioned(
+        right: 12,
+        bottom: controlsBottom,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+        child: MapControls(
+          onZoomIn: _zoomIn,
+          onZoomOut: _zoomOut,
+          onLocate: () => _locateUser(showErrors: true),
+          isLocating: _isLocatingUser,
+          onReport: _isNavigating || choosing != null ? null : _reportHere,
         ),
-      ));
+      ),
+    );
+
+    if (!hasRoutes &&
+        !_isNavigating &&
+        !showPlaceSheet &&
+        choosing == null &&
+        _showReportHint) {
+      children.add(
+        Positioned(
+          left: 12,
+          right: 60,
+          bottom: 24,
+          // Allineato a sinistra: la pillola è larga quanto il suo testo
+          // invece di occupare tutta la larghezza dello schermo.
+          child: Align(
+            alignment: Alignment.bottomLeft,
+            child: ReportHint(
+              onClose: () => setState(() => _showReportHint = false),
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (showPlaceSheet) {
+      final place = _selectedPlace!;
+      final label = formatPlace(place);
+      final location = _userLocation;
+      children.add(
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: PlaceSheet(
+                title: label.title,
+                subtitle: label.subtitle,
+                distanceText: location == null
+                    ? null
+                    : 'a ${formatDistance(haversineDistance(location, _endPoint!))} da te',
+                nearbyObstacles: _obstaclesNear(_endPoint!),
+                onDirections: _openDirections,
+                onStart: _startFromPlace,
+                onShare: _sharePlace,
+                onClose: _closePlace,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (hasRoutes && !_isNavigating && choosing == null) {
+      children.add(
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: RouteOptionsSheet(
+            routes: _routes,
+            selectedIndex: _selectedRouteIndex,
+            onSelect: _selectRoute,
+            onStart: _startNavigation,
+            onClose: _closeRoutes,
+          ),
+        ),
+      );
     }
 
     return Scaffold(
@@ -867,6 +1260,58 @@ class _MapScreenState extends State<MapScreen> {
       resizeToAvoidBottomInset: false,
       body: Stack(children: children),
     );
+  }
+
+  /// Segnaposto fisso al centro, barra in alto e pulsante "Fatto".
+  List<Widget> _buildChooseOnMap(bool isStart) {
+    final color = isStart ? AppPalette.startGreen : AppPalette.primary;
+    return [
+      // La punta del segnaposto indica il centro della mappa.
+      IgnorePointer(
+        child: Center(
+          child: Transform.translate(
+            offset: const Offset(0, -24),
+            child: RouteEndpointMarker(
+              color: color,
+              icon: isStart ? Icons.trip_origin_rounded : Icons.flag_rounded,
+              label: isStart ? 'Partenza' : 'Arrivo',
+            ),
+          ),
+        ),
+      ),
+      SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: kSearchPanelMaxWidth),
+              child: ChooseOnMapBar(
+                isStart: isStart,
+                onCancel: () => setState(() => _choosingOnMapFor = null),
+              ),
+            ),
+          ),
+        ),
+      ),
+      Positioned(
+        left: 16,
+        right: 16,
+        bottom: 28,
+        child: SafeArea(
+          top: false,
+          child: Center(
+            child: FilledButton.icon(
+              onPressed: _confirmChooseOnMap,
+              icon: const Icon(Icons.check_rounded),
+              label: const Text('Fatto'),
+              style: FilledButton.styleFrom(minimumSize: const Size(160, 48)),
+            ),
+          ),
+        ),
+      ),
+    ];
   }
 
   Widget _buildMap(BuildContext context) {
@@ -909,25 +1354,31 @@ class _MapScreenState extends State<MapScreen> {
       ];
       layers.add(PolylineLayer(polylines: polylines));
     } else if (_routePoints.isNotEmpty) {
-      layers.add(PolylineLayer(polylines: [
-        Polyline(
-          points: _routePoints,
-          strokeWidth: 7,
-          color: AppPalette.primary,
-          borderColor: Colors.white,
-          borderStrokeWidth: 2.5,
+      layers.add(
+        PolylineLayer(
+          polylines: [
+            Polyline(
+              points: _routePoints,
+              strokeWidth: 7,
+              color: AppPalette.primary,
+              borderColor: Colors.white,
+              borderStrokeWidth: 2.5,
+            ),
+          ],
         ),
-      ]));
+      );
     }
 
-    layers.add(MarkerClusterLayerWidget(
-      options: MarkerClusterLayerOptions(
-        maxClusterRadius: 45,
-        size: const Size(40, 40),
-        alignment: Alignment.center,
-        padding: const EdgeInsets.all(50),
-        markers: _filteredObstacles
-            .map((obstacle) => Marker(
+    layers.add(
+      MarkerClusterLayerWidget(
+        options: MarkerClusterLayerOptions(
+          maxClusterRadius: 45,
+          size: const Size(40, 40),
+          alignment: Alignment.center,
+          padding: const EdgeInsets.all(50),
+          markers: _filteredObstacles
+              .map(
+                (obstacle) => Marker(
                   point: obstacle.position,
                   width: 40,
                   height: 40,
@@ -937,45 +1388,57 @@ class _MapScreenState extends State<MapScreen> {
                     label: 'Ostacolo: ${obstacle.type}',
                     onTap: () => _openObstacle(obstacle),
                   ),
-                ))
-            .toList(),
-        builder: (context, markers) => ClusterBadge(count: markers.length),
+                ),
+              )
+              .toList(),
+          builder: (context, markers) => ClusterBadge(count: markers.length),
+        ),
       ),
-    ));
+    );
 
-    layers.add(MarkerLayer(markers: [
-      if (_startPoint != null)
-        Marker(
-          point: _startPoint!,
-          width: 44,
-          height: 48,
-          alignment: Alignment.bottomCenter,
-          child: const RouteEndpointMarker(
-            color: AppPalette.startGreen,
-            icon: Icons.trip_origin_rounded,
-            label: 'Partenza',
-          ),
-        ),
-      if (_endPoint != null)
-        Marker(
-          point: _endPoint!,
-          width: 44,
-          height: 48,
-          alignment: Alignment.bottomCenter,
-          child: const RouteEndpointMarker(
-            color: AppPalette.primary,
-            icon: Icons.flag_rounded,
-            label: 'Arrivo',
-          ),
-        ),
-      if (_userLocation != null)
-        Marker(
-          point: _userLocation!,
-          width: 46,
-          height: 46,
-          child: const UserLocationDot(),
-        ),
-    ]));
+    layers.add(
+      MarkerLayer(
+        markers: [
+          if (_startPoint != null && _choosingOnMapFor != true)
+            Marker(
+              point: _startPoint!,
+              width: 44,
+              height: 48,
+              alignment: Alignment.bottomCenter,
+              child: const RouteEndpointMarker(
+                color: AppPalette.startGreen,
+                icon: Icons.trip_origin_rounded,
+                label: 'Partenza',
+              ),
+            ),
+          if (_endPoint != null && _choosingOnMapFor != false)
+            Marker(
+              point: _endPoint!,
+              width: 44,
+              height: 48,
+              alignment: Alignment.bottomCenter,
+              child: _stage == SearchPhase.directions
+                  ? const RouteEndpointMarker(
+                      color: AppPalette.primary,
+                      icon: Icons.flag_rounded,
+                      label: 'Arrivo',
+                    )
+                  : const RouteEndpointMarker(
+                      color: AppPalette.primary,
+                      icon: Icons.place_rounded,
+                      label: 'Luogo cercato',
+                    ),
+            ),
+          if (_userLocation != null)
+            Marker(
+              point: _userLocation!,
+              width: 46,
+              height: 46,
+              child: const UserLocationDot(),
+            ),
+        ],
+      ),
+    );
 
     return FlutterMap(
       mapController: _mapController,
@@ -985,7 +1448,9 @@ class _MapScreenState extends State<MapScreen> {
         minZoom: _minZoom,
         maxZoom: _maxZoom,
         onTap: (_, _) => FocusScope.of(context).unfocus(),
-        onLongPress: (_, point) => _reportObstacle(point),
+        onLongPress: (_, point) {
+          if (_choosingOnMapFor == null) _reportObstacle(point);
+        },
         interactionOptions: const InteractionOptions(
           flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
         ),

@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../models/obstacle.dart';
 import '../models/route_option.dart';
+import '../models/travel_mode.dart';
 import 'geo_utils.dart';
 
 const String kUserAgent = 'FreeWayApp/2.0 (freeway-accessibility-app)';
@@ -21,6 +22,10 @@ const String kOrsApiKey = String.fromEnvironment('ORS_API_KEY');
 /// gradini, pendenze e fondi sconnessi) e passa gli ostacoli come zone da
 /// evitare. Senza chiave, o se OpenRouteService non risponde, usa il profilo
 /// pedonale di OSRM con una deviazione intorno al primo ostacolo.
+///
+/// Con [TravelMode.walking] cerca invece il percorso a piedi più veloce
+/// (profilo `foot-walking` di OpenRouteService o pedonale di OSRM) e si limita
+/// a contare gli ostacoli lungo il tragitto.
 class RoutingService {
   RoutingService({http.Client? client, String orsApiKey = kOrsApiKey})
       : _client = client ?? http.Client(),
@@ -43,18 +48,25 @@ class RoutingService {
   Future<List<RouteOption>> getRoutes(
     LatLng start,
     LatLng end,
-    List<Obstacle> obstacles,
-  ) async {
+    List<Obstacle> obstacles, {
+    TravelMode mode = TravelMode.wheelchair,
+  }) async {
+    final walking = mode == TravelMode.walking;
     var candidates = <RouteOption>[];
     if (usesWheelchairProfile) {
       try {
-        candidates = await _orsCandidates(start, end, obstacles);
+        candidates = walking
+            ? await _fetchOrsRoutes(start, end,
+                alternatives: true, profile: 'foot-walking')
+            : await _orsCandidates(start, end, obstacles);
       } catch (_) {
         candidates = [];
       }
     }
     if (candidates.isEmpty) {
-      candidates = await _osrmCandidates(start, end, obstacles);
+      candidates = walking
+          ? await _fetchRoutes([start, end], alternatives: 3)
+          : await _osrmCandidates(start, end, obstacles);
     }
     if (candidates.isEmpty) throw Exception('Nessun percorso trovato');
 
@@ -71,6 +83,15 @@ class RoutingService {
             haversineDistance(other.points.first, route.points.first) < 10,
       );
       if (!duplicate) unique.add(route);
+    }
+
+    if (walking) {
+      unique.sort((a, b) => a.duration.compareTo(b.duration));
+      for (var i = 0; i < unique.length; i++) {
+        unique[i].isRecommended = i == 0;
+        unique[i].label = i == 0 ? 'Più veloce' : 'Alternativa ${i + 1}';
+      }
+      return unique;
     }
 
     unique.sort((a, b) {
@@ -144,6 +165,7 @@ class RoutingService {
     LatLng end, {
     bool alternatives = false,
     List<Obstacle> avoid = const [],
+    String profile = 'wheelchair',
   }) async {
     final body = <String, dynamic>{
       'coordinates': [
@@ -163,7 +185,7 @@ class RoutingService {
     };
     final response = await _client.post(
       Uri.parse(
-        'https://api.openrouteservice.org/v2/directions/wheelchair/geojson',
+        'https://api.openrouteservice.org/v2/directions/$profile/geojson',
       ),
       headers: {
         'Authorization': _orsApiKey,
