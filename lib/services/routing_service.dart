@@ -52,22 +52,25 @@ class RoutingService {
     LatLng end,
     List<Obstacle> obstacles, {
     TravelMode mode = TravelMode.wheelchair,
+    List<LatLng> via = const [],
   }) async {
     final walking = mode == TravelMode.walking;
+    // Tappe intermedie scelte dall'utente, come "Add stop" di Google Maps.
+    final waypoints = [start, ...via, end];
     var candidates = <RouteOption>[];
     if (usesWheelchairProfile) {
       try {
         candidates = walking
-            ? await _fetchOrsRoutes(start, end,
+            ? await _fetchOrsRoutes(waypoints,
                 alternatives: true, profile: 'foot-walking')
-            : await _orsCandidates(start, end, obstacles);
+            : await _orsCandidates(waypoints, obstacles);
       } catch (_) {
         candidates = [];
       }
     }
     if (candidates.isEmpty) {
-      candidates = walking
-          ? await _fetchRoutes([start, end], alternatives: 3)
+      candidates = walking || via.isNotEmpty
+          ? await _fetchRoutes(waypoints, alternatives: 3)
           : await _osrmCandidates(start, end, obstacles);
     }
     if (candidates.isEmpty) throw Exception('Nessun percorso trovato');
@@ -153,14 +156,20 @@ class RoutingService {
   /// Due richieste in parallelo: una con le alternative e una che evita le
   /// aree degli ostacoli (le alternative non sempre le rispettano).
   Future<List<RouteOption>> _orsCandidates(
-    LatLng start,
-    LatLng end,
+    List<LatLng> waypoints,
     List<Obstacle> obstacles,
   ) async {
-    final nearby = obstaclesNear(start, end, obstacles);
+    final nearbyIds = <String>{};
+    final nearby = <Obstacle>[];
+    for (var i = 1; i < waypoints.length; i++) {
+      for (final o in obstaclesNear(waypoints[i - 1], waypoints[i], obstacles)) {
+        if (nearbyIds.add(o.id)) nearby.add(o);
+      }
+    }
+    final avoid = nearby.take(maxAvoidedObstacles).toList();
     final requests = <Future<List<RouteOption>>>[
-      _fetchOrsRoutes(start, end, alternatives: true),
-      if (nearby.isNotEmpty) _fetchOrsRoutes(start, end, avoid: nearby),
+      _fetchOrsRoutes(waypoints, alternatives: true),
+      if (avoid.isNotEmpty) _fetchOrsRoutes(waypoints, avoid: avoid),
     ];
     final results = await Future.wait(
       requests.map((r) => r.catchError((Object _) => <RouteOption>[])),
@@ -169,21 +178,20 @@ class RoutingService {
   }
 
   Future<List<RouteOption>> _fetchOrsRoutes(
-    LatLng start,
-    LatLng end, {
+    List<LatLng> waypoints, {
     bool alternatives = false,
     List<Obstacle> avoid = const [],
     String profile = 'wheelchair',
   }) async {
     final body = <String, dynamic>{
       'coordinates': [
-        [start.longitude, start.latitude],
-        [end.longitude, end.latitude],
+        for (final p in waypoints) [p.longitude, p.latitude],
       ],
       'instructions': true,
       'units': 'm',
       'extra_info': kOrsExtraInfo,
-      if (alternatives)
+      // OpenRouteService dà alternative solo tra due punti.
+      if (alternatives && waypoints.length == 2)
         'alternative_routes': {
           'target_count': 3,
           'share_factor': 0.6,
@@ -287,8 +295,10 @@ class RoutingService {
       final properties = feature['properties'] as Map<String, dynamic>;
       final summary =
           properties['summary'] as Map<String, dynamic>? ?? const {};
-      final steps = <RouteStep>[];
+      final legs = <List<RouteStep>>[];
       for (final segment in properties['segments'] as List? ?? const []) {
+        final steps = <RouteStep>[];
+        legs.add(steps);
         final rawSteps = (segment as Map)['steps'] as List? ?? const [];
         for (final rawStep in rawSteps) {
           final step = rawStep as Map<String, dynamic>;
@@ -310,6 +320,7 @@ class RoutingService {
           ));
         }
       }
+      final steps = joinLegs(legs, keepStops: true);
 
       final route = RouteOption(
         points: points,
@@ -412,7 +423,8 @@ class RoutingService {
         final waypoint =
             LatLng(target.latitude + shift.y, target.longitude + shift.x);
         try {
-          final routes = await _fetchRoutes([start, waypoint, end]);
+          final routes =
+              await _fetchRoutes([start, waypoint, end], userStops: false);
           if (routes.isNotEmpty) {
             final candidate = routes.first;
             final clearance = candidate.points
@@ -444,15 +456,22 @@ class RoutingService {
     return detours.first;
   }
 
+  /// Con [userStops] i punti intermedi sono tappe scelte dall'utente
+  /// ("Hai raggiunto la tappa"); altrimenti servono solo a deviare il
+  /// percorso e le loro manovre vengono tolte.
   Future<List<RouteOption>> _fetchRoutes(
     List<LatLng> waypoints, {
     int alternatives = 0,
+    bool userStops = true,
   }) async {
     final coordinates =
         waypoints.map((p) => '${p.longitude},${p.latitude}').join(';');
     var url = 'https://router.project-osrm.org/route/v1/foot/$coordinates'
         '?overview=full&geometries=geojson&steps=true';
-    if (alternatives > 0) url += '&alternatives=$alternatives';
+    // OSRM dà alternative solo tra due punti.
+    if (alternatives > 0 && waypoints.length == 2) {
+      url += '&alternatives=$alternatives';
+    }
 
     final response =
         await _client.get(Uri.parse(url), headers: {'User-Agent': kUserAgent});
@@ -472,8 +491,10 @@ class RoutingService {
               ))
           .toList();
 
-      final steps = <RouteStep>[];
+      final legs = <List<RouteStep>>[];
       for (final leg in route['legs'] as List) {
+        final steps = <RouteStep>[];
+        legs.add(steps);
         for (final rawStep in leg['steps'] as List) {
           final step = rawStep as Map<String, dynamic>;
           final maneuver = step['maneuver'] as Map<String, dynamic>;
@@ -495,6 +516,7 @@ class RoutingService {
           ));
         }
       }
+      final steps = joinLegs(legs, keepStops: userStops);
 
       result.add(RouteOption(
         points: points,
@@ -505,6 +527,47 @@ class RoutingService {
       ));
     }
     return result;
+  }
+
+  /// Unisce le manovre dei tratti tra un punto e l'altro. L'arrivo a un
+  /// punto intermedio diventa "Hai raggiunto la tappa" ([keepStops]) o
+  /// sparisce, e la partenza del tratto dopo diventa "Prosegui".
+  @visibleForTesting
+  static List<RouteStep> joinLegs(
+    List<List<RouteStep>> legs, {
+    required bool keepStops,
+  }) {
+    if (legs.isEmpty) return [];
+    if (legs.length == 1) return legs.first;
+    RouteStep as(RouteStep step, String type, String modifier) => RouteStep(
+      instruction: '$type|$modifier|${step.streetName}',
+      location: step.location,
+      maneuverType: type,
+      modifier: modifier,
+      streetName: step.streetName,
+      distance: step.distance,
+      duration: step.duration,
+    );
+    final joined = <RouteStep>[];
+    for (var i = 0; i < legs.length; i++) {
+      final leg = legs[i];
+      for (var j = 0; j < leg.length; j++) {
+        final step = leg[j];
+        final isIntermediateArrival = i < legs.length - 1 &&
+            j == leg.length - 1 &&
+            step.maneuverType == 'arrive';
+        if (isIntermediateArrival) {
+          if (keepStops) joined.add(as(step, 'stop', ''));
+          continue;
+        }
+        if (i > 0 && j == 0 && step.maneuverType == 'depart') {
+          joined.add(as(step, 'continue', 'straight'));
+          continue;
+        }
+        joined.add(step);
+      }
+    }
+    return joined;
   }
 
   Obstacle? _firstObstacleOnRoute(List<LatLng> points, List<Obstacle> obstacles) {

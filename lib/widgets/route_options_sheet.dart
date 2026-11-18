@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/route_option.dart';
+import '../services/along_route_service.dart';
 import '../theme/app_theme.dart';
 
 /// Pannello in basso con i percorsi trovati e il pulsante "Avvia navigazione".
@@ -12,9 +13,12 @@ class RouteOptionsSheet extends StatelessWidget {
     required this.onSelect,
     required this.onStart,
     required this.onClose,
-    this.onFindToilets,
-    this.isFindingToilets = false,
-    this.toiletCount,
+    this.onSearchAlong,
+    this.alongCounts = const {},
+    this.alongLoading = const {},
+    this.stops = const [],
+    this.onRemoveStop,
+    this.weatherWarning,
   });
 
   final List<RouteOption> routes;
@@ -23,12 +27,20 @@ class RouteOptionsSheet extends StatelessWidget {
   final VoidCallback onStart;
   final VoidCallback onClose;
 
-  /// "Bagni accessibili lungo il percorso", come "Search along route".
-  final VoidCallback? onFindToilets;
-  final bool isFindingToilets;
+  /// Cerca lungo il percorso (bagni, panchine, fontanelle), come "Search
+  /// along route" di Google Maps.
+  final ValueChanged<AlongRouteCategory>? onSearchAlong;
 
-  /// Bagni trovati, o `null` se la ricerca non è stata fatta.
-  final int? toiletCount;
+  /// Risultati per categoria già cercata.
+  final Map<AlongRouteCategory, int> alongCounts;
+  final Set<AlongRouteCategory> alongLoading;
+
+  /// Tappe intermedie, in ordine ("Add stop").
+  final List<String> stops;
+  final ValueChanged<int>? onRemoveStop;
+
+  /// Avviso meteo sul percorso (pioggia, neve, ghiaccio, caldo).
+  final String? weatherWarning;
 
   @override
   Widget build(BuildContext context) {
@@ -121,26 +133,70 @@ class RouteOptionsSheet extends StatelessWidget {
                 ],
               ),
             ),
-            if (onFindToilets != null)
+            if (weatherWarning != null)
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 2, 20, 0),
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+                child: Semantics(
+                  liveRegion: true,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.umbrella_rounded,
+                        size: 16,
+                        color: colors.warning,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          weatherWarning!,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colors.warning),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (stops.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (var i = 0; i < stops.length; i++)
+                      InputChip(
+                        avatar: const Icon(
+                          Icons.flag_circle_outlined,
+                          size: 18,
+                        ),
+                        label: Text('Tappa ${i + 1}: ${stops[i]}'),
+                        deleteButtonTooltipMessage: 'Togli la tappa',
+                        onDeleted: onRemoveStop == null
+                            ? null
+                            : () => onRemoveStop!(i),
+                      ),
+                  ],
+                ),
+              ),
+            if (onSearchAlong != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    onPressed: isFindingToilets ? null : onFindToilets,
-                    icon: isFindingToilets
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.wc_rounded, size: 18),
-                    label: Text(switch (toiletCount) {
-                      null => 'Bagni accessibili lungo il percorso',
-                      0 => 'Nessun bagno accessibile segnato lungo il percorso',
-                      1 => '1 bagno accessibile sulla mappa',
-                      final n => '$n bagni accessibili sulla mappa',
-                    }),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final category in AlongRouteCategory.values)
+                        AlongRouteChip(
+                          category: category,
+                          count: alongCounts[category],
+                          isLoading: alongLoading.contains(category),
+                          onPressed: () => onSearchAlong!(category),
+                        ),
+                    ],
                   ),
                 ),
               ),
@@ -466,6 +522,56 @@ class RecommendedChip extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+IconData alongRouteIcon(AlongRouteCategory category) => switch (category) {
+  AlongRouteCategory.toilets => Icons.wc_rounded,
+  AlongRouteCategory.benches => Icons.event_seat_rounded,
+  AlongRouteCategory.water => Icons.water_drop_rounded,
+};
+
+/// Pulsante di una categoria da cercare lungo il percorso, con il numero di
+/// risultati dopo la ricerca.
+class AlongRouteChip extends StatelessWidget {
+  const AlongRouteChip({
+    super.key,
+    required this.category,
+    required this.count,
+    required this.isLoading,
+    required this.onPressed,
+  });
+
+  final AlongRouteCategory category;
+
+  /// `null` se non ancora cercata.
+  final int? count;
+  final bool isLoading;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = switch (count) {
+      null => category.label,
+      0 => '${category.label}: nessuna',
+      final n => '${category.label}: $n',
+    };
+    return ActionChip(
+      avatar: isLoading
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(alongRouteIcon(category), size: 18),
+      label: Text(label),
+      tooltip: count == null
+          ? 'Cerca ${category.plural} lungo il percorso'
+          : count == 0
+          ? 'Nessun risultato su OpenStreetMap lungo il percorso'
+          : 'Mostrati sulla mappa',
+      onPressed: isLoading ? null : onPressed,
     );
   }
 }

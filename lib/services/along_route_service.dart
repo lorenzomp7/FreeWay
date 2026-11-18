@@ -8,32 +8,46 @@ import 'package:latlong2/latlong.dart';
 import 'geo_utils.dart';
 import 'obstacle_alerts.dart' show nearestPointIndex;
 
-/// Un bagno accessibile in sedia a rotelle vicino al percorso.
-class AccessibleToilet {
-  const AccessibleToilet({
+/// Cosa cercare lungo il percorso, come le categorie di "Search along
+/// route" di Google Maps, scelte per chi si muove in sedia a rotelle o si
+/// stanca facilmente.
+enum AlongRouteCategory {
+  toilets('Bagni accessibili', 'bagno accessibile', 'bagni accessibili'),
+  benches('Panchine', 'panchina', 'panchine'),
+  water('Fontanelle', 'fontanella', 'fontanelle');
+
+  const AlongRouteCategory(this.label, this.singular, this.plural);
+
+  /// Testo del pulsante.
+  final String label;
+  final String singular;
+  final String plural;
+}
+
+/// Un luogo utile vicino al percorso.
+class AlongRoutePlace {
+  const AlongRoutePlace({
+    required this.category,
     required this.position,
     required this.name,
     required this.metersFromStart,
     this.isLimited = false,
-    this.openingHours,
   });
 
+  final AlongRouteCategory category;
   final LatLng position;
 
-  /// Nome del locale o "Bagno pubblico".
+  /// Nome del locale, o un nome generico ("Bagno pubblico", "Panchina").
   final String name;
 
-  /// Distanza lungo il percorso dalla partenza al punto più vicino al bagno.
+  /// Distanza lungo il percorso dalla partenza al punto più vicino.
   final double metersFromStart;
 
-  /// Accessibilità solo parziale (`wheelchair=limited`).
+  /// Solo per i bagni: accessibilità parziale (`wheelchair=limited`).
   final bool isLimited;
-  final String? openingHours;
 }
 
-/// Cerca lungo il percorso, come "Search along route" di Google Maps; per
-/// FreeWay la ricerca utile sono i bagni accessibili, letti da OpenStreetMap
-/// tramite Overpass.
+/// Cerca lungo il percorso su OpenStreetMap, tramite Overpass.
 class AlongRouteService {
   AlongRouteService({http.Client? client}) : _client = client ?? http.Client();
 
@@ -47,26 +61,36 @@ class AlongRouteService {
   /// e tengono corta la richiesta.
   static const int maxQueryPoints = 40;
 
-  /// `null` se Overpass non risponde; lista vuota se non ci sono bagni.
-  Future<List<AccessibleToilet>?> accessibleToilets(List<LatLng> route) async {
+  /// Risultati al massimo per categoria.
+  static const int maxResults = 30;
+
+  /// Panchine più vicine di così si contano una volta sola (file di panchine
+  /// in un parco).
+  static const double _mergeMeters = 20;
+
+  /// `null` se Overpass non risponde; lista vuota se non c'è nulla.
+  Future<List<AlongRoutePlace>?> search(
+    AlongRouteCategory category,
+    List<LatLng> route,
+  ) async {
     if (route.length < 2) return const [];
     try {
       // Modulo semplice, senza intestazioni in più: nel browser non serve il
       // controllo preventivo CORS.
       final response = await _client
-          .post(endpoint, body: {'data': buildQuery(route)})
+          .post(endpoint, body: {'data': buildQuery(category, route)})
           .timeout(const Duration(seconds: 20));
       if (response.statusCode != 200) return null;
       final data = jsonDecode(utf8.decode(response.bodyBytes));
       if (data is! Map<String, dynamic>) return null;
-      return parse(data, route);
+      return parse(category, data, route);
     } catch (_) {
       return null;
     }
   }
 
   @visibleForTesting
-  static String buildQuery(List<LatLng> route) {
+  static String buildQuery(AlongRouteCategory category, List<LatLng> route) {
     final points = samplePoints(route, maxQueryPoints)
         .map(
           (p) =>
@@ -75,11 +99,19 @@ class AlongRouteService {
         )
         .join(',');
     final around = 'around:$corridorMeters,$points';
-    return '[out:json][timeout:15];('
+    final filters = switch (category) {
+      AlongRouteCategory.toilets =>
         'nwr($around)["amenity"="toilets"]'
-        '["wheelchair"~"^(yes|designated|limited)\$"];'
-        'nwr($around)["toilets:wheelchair"~"^(yes|designated)\$"];'
-        ');out center 30;';
+            '["wheelchair"~"^(yes|designated|limited)\$"];'
+            'nwr($around)["toilets:wheelchair"~"^(yes|designated)\$"];',
+      AlongRouteCategory.benches =>
+        'node($around)["amenity"="bench"];'
+            'node($around)["highway"="bus_stop"]["bench"="yes"];',
+      AlongRouteCategory.water =>
+        'nwr($around)["amenity"="drinking_water"];'
+            'nwr($around)["amenity"="water_point"];',
+    };
+    return '[out:json][timeout:15];($filters);out center 200;';
   }
 
   /// Al massimo [max] punti presi a intervalli regolari, con il primo e
@@ -92,7 +124,8 @@ class AlongRouteService {
   }
 
   @visibleForTesting
-  static List<AccessibleToilet> parse(
+  static List<AlongRoutePlace> parse(
+    AlongRouteCategory category,
     Map<String, dynamic> data,
     List<LatLng> route,
   ) {
@@ -106,7 +139,7 @@ class AlongRouteService {
     }
 
     final seen = <String>{};
-    final toilets = <AccessibleToilet>[];
+    final places = <AlongRoutePlace>[];
     for (final element in elements.whereType<Map<String, dynamic>>()) {
       final key = '${element['type']}${element['id']}';
       if (!seen.add(key)) continue;
@@ -118,26 +151,49 @@ class AlongRouteService {
       final lon = source['lon'];
       if (lat is! num || lon is! num) continue;
       final position = LatLng(lat.toDouble(), lon.toDouble());
-      final name =
-          (tags['name'] as String?) ??
-          (tags['amenity'] == 'toilets'
-              ? 'Bagno pubblico'
-              : 'Bagno accessibile');
-      final wheelchair = tags['amenity'] == 'toilets'
-          ? tags['wheelchair']
-          : tags['toilets:wheelchair'];
-      toilets.add(
-        AccessibleToilet(
+      if (category == AlongRouteCategory.benches &&
+          places.any(
+            (p) => haversineDistance(p.position, position) < _mergeMeters,
+          )) {
+        continue;
+      }
+      places.add(
+        AlongRoutePlace(
+          category: category,
           position: position,
-          name: name,
+          name: _name(category, tags),
           metersFromStart: along[nearestPointIndex(route, position)],
-          isLimited: wheelchair == 'limited',
-          openingHours: tags['opening_hours'] as String?,
+          isLimited:
+              category == AlongRouteCategory.toilets &&
+              (tags['amenity'] == 'toilets'
+                      ? tags['wheelchair']
+                      : tags['toilets:wheelchair']) ==
+                  'limited',
         ),
       );
     }
-    toilets.sort((a, b) => a.metersFromStart.compareTo(b.metersFromStart));
-    return toilets.sublist(0, math.min(toilets.length, 30));
+    places.sort((a, b) => a.metersFromStart.compareTo(b.metersFromStart));
+    return places.sublist(0, math.min(places.length, maxResults));
+  }
+
+  static String _name(AlongRouteCategory category, Map<String, dynamic> tags) {
+    final name = tags['name'] as String?;
+    switch (category) {
+      case AlongRouteCategory.toilets:
+        return name ??
+            (tags['amenity'] == 'toilets'
+                ? 'Bagno pubblico'
+                : 'Bagno accessibile');
+      case AlongRouteCategory.benches:
+        if (tags['highway'] == 'bus_stop') {
+          return name == null ? 'Fermata con panchina' : 'Fermata $name';
+        }
+        return tags['backrest'] == 'no'
+            ? 'Panchina senza schienale'
+            : 'Panchina';
+      case AlongRouteCategory.water:
+        return name ?? 'Fontanella';
+    }
   }
 
   void dispose() => _client.close();

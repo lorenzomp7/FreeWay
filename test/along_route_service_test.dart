@@ -47,7 +47,11 @@ final overpass = {
 
 void main() {
   test('i bagni sono in ordine lungo il percorso, senza doppioni', () {
-    final toilets = AlongRouteService.parse(overpass, route);
+    final toilets = AlongRouteService.parse(
+      AlongRouteCategory.toilets,
+      overpass,
+      route,
+    );
     expect(toilets.map((t) => t.name), ['Bagno pubblico', 'Bar Duomo']);
     expect(toilets.first.isLimited, isTrue);
     expect(toilets.first.metersFromStart, closeTo(80, 10));
@@ -62,7 +66,10 @@ void main() {
     expect(sampled, hasLength(40));
     expect(sampled.first, long.first);
     expect(sampled.last, long.last);
-    final query = AlongRouteService.buildQuery(route);
+    final query = AlongRouteService.buildQuery(
+      AlongRouteCategory.toilets,
+      route,
+    );
     expect(query, contains('around:80,45.540000,10.220000'));
     expect(query, contains('"amenity"="toilets"'));
     expect(query, contains('"toilets:wheelchair"'));
@@ -76,11 +83,62 @@ void main() {
         return http.Response(jsonEncode(overpass), 200);
       }),
     );
-    expect(await ok.accessibleToilets(route), hasLength(2));
+    expect(await ok.search(AlongRouteCategory.toilets, route), hasLength(2));
 
     final down = AlongRouteService(
       client: MockClient((_) async => http.Response('busy', 504)),
     );
-    expect(await down.accessibleToilets(route), isNull);
+    expect(await down.search(AlongRouteCategory.toilets, route), isNull);
+  });
+
+  test('panchine vicine si contano una volta, fontanelle con il loro nome', () {
+    final benches = AlongRouteService.parse(AlongRouteCategory.benches, {
+      'elements': [
+        {
+          'type': 'node',
+          'id': 10,
+          'lat': 45.5401,
+          'lon': 10.2210,
+          'tags': {'amenity': 'bench'},
+        },
+        // A circa 8 m dalla prima: stessa fila di panchine.
+        {
+          'type': 'node',
+          'id': 11,
+          'lat': 45.5401,
+          'lon': 10.2211,
+          'tags': {'amenity': 'bench'},
+        },
+        {
+          'type': 'node',
+          'id': 12,
+          'lat': 45.5401,
+          'lon': 10.2240,
+          'tags': {'highway': 'bus_stop', 'bench': 'yes', 'name': 'Duomo'},
+        },
+      ],
+    }, route);
+    expect(benches.map((b) => b.name), ['Panchina', 'Fermata Duomo']);
+
+    final water = AlongRouteService.parse(AlongRouteCategory.water, {
+      'elements': [
+        {
+          'type': 'node',
+          'id': 20,
+          'lat': 45.5400,
+          'lon': 10.2230,
+          'tags': {'amenity': 'drinking_water'},
+        },
+      ],
+    }, route);
+    expect(water.single.name, 'Fontanella');
+    expect(
+      AlongRouteService.buildQuery(AlongRouteCategory.benches, route),
+      contains('"amenity"="bench"'),
+    );
+    expect(
+      AlongRouteService.buildQuery(AlongRouteCategory.water, route),
+      contains('"amenity"="drinking_water"'),
+    );
   });
 }

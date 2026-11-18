@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:freeway/models/obstacle.dart';
+import 'package:freeway/models/route_option.dart';
 import 'package:freeway/models/travel_mode.dart';
 import 'package:freeway/services/geo_utils.dart';
 import 'package:freeway/services/routing_service.dart';
@@ -231,6 +232,46 @@ void main() {
       // Nessuna richiesta in più per girare intorno all'ostacolo.
       expect(calls, 1);
       expect(routes.single.label, 'Più veloce');
+    });
+  });
+
+  group('tappe intermedie', () {
+    RouteStep step(String type, String street) => RouteStep(
+          instruction: '$type||$street',
+          location: start,
+          maneuverType: type,
+          modifier: '',
+          streetName: street,
+        );
+
+    test("l'arrivo a una tappa diventa \"Hai raggiunto la tappa\"", () {
+      final legs = [
+        [step('depart', 'Via A'), step('turn', 'Via B'), step('arrive', 'Via B')],
+        [step('depart', 'Via B'), step('arrive', 'Via C')],
+      ];
+      final joined = RoutingService.joinLegs(legs, keepStops: true);
+      expect(joined.map((s) => s.maneuverType),
+          ['depart', 'turn', 'stop', 'continue', 'arrive']);
+      final detour = RoutingService.joinLegs(legs, keepStops: false);
+      expect(detour.map((s) => s.maneuverType),
+          ['depart', 'turn', 'continue', 'arrive']);
+    });
+
+    test('OpenRouteService riceve le tappe e non chiede alternative', () async {
+      final bodies = <Map<String, dynamic>>[];
+      final client = MockClient((request) async {
+        bodies.add(jsonDecode(request.body) as Map<String, dynamic>);
+        return http.Response(jsonEncode(straight), 200);
+      });
+      final service = RoutingService(client: client, orsApiKey: 'test-key');
+      const stop = LatLng(45.5402, 10.2230);
+      await service.getRoutes(start, end, [], via: [stop]);
+      expect(bodies.single['coordinates'], [
+        [start.longitude, start.latitude],
+        [stop.longitude, stop.latitude],
+        [end.longitude, end.latitude],
+      ]);
+      expect(bodies.single['alternative_routes'], isNull);
     });
   });
 }

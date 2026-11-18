@@ -26,8 +26,10 @@ import '../services/place_accessibility_service.dart';
 import '../services/recent_places_service.dart';
 import '../services/routing_service.dart';
 import '../services/trip_resume_service.dart';
+import '../services/weather_service.dart';
 import '../services/tts_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/along_route_widgets.dart';
 import '../widgets/map_widgets.dart';
 import '../widgets/navigation_panel.dart';
 import '../widgets/navigation_prompts.dart';
@@ -36,6 +38,7 @@ import '../widgets/place_sheet.dart';
 import '../widgets/route_options_sheet.dart';
 import '../widgets/search_panel.dart';
 import '../widgets/top_bar.dart';
+import '../widgets/voice_settings_sheet.dart';
 
 /// Schermata principale: mappa, ricerca percorso, ostacoli e navigazione.
 class MapScreen extends StatefulWidget {
@@ -53,10 +56,19 @@ class _MapScreenState extends State<MapScreen> {
   final PlaceAccessibilityService _accessibilityService =
       PlaceAccessibilityService();
   final AlongRouteService _alongRouteService = AlongRouteService();
+  final WeatherService _weatherService = WeatherService();
 
-  /// Bagni accessibili trovati lungo il percorso scelto (`null`: non cercati).
-  List<AccessibleToilet>? _toilets;
-  bool _isFindingToilets = false;
+  /// Avviso meteo per il percorso calcolato (pioggia, neve, ghiaccio, caldo).
+  String? _weatherWarning;
+
+  /// Luoghi trovati lungo il percorso scelto, per categoria (bagni,
+  /// panchine, fontanelle), come "Search along route" di Google Maps.
+  Map<AlongRouteCategory, List<AlongRoutePlace>> _along = {};
+  final Set<AlongRouteCategory> _alongLoading = {};
+
+  /// Tappe intermedie scelte dall'utente, in ordine ("Add stop").
+  List<AlongRoutePlace> _stops = [];
+  static const int _maxStops = 3;
   final ObstacleService _obstacleService = ObstacleService(
     FirebaseFirestore.instance,
   );
@@ -179,6 +191,7 @@ class _MapScreenState extends State<MapScreen> {
     _recentPlaces.load().then((recents) {
       if (mounted) setState(() => _recents = recents);
     });
+    _ttsService.loadSettings();
     _tripResume.load().then((trip) {
       if (mounted && trip != null) setState(() => _pendingTrip = trip);
     });
@@ -212,6 +225,7 @@ class _MapScreenState extends State<MapScreen> {
     _geocodingService.dispose();
     _accessibilityService.dispose();
     _alongRouteService.dispose();
+    _weatherService.dispose();
     _startController.dispose();
     _endController.dispose();
     _startFocus.dispose();
@@ -481,6 +495,8 @@ class _MapScreenState extends State<MapScreen> {
       _routes = [];
       _routePoints = [];
       _selectedRouteIndex = 0;
+      _stops = [];
+      _along = {};
     });
     final end = _endPoint;
     if (end != null) _mapController.move(end, 17);
@@ -615,6 +631,8 @@ class _MapScreenState extends State<MapScreen> {
       _noResultsStart = null;
       _noResultsEnd = null;
       _clearAccessibility();
+      // Al contrario le tappe si incontrano nell'ordine inverso.
+      _stops = _stops.reversed.toList();
     });
     if (_startPoint != null && _endPoint != null) _calculateRoute();
   }
@@ -774,7 +792,7 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       _isCalculating = true;
       _routes = [];
-      _toilets = null;
+      _along = {};
     });
     try {
       final routes = await _routingService.getRoutes(
@@ -782,6 +800,7 @@ class _MapScreenState extends State<MapScreen> {
         end,
         _obstacles,
         mode: mode,
+        via: [for (final stop in _stops) stop.position],
       );
       if (!mounted ||
           _startPoint != start ||
@@ -797,6 +816,7 @@ class _MapScreenState extends State<MapScreen> {
         _isSearchExpanded = routes.isEmpty;
       });
       _fitRoute();
+      unawaited(_loadWeather(start));
       if (startNavigation) _startNavigation();
     } catch (_) {
       if (!mounted ||
@@ -818,42 +838,88 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       _selectedRouteIndex = index;
       _routePoints = _routes[index].points;
-      _toilets = null;
+      _along = {};
     });
     _fitRoute();
   }
 
-  /// "Cerca lungo il percorso" di Google Maps, per i bagni accessibili.
-  Future<void> _findToilets() async {
+  Future<void> _loadWeather(LatLng position) async {
+    final warning = await _weatherService.warningFor(position);
+    if (!mounted || _startPoint != position) return;
+    setState(() => _weatherWarning = warning);
+  }
+
+  /// "Cerca lungo il percorso" di Google Maps: bagni accessibili, panchine
+  /// e fontanelle vicino al percorso scelto. Toccando di nuovo una categoria
+  /// già cercata i suoi segnaposto spariscono.
+  Future<void> _searchAlong(AlongRouteCategory category) async {
     if (_routes.isEmpty) return;
+    if (_along.containsKey(category)) {
+      setState(() => _along = {..._along}..remove(category));
+      return;
+    }
     final route = _routes[_selectedRouteIndex];
-    setState(() => _isFindingToilets = true);
-    final toilets = await _alongRouteService.accessibleToilets(route.points);
+    setState(() => _alongLoading.add(category));
+    final places = await _alongRouteService.search(category, route.points);
     if (!mounted) return;
     setState(() {
-      _isFindingToilets = false;
+      _alongLoading.remove(category);
       // Il percorso potrebbe essere cambiato nel frattempo.
-      if (_routes.contains(route) && _routes[_selectedRouteIndex] == route) {
-        _toilets = toilets;
+      if (places != null &&
+          _routes.contains(route) &&
+          _routes[_selectedRouteIndex] == route) {
+        _along = {..._along, category: places};
       }
     });
-    if (toilets == null) {
+    if (places == null) {
       _showError(
-        'Ricerca dei bagni non disponibile in questo momento. Riprova.',
+        'Ricerca lungo il percorso non disponibile in questo momento. Riprova.',
         Icons.error_outline_rounded,
+      );
+    } else if (places.isEmpty) {
+      _showSnack(
+        'Nessun risultato per ${category.plural} su OpenStreetMap lungo il '
+        'percorso.',
+        icon: alongRouteIcon(category),
       );
     }
   }
 
-  String _toiletLabel(AccessibleToilet toilet) {
-    final limited = toilet.isLimited ? ' (parzialmente accessibile)' : '';
-    return '${toilet.name}$limited · a ${formatDistance(toilet.metersFromStart)} '
-        'dalla partenza';
+  /// Scheda del luogo lungo il percorso con "Aggiungi come tappa".
+  Future<void> _openAlongPlace(AlongRoutePlace place) async {
+    final already = _stops.any((s) => s.position == place.position);
+    final String? reason = _isNavigating
+        ? 'Le tappe si aggiungono prima di avviare la navigazione.'
+        : already
+        ? 'È già una tappa del percorso.'
+        : _stops.length >= _maxStops
+        ? 'Puoi aggiungere al massimo $_maxStops tappe.'
+        : null;
+    final add = await showAlongPlaceSheet(
+      context,
+      place,
+      canAddStop: reason == null,
+      reason: reason,
+    );
+    if (add != true || !mounted) return;
+    setState(
+      () =>
+          _stops = [..._stops, place]
+            ..sort((a, b) => a.metersFromStart.compareTo(b.metersFromStart)),
+    );
+    _calculateRoute();
+  }
+
+  void _removeStop(int index) {
+    if (index < 0 || index >= _stops.length) return;
+    setState(() => _stops = [..._stops]..removeAt(index));
+    if (_startPoint != null && _endPoint != null) _calculateRoute();
   }
 
   void _closeRoutes() {
     setState(() {
-      _toilets = null;
+      _along = {};
+      _stops = [];
       _routes = [];
       _routePoints = [];
       _selectedRouteIndex = 0;
@@ -899,6 +965,11 @@ class _MapScreenState extends State<MapScreen> {
     _keepScreenOn(true);
     _gpsSignalLost = false;
     _restartGpsWatchdog();
+    // L'avviso meteo si dice una volta, alla partenza.
+    final weather = _weatherWarning;
+    if (weather != null && _voiceLanguage == 'it') {
+      _ttsService.speak(weather, _voiceLanguage);
+    }
     final destination = _endPoint;
     if (destination != null) {
       _pendingTrip = null;
@@ -935,6 +1006,10 @@ class _MapScreenState extends State<MapScreen> {
       _userLocation = update.position;
       _userAccuracy = update.accuracy > 0 ? update.accuracy : null;
       _gpsSignalLost = false;
+      // Le tappe raggiunte non servono più a un eventuale ricalcolo.
+      _stops = _stops
+          .where((s) => haversineDistance(s.position, update.position) > 30)
+          .toList();
     });
     _restartGpsWatchdog();
     _mapController.move(update.position, 17.5);
@@ -1003,6 +1078,7 @@ class _MapScreenState extends State<MapScreen> {
         _endPoint!,
         _obstacles,
         mode: _travelMode,
+        via: [for (final stop in _stops) stop.position],
       );
       if (mounted &&
           routes.isNotEmpty &&
@@ -1419,6 +1495,7 @@ class _MapScreenState extends State<MapScreen> {
         _endPoint!,
         _obstacles,
         mode: _travelMode,
+        via: [for (final stop in _stops) stop.position],
       );
     } catch (_) {
       routes = const [];
@@ -1500,7 +1577,10 @@ class _MapScreenState extends State<MapScreen> {
         : choosing != null
         ? 96
         : hasRoutes
-        ? 360 + 32.0 * _selectedRouteWarningCount
+        ? 360 +
+              32.0 * _selectedRouteWarningCount +
+              (_stops.isEmpty ? 0 : 44) +
+              (_weatherWarning == null ? 0 : 36)
         : showPlaceSheet
         ? 196 +
               22.0 *
@@ -1646,6 +1726,15 @@ class _MapScreenState extends State<MapScreen> {
             }),
             onLanguageChanged: (language) =>
                 setState(() => _voiceLanguage = language),
+            onOpenVoiceSettings: () => showVoiceSettingsSheet(
+              context,
+              tts: _ttsService,
+              language: _voiceLanguage,
+              onLanguageChanged: (language) =>
+                  setState(() => _voiceLanguage = language),
+              onMutedChanged: (_) => setState(() {}),
+            ),
+            onRepeat: _ttsService.repeat,
           ),
         ),
       );
@@ -1808,9 +1897,14 @@ class _MapScreenState extends State<MapScreen> {
             onSelect: _selectRoute,
             onStart: _startNavigation,
             onClose: _closeRoutes,
-            onFindToilets: _findToilets,
-            isFindingToilets: _isFindingToilets,
-            toiletCount: _toilets?.length,
+            onSearchAlong: _searchAlong,
+            alongCounts: {
+              for (final entry in _along.entries) entry.key: entry.value.length,
+            },
+            alongLoading: _alongLoading,
+            stops: [for (final stop in _stops) stop.name],
+            weatherWarning: _weatherWarning,
+            onRemoveStop: _removeStop,
           ),
         ),
       );
@@ -2025,16 +2119,24 @@ class _MapScreenState extends State<MapScreen> {
                     onTap: () => _chooseEntrance(entrance),
                   ),
                 ),
-          for (final toilet in _toilets ?? const <AccessibleToilet>[])
+          for (final places in _along.values)
+            for (final place in places)
+              if (!_stops.any((s) => s.position == place.position))
+                Marker(
+                  point: place.position,
+                  width: 28,
+                  height: 28,
+                  child: AlongPlaceMarker(
+                    place: place,
+                    onTap: () => _openAlongPlace(place),
+                  ),
+                ),
+          for (var i = 0; i < _stops.length; i++)
             Marker(
-              point: toilet.position,
-              width: 28,
-              height: 28,
-              child: ToiletMarker(
-                label: _toiletLabel(toilet),
-                onTap: () =>
-                    _showSnack(_toiletLabel(toilet), icon: Icons.wc_rounded),
-              ),
+              point: _stops[i].position,
+              width: 30,
+              height: 30,
+              child: StopMarker(number: i + 1, label: _stops[i].name),
             ),
           if (_userLocation != null)
             Marker(

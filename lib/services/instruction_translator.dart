@@ -80,6 +80,13 @@ class InstructionTranslator {
           ? (isItalian ? ' da $street' : ' from $street')
           : '';
       text = (types[type] ?? type) + suffix;
+    } else if (type == 'stop') {
+      final where = street.isNotEmpty
+          ? (isItalian ? ' su $street' : ' on $street')
+          : '';
+      text = isItalian
+          ? 'Hai raggiunto la tappa$where'
+          : 'You have reached your stop$where';
     } else if (type == 'arrive') {
       final side = isItalian
           ? const {
@@ -122,6 +129,7 @@ class InstructionTranslator {
 /// Emoji mostrata nel pannello di navigazione per ogni manovra.
 String maneuverEmoji(String type, String modifier) {
   if (type == 'arrive') return '🏁';
+  if (type == 'stop') return '📍';
   if (type == 'depart') return '🚶';
   switch (modifier) {
     case 'uturn':

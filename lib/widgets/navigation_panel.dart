@@ -18,6 +18,8 @@ class NavigationPanel extends StatelessWidget {
     required this.onStop,
     required this.onToggleMute,
     required this.onLanguageChanged,
+    this.onOpenVoiceSettings,
+    this.onRepeat,
   });
 
   final NavigationUpdate? update;
@@ -32,6 +34,13 @@ class NavigationPanel extends StatelessWidget {
   final VoidCallback onStop;
   final VoidCallback onToggleMute;
   final ValueChanged<String> onLanguageChanged;
+
+  /// Apre le impostazioni della voce (lingua, volume, velocità). Se manca,
+  /// al suo posto c'è il pulsante della lingua.
+  final VoidCallback? onOpenVoiceSettings;
+
+  /// Toccando l'istruzione la voce la ripete.
+  final VoidCallback? onRepeat;
 
   @override
   Widget build(BuildContext context) {
@@ -121,40 +130,57 @@ class NavigationPanel extends StatelessWidget {
             ),
             const SizedBox(width: 16),
             Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (gpsFailed || update == null)
-                    Text(status, style: const TextStyle(color: Colors.white))
-                  else if (!arrived)
-                    Text(
-                      distance,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.5,
-                        height: 1.1,
+              child: Semantics(
+                button: onRepeat != null,
+                hint: onRepeat == null
+                    ? null
+                    : (isItalian
+                          ? 'Tocca per ripetere l\'istruzione'
+                          : 'Tap to repeat the instruction'),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onRepeat,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (gpsFailed || update == null)
+                        Text(
+                          status,
+                          style: const TextStyle(color: Colors.white),
+                        )
+                      else if (!arrived)
+                        Text(
+                          distance,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
+                            height: 1.1,
+                          ),
+                        ),
+                      const SizedBox(height: 2),
+                      Text(
+                        // All'arrivo l'istruzione dice anche da che lato è la
+                        // destinazione ("sulla sinistra").
+                        instruction,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: arrived
+                              ? Colors.white
+                              : Colors.white.withValues(alpha: 0.82),
+                          fontSize: arrived ? 17 : 14.5,
+                          fontWeight: arrived
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                          height: 1.3,
+                        ),
                       ),
-                    ),
-                  const SizedBox(height: 2),
-                  Text(
-                    // All'arrivo l'istruzione dice anche da che lato è la
-                    // destinazione ("sulla sinistra").
-                    instruction,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: arrived
-                          ? Colors.white
-                          : Colors.white.withValues(alpha: 0.82),
-                      fontSize: arrived ? 17 : 14.5,
-                      fontWeight: arrived ? FontWeight.w700 : FontWeight.w500,
-                      height: 1.3,
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ],
@@ -211,13 +237,23 @@ class NavigationPanel extends StatelessWidget {
               isMuted: isMuted,
             ),
             const SizedBox(width: 6),
-            _NavLanguageButton(
-              label: language.toUpperCase(),
-              tooltip: isItalian
-                  ? 'Cambia lingua della voce'
-                  : 'Change voice language',
-              onTap: () => onLanguageChanged(isItalian ? 'en' : 'it'),
-            ),
+            if (onOpenVoiceSettings != null)
+              _NavIconButton(
+                icon: Icons.record_voice_over_rounded,
+                tooltip: isItalian
+                    ? 'Impostazioni della voce'
+                    : 'Voice settings',
+                onTap: onOpenVoiceSettings!,
+                isMuted: false,
+              )
+            else
+              _NavLanguageButton(
+                label: language.toUpperCase(),
+                tooltip: isItalian
+                    ? 'Cambia lingua della voce'
+                    : 'Change voice language',
+                onTap: () => onLanguageChanged(isItalian ? 'en' : 'it'),
+              ),
             const SizedBox(width: 6),
             TextButton.icon(
               onPressed: onStop,
