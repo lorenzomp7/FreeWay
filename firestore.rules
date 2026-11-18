@@ -104,6 +104,32 @@ service cloud.firestore {
         && request.auth.uid in after;
     }
 
+    // "Si riesce a passare in sedia a rotelle?": si aggiunge il proprio uid a
+    // una sola delle tre liste (passYesBy, passHardBy, passNoBy), una volta,
+    // su una segnalazione altrui.
+    function validPassVoteOn(field) {
+      let before = resource.data.get(field, []);
+      let after = request.resource.data.get(field, []);
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly([field, 'lastPassVoteAt'])
+        && after is list
+        && after.size() == before.size() + 1
+        && after.size() <= 1000
+        && after.hasAll(before)
+        && request.auth.uid in after;
+    }
+
+    function validPassVote() {
+      return request.resource.data.get('lastPassVoteAt', null) == request.time
+        && resource.data.get('userId', '') != request.auth.uid
+        && !(request.auth.uid in resource.data.get('passYesBy', []))
+        && !(request.auth.uid in resource.data.get('passHardBy', []))
+        && !(request.auth.uid in resource.data.get('passNoBy', []))
+        && (validPassVoteOn('passYesBy')
+          || validPassVoteOn('passHardBy')
+          || validPassVoteOn('passNoBy'));
+    }
+
     match /segnalazioni/{reportId} {
       // Le segnalazioni sono visibili a tutti gli utenti dell'app (ospiti inclusi).
       allow read: if signedIn();
@@ -115,8 +141,9 @@ service cloud.firestore {
         && stampsNow('lastReportAt');
 
       // Le uniche modifiche ammesse sono la conferma che l'ostacolo c'è
-      // ancora e il voto "non c'è più".
-      allow update: if signedIn() && (validConfirmation() || validNotThere());
+      // ancora, il voto "non c'è più" e la risposta "si riesce a passare?".
+      allow update: if signedIn()
+        && (validConfirmation() || validNotThere() || validPassVote());
 
       // "L'ostacolo non c'è più": chi ha un account può rimuovere qualsiasi
       // segnalazione, un ospite solo le proprie; al massimo una ogni 10 secondi.

@@ -65,6 +65,19 @@ await check('voto con ora del client rifiutato', assertFails(updateDoc(doc(guest
 await check('voto insieme ad altre modifiche rifiutato', assertFails(updateDoc(doc(guest, 'segnalazioni/a1'), { notThereBy: arrayUnion('guest1'), lastNotThereAt: serverTimestamp(), type: 'Altro' })));
 await check('non autenticato non vota', assertFails(notThere(anon, 'x')));
 
+// --- "Si riesce a passare in sedia a rotelle?" ---
+const pass = (db, uid, field = 'passYesBy', id = 'a1') => updateDoc(doc(db, 'segnalazioni/' + id), { [field]: arrayUnion(uid), lastPassVoteAt: serverTimestamp() });
+await check('ospite dice che si passa', assertSucceeds(pass(guest, 'guest1')));
+await check('altra risposta dello stesso utente rifiutata', assertFails(pass(guest, 'guest1', 'passNoBy')));
+await check('altro utente dice a fatica', assertSucceeds(pass(guest2, 'guest2', 'passHardBy')));
+await check('autrice non risponde sulla propria', assertFails(pass(alice, 'alice', 'passNoBy')));
+await check('risposta a nome di altri rifiutata', assertFails(pass(ctx('dan', 'password'), 'eve')));
+await check('campo di risposta inventato rifiutato', assertFails(pass(ctx('dan', 'password'), 'dan', 'passMaybeBy')));
+await check('risposta con ora del client rifiutata', assertFails(updateDoc(doc(ctx('dan', 'password'), 'segnalazioni/a1'), { passNoBy: arrayUnion('dan'), lastPassVoteAt: Timestamp.fromMillis(0) })));
+await check('due risposte insieme rifiutate', assertFails(updateDoc(doc(ctx('dan', 'password'), 'segnalazioni/a1'), { passNoBy: arrayUnion('dan'), passYesBy: arrayUnion('dan'), lastPassVoteAt: serverTimestamp() })));
+await check('risposta insieme ad altre modifiche rifiutata', assertFails(updateDoc(doc(ctx('dan', 'password'), 'segnalazioni/a1'), { passNoBy: arrayUnion('dan'), lastPassVoteAt: serverTimestamp(), type: 'Altro' })));
+await check('non autenticato non risponde', assertFails(pass(anon, 'x')));
+
 // --- rimozione e limite di frequenza ---
 await check('ospite non cancella altrui', assertFails(remove(guest2, 'guest2', 'a1')));
 await check('ospite cancella la propria', assertSucceeds(remove(guest, 'guest1', 'g1')));

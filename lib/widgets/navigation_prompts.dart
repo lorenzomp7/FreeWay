@@ -312,3 +312,45 @@ class DeviationObstacleCard extends StatelessWidget {
     );
   }
 }
+
+/// "Si riesce a passare in sedia a rotelle?" dopo aver confermato che un
+/// ostacolo c'è ancora: una domanda di dettaglio, come quelle che alcuni
+/// navigatori fanno per arricchire una segnalazione.
+class PassabilityCard extends StatelessWidget {
+  const PassabilityCard({
+    super.key,
+    required this.obstacle,
+    required this.onVote,
+    required this.onSkip,
+  });
+
+  final Obstacle obstacle;
+  final ValueChanged<PassVote> onVote;
+  final VoidCallback onSkip;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PromptCard(
+      icon: Icons.accessible_rounded,
+      iconColor: AppPalette.primary,
+      title: 'Si riesce a passare in sedia a rotelle?',
+      message:
+          '${obstacle.type}. Con abbastanza "sì" i percorsi in sedia a '
+          'rotelle smettono di evitarlo.',
+      onClose: onSkip,
+      actions: [
+        for (final vote in PassVote.values)
+          vote == PassVote.yes
+              ? FilledButton(
+                  onPressed: () => onVote(vote),
+                  child: Text(vote.label),
+                )
+              : OutlinedButton(
+                  onPressed: () => onVote(vote),
+                  child: Text(vote.label),
+                ),
+        TextButton(onPressed: onSkip, child: const Text('Non so')),
+      ],
+    );
+  }
+}

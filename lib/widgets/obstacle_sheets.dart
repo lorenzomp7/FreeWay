@@ -47,7 +47,27 @@ Future<ReportDraft?> showReportObstacleSheet(
 typedef PhotoLoader = Future<Uint8List?> Function(String obstacleId);
 
 /// Azione scelta nella scheda di un ostacolo.
-enum ObstacleAction { confirm, remove }
+enum ObstacleAction {
+  confirm,
+  remove,
+  passYes,
+  passHard,
+  passNo;
+
+  /// La risposta a "Si riesce a passare?", per le azioni che lo sono.
+  PassVote? get passVote => switch (this) {
+    ObstacleAction.passYes => PassVote.yes,
+    ObstacleAction.passHard => PassVote.hard,
+    ObstacleAction.passNo => PassVote.no,
+    _ => null,
+  };
+
+  static ObstacleAction forVote(PassVote vote) => switch (vote) {
+    PassVote.yes => ObstacleAction.passYes,
+    PassVote.hard => ObstacleAction.passHard,
+    PassVote.no => ObstacleAction.passNo,
+  };
+}
 
 /// Mostra i dettagli di un ostacolo e restituisce l'azione scelta.
 Future<ObstacleAction?> showObstacleDetailsSheet(
@@ -530,6 +550,25 @@ class ObstacleDetailsSheet extends StatelessWidget {
                           ],
                         ),
                       ],
+                      if (obstacle.passLabel != null) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.accessible_rounded,
+                              color: colors.textTertiary,
+                              size: 15,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                obstacle.passLabel!,
+                                style: textTheme.bodySmall,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       if (obstacle.confirmationCount > 0) ...[
                         const SizedBox(height: 6),
                         Row(
@@ -553,6 +592,27 @@ class ObstacleDetailsSheet extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
+                if (obstacle.canVotePassBy(currentUserId)) ...[
+                  Text(
+                    'Si riesce a passare in sedia a rotelle?',
+                    style: textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final vote in PassVote.values)
+                        OutlinedButton(
+                          onPressed: () => Navigator.of(
+                            context,
+                          ).pop(ObstacleAction.forVote(vote)),
+                          child: Text(vote.label),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 if (!obstacle.isReportedBy(currentUserId)) ...[
                   OutlinedButton.icon(
                     onPressed: obstacle.canBeConfirmedBy(currentUserId)

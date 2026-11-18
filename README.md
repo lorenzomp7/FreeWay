@@ -118,6 +118,11 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   segnalazione nel punto in cui si è lasciato il percorso. Si chiede una
   volta per viaggio, solo a chi ha fatto accesso, e non se entro 40 m c'è
   già un ostacolo segnalato; la domanda sparisce dopo 45 secondi.
+- "Si riesce a passare in sedia a rotelle?" (Sì, A fatica, No): si risponde
+  dalla scheda dell'ostacolo oppure in navigazione, subito dopo aver detto
+  "C'è ancora". La scheda riassume le risposte; quando almeno due persone
+  dicono "Sì" e sono più di quelle che dicono "A fatica" o "No", i percorsi
+  in sedia a rotelle non evitano più quell'ostacolo e non lo contano.
 - Se l'app si chiude durante la navigazione, alla riapertura (entro 3 ore)
   chiede "Stai ancora andando a…?" e con "Riprendi" ricalcola il percorso
   dalla posizione attuale con lo stesso mezzo.
@@ -234,9 +239,11 @@ richieste; superato quello, l'app torna da sola a OSRM.
   `lng`, `answer` (`accessibile`, `gradini` o `non_trovato`), `timestamp` e
   `userId`, si creano a proprio nome al massimo una ogni 60 secondi
   (`lastEntranceAt` in `limiti/{uid}`) e non si modificano né si cancellano;
-- le uniche modifiche ammesse sono "Confermo, c'è ancora" e il voto "Non c'è
-  più": si aggiunge il proprio uid a `confirmedBy` o a `notThereBy`, una sola
-  volta e non sulle proprie segnalazioni;
+- le uniche modifiche ammesse sono "Confermo, c'è ancora", il voto "Non c'è
+  più" e la risposta "Si riesce a passare?": si aggiunge il proprio uid a
+  `confirmedBy`, a `notThereBy` o a una sola tra `passYesBy`, `passHardBy` e
+  `passNoBy` (con `lastPassVoteAt`), una sola volta e non sulle proprie
+  segnalazioni;
 - chi ha un account può rimuovere qualsiasi segnalazione ("L'ostacolo non c'è
   più"), un ospite solo le proprie;
 - il resto del database è chiuso.

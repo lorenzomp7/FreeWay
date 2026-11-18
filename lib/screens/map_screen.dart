@@ -165,6 +165,9 @@ class _MapScreenState extends State<MapScreen> {
   Obstacle? _verifyPrompt;
   Timer? _verifyTimer;
 
+  /// Ostacolo su cui si chiede "Si riesce a passare in sedia a rotelle?".
+  Obstacle? _passPrompt;
+
   /// Destinazione su cui chiedere "Com'era l'ingresso?", mentre la domanda
   /// è aperta.
   LatLng? _arrivalPrompt;
@@ -1289,6 +1292,7 @@ class _MapScreenState extends State<MapScreen> {
       _navigationUpdate = null;
       _navigationFirstStep = null;
       _verifyPrompt = null;
+      _passPrompt = null;
       _closeDeviationPromptInState();
       _clearRouteAlert();
     });
@@ -1500,6 +1504,11 @@ class _MapScreenState extends State<MapScreen> {
     if (action == null || !mounted) return;
     if (action == ObstacleAction.confirm) {
       if (userId != null) await _confirmObstacle(obstacle, userId);
+      return;
+    }
+    final vote = action.passVote;
+    if (vote != null) {
+      if (userId != null) await _votePass(obstacle, userId, vote);
       return;
     }
     if (userId == null) return;
@@ -1721,6 +1730,41 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  void _closePassPrompt() {
+    if (mounted && _passPrompt != null) setState(() => _passPrompt = null);
+  }
+
+  Future<void> _answerPassPrompt(PassVote vote) async {
+    final obstacle = _passPrompt;
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    _closePassPrompt();
+    if (obstacle != null && userId != null) {
+      await _votePass(obstacle, userId, vote);
+    }
+  }
+
+  Future<void> _votePass(
+    Obstacle obstacle,
+    String userId,
+    PassVote vote,
+  ) async {
+    try {
+      await _obstacleService.votePass(obstacle.id, userId, vote);
+      if (!mounted) return;
+      _showSnack(
+        'Grazie! La tua risposta aiuta a scegliere i percorsi.',
+        iconColor: AppColors.of(context).success,
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile salvare la risposta. Riprova.',
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
   void _closeVerifyPrompt() {
     _verifyTimer?.cancel();
     if (mounted && _verifyPrompt != null) setState(() => _verifyPrompt = null);
@@ -1733,6 +1777,12 @@ class _MapScreenState extends State<MapScreen> {
     if (obstacle == null || userId == null) return;
     if (stillThere) {
       await _confirmObstacle(obstacle, userId);
+      // Poi una domanda di dettaglio, se non ha già risposto.
+      if (mounted && _isNavigating && obstacle.canVotePassBy(userId)) {
+        setState(() => _passPrompt = obstacle);
+        _verifyTimer?.cancel();
+        _verifyTimer = Timer(const Duration(seconds: 45), _closePassPrompt);
+      }
     } else {
       await _removeObstacle(obstacle, userId);
     }
@@ -2036,6 +2086,7 @@ class _MapScreenState extends State<MapScreen> {
       final alertObstacle = _isNavigating ? _routeAlertObstacle : null;
       final verify = _isNavigating ? _verifyPrompt : null;
       final deviation = _isNavigating ? _deviationPrompt : null;
+      final pass = _isNavigating ? _passPrompt : null;
       final Widget? prompt = _arrivalPrompt != null
           ? ArrivalEntranceCard(
               onAnswer: _answerArrivalPrompt,
@@ -2058,6 +2109,12 @@ class _MapScreenState extends State<MapScreen> {
               onStillThere: () => _answerVerifyPrompt(stillThere: true),
               onGone: () => _answerVerifyPrompt(stillThere: false),
               onSkip: _closeVerifyPrompt,
+            )
+          : pass != null
+          ? PassabilityCard(
+              obstacle: pass,
+              onVote: _answerPassPrompt,
+              onSkip: _closePassPrompt,
             )
           : deviation != null
           ? DeviationObstacleCard(
