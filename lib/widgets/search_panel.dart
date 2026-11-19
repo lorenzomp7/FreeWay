@@ -4,6 +4,7 @@ import 'package:latlong2/latlong.dart';
 import '../models/travel_mode.dart';
 import '../services/geo_utils.dart';
 import '../services/geocoding_service.dart';
+import '../services/nearby_accessible_service.dart';
 import '../services/saved_places_service.dart';
 import '../theme/app_theme.dart';
 import 'saved_places_widgets.dart';
@@ -41,6 +42,18 @@ class SearchItem {
   final SavedPlace? saved;
 }
 
+/// Stato dei filtri di accessibilità nella ricerca.
+class NearbySearch {
+  const NearbySearch({this.filter, this.results, this.isLoading = false});
+
+  /// Filtro scelto; `null` se nessuno.
+  final NearbyFilter? filter;
+
+  /// Luoghi trovati, dai più vicini; `null` se la ricerca non è riuscita.
+  final List<Map<String, dynamic>>? results;
+  final bool isLoading;
+}
+
 /// Pannello di ricerca in alto, come la casella di Google Maps.
 class SearchPanel extends StatelessWidget {
   const SearchPanel({
@@ -58,6 +71,8 @@ class SearchPanel extends StatelessWidget {
     this.savedPlaces = const [],
     this.onSavedShortcut,
     this.onRemoveSaved,
+    this.nearby = const NearbySearch(),
+    this.onNearbyFilter,
     required this.noResultsForStart,
     required this.noResultsForEnd,
     required this.userLocation,
@@ -133,6 +148,12 @@ class SearchPanel extends StatelessWidget {
 
   /// Incolla nel campo il testo copiato (per esempio un indirizzo).
   final PointCallback onPaste;
+
+  /// Filtri "Accessibili in sedia a rotelle", "Parcheggi disabili" e
+  /// "Bagni accessibili" sotto il campo della destinazione; `null` per
+  /// nasconderli. Riceve `null` quando si toglie il filtro.
+  final NearbySearch nearby;
+  final ValueChanged<NearbyFilter?>? onNearbyFilter;
   final PointCallback onClear;
   final VoidCallback onSwap;
   final VoidCallback onCalculate;
@@ -206,6 +227,7 @@ class SearchPanel extends StatelessWidget {
           items: endItems,
           noResultsFor: noResultsForEnd,
           showLocationShortcuts: false,
+          showNearby: true,
         ),
     ];
   }
@@ -265,6 +287,7 @@ class SearchPanel extends StatelessWidget {
           items: focusedStart ? startItems : endItems,
           noResultsFor: focusedStart ? noResultsForStart : noResultsForEnd,
           showLocationShortcuts: true,
+          showNearby: !focusedStart,
         )
       else ...[
         TravelModeBar(selected: travelMode, onSelected: onTravelModeChanged),
@@ -305,6 +328,7 @@ class SearchPanel extends StatelessWidget {
     required List<SearchItem> items,
     required String? noResultsFor,
     required bool showLocationShortcuts,
+    bool showNearby = false,
   }) {
     // Campo vuoto, o con il luogo già scelto: si mostrano scorciatoie e
     // ricerche recenti, così si può cambiare idea con un tocco.
@@ -341,6 +365,8 @@ class SearchPanel extends StatelessWidget {
       onChooseOnMap: () => onChooseOnMap(isStart: isStart),
       showPaste: showZeroState,
       onPaste: () => onPaste(isStart: isStart),
+      nearby: nearby,
+      onNearbyFilter: showZeroState && showNearby ? onNearbyFilter : null,
     );
   }
 }
@@ -367,10 +393,17 @@ class SearchDropdown extends StatelessWidget {
     this.work,
     this.onSavedShortcut,
     this.onRemoveSaved,
+    this.nearby = const NearbySearch(),
+    this.onNearbyFilter,
   });
 
   final bool isStart;
   final List<SearchItem> items;
+
+  /// Filtri di accessibilità e i loro risultati; con un filtro scelto
+  /// prendono il posto di salvati e recenti.
+  final NearbySearch nearby;
+  final ValueChanged<NearbyFilter?>? onNearbyFilter;
 
   /// Luoghi salvati con un nome, sopra le ricerche recenti.
   final List<SearchItem> savedItems;
@@ -418,43 +451,65 @@ class SearchDropdown extends StatelessWidget {
           onTap: onChooseOnMap,
         ),
       ],
-      if (showSavedShortcuts && onSavedShortcut != null)
-        SavedShortcuts(home: home, work: work, onTap: onSavedShortcut!),
-      if (savedItems.isNotEmpty) ...[
-        _header('Salvati', textTheme, colors),
-        for (final item in savedItems) _placeRow(item),
-      ],
-      if (noResultsFor != null)
+      if (onNearbyFilter != null)
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
             children: [
-              Icon(
-                Icons.search_off_rounded,
-                color: colors.textTertiary,
-                size: 20,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Nessun risultato per «$noResultsFor». Controlla il nome o '
-                  'aggiungi la città.',
-                  style: textTheme.bodyMedium,
+              for (final filter in NearbyFilter.values)
+                FilterChip(
+                  label: Text(filter.label),
+                  avatar: Icon(nearbyFilterIcon(filter), size: 16),
+                  selected: nearby.filter == filter,
+                  showCheckmark: false,
+                  onSelected: (on) => onNearbyFilter!(on ? filter : null),
                 ),
-              ),
             ],
           ),
         ),
-      if (showRecentHeader) _header('Recenti', textTheme, colors),
-      if (showRecentHeader && items.isEmpty)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
-          child: Text(
-            'I luoghi che cerchi compariranno qui.',
-            style: textTheme.bodySmall,
+      if (onNearbyFilter != null && nearby.filter != null)
+        ..._nearbyRows(nearby.filter!, textTheme, colors)
+      else ...[
+        if (showSavedShortcuts && onSavedShortcut != null)
+          SavedShortcuts(home: home, work: work, onTap: onSavedShortcut!),
+        if (savedItems.isNotEmpty) ...[
+          _header('Salvati', textTheme, colors),
+          for (final item in savedItems) _placeRow(item),
+        ],
+        if (noResultsFor != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.search_off_rounded,
+                  color: colors.textTertiary,
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Nessun risultato per «$noResultsFor». Controlla il nome o '
+                    'aggiungi la città.',
+                    style: textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      for (final item in items) _placeRow(item),
+        if (showRecentHeader) _header('Recenti', textTheme, colors),
+        if (showRecentHeader && items.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+            child: Text(
+              'I luoghi che cerchi compariranno qui.',
+              style: textTheme.bodySmall,
+            ),
+          ),
+        for (final item in items) _placeRow(item),
+      ],
     ];
     if (rows.isEmpty) return const SizedBox.shrink();
 
@@ -469,6 +524,41 @@ class SearchDropdown extends StatelessWidget {
         children: rows,
       ),
     );
+  }
+
+  List<Widget> _nearbyRows(
+    NearbyFilter filter,
+    TextTheme textTheme,
+    AppColors colors,
+  ) {
+    Widget note(String text) => Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: Text(text, style: textTheme.bodySmall),
+    );
+    final results = nearby.results;
+    return [
+      _header('${filter.label} in questa zona della mappa', textTheme, colors),
+      if (nearby.isLoading)
+        const Padding(
+          padding: EdgeInsets.all(14),
+          child: Center(
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        )
+      else if (results == null)
+        note('Ricerca non riuscita: OpenStreetMap non risponde. Riprova.')
+      else if (results.isEmpty)
+        note(
+          'Nessun luogo segnato su OpenStreetMap entro '
+          '${NearbyAccessibleService.radius} m. Sposta la mappa e riprova.',
+        )
+      else
+        for (final place in results) _placeRow(SearchItem(place)),
+    ];
   }
 
   Widget _header(String text, TextTheme textTheme, AppColors colors) => Padding(
@@ -989,3 +1079,9 @@ class CollapsedSearchBar extends StatelessWidget {
     );
   }
 }
+
+IconData nearbyFilterIcon(NearbyFilter filter) => switch (filter) {
+  NearbyFilter.wheelchair => Icons.accessible_rounded,
+  NearbyFilter.parking => Icons.local_parking_rounded,
+  NearbyFilter.toilets => Icons.wc_rounded,
+};

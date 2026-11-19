@@ -104,6 +104,49 @@ service cloud.firestore {
         && request.auth.uid in after;
     }
 
+    // "Grazie" a chi ha segnalato: si aggiunge il proprio uid, una volta, a
+    // una segnalazione fatta da qualcun altro.
+    function validThank() {
+      let before = resource.data.get('thankedBy', []);
+      let after = request.resource.data.thankedBy;
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['thankedBy', 'lastThankAt'])
+        && request.resource.data.lastThankAt == request.time
+        && resource.data.get('userId', '') != request.auth.uid
+        && !(request.auth.uid in before)
+        && after is list
+        && after.size() == before.size() + 1
+        && after.size() <= 1000
+        && after.hasAll(before)
+        && request.auth.uid in after;
+    }
+
+    // "Si riesce a passare in sedia a rotelle?": si aggiunge il proprio uid a
+    // una sola delle tre liste (passYesBy, passHardBy, passNoBy), una volta,
+    // su una segnalazione altrui.
+    function validPassVoteOn(field) {
+      let before = resource.data.get(field, []);
+      let after = request.resource.data.get(field, []);
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly([field, 'lastPassVoteAt'])
+        && after is list
+        && after.size() == before.size() + 1
+        && after.size() <= 1000
+        && after.hasAll(before)
+        && request.auth.uid in after;
+    }
+
+    function validPassVote() {
+      return request.resource.data.get('lastPassVoteAt', null) == request.time
+        && resource.data.get('userId', '') != request.auth.uid
+        && !(request.auth.uid in resource.data.get('passYesBy', []))
+        && !(request.auth.uid in resource.data.get('passHardBy', []))
+        && !(request.auth.uid in resource.data.get('passNoBy', []))
+        && (validPassVoteOn('passYesBy')
+          || validPassVoteOn('passHardBy')
+          || validPassVoteOn('passNoBy'));
+    }
+
     match /segnalazioni/{reportId} {
       // Le segnalazioni sono visibili a tutti gli utenti dell'app (ospiti inclusi).
       allow read: if signedIn();
@@ -115,8 +158,11 @@ service cloud.firestore {
         && stampsNow('lastReportAt');
 
       // Le uniche modifiche ammesse sono la conferma che l'ostacolo c'è
-      // ancora e il voto "non c'è più".
-      allow update: if signedIn() && (validConfirmation() || validNotThere());
+      // ancora, il voto "non c'è più", la risposta "si riesce a passare?" e
+      // il "grazie" a chi ha segnalato.
+      allow update: if signedIn()
+        && (validConfirmation() || validNotThere() || validPassVote()
+          || validThank());
 
       // "L'ostacolo non c'è più": chi ha un account può rimuovere qualsiasi
       // segnalazione, un ospite solo le proprie; al massimo una ogni 10 secondi.
@@ -147,13 +193,32 @@ service cloud.firestore {
       allow delete: if signedIn() && !existsAfter(reportPath(reportId));
     }
 
+    // "Com'era l'ingresso?": risposta di chi è arrivato a una destinazione.
+    // Si crea solo a proprio nome, con l'ora del server, e al massimo una
+    // ogni 60 secondi; non si modifica né si cancella.
+    match /ingressi/{answerId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['lat', 'lng', 'answer', 'timestamp', 'userId'])
+        && request.resource.data.keys().hasAll(['lat', 'lng', 'answer', 'timestamp', 'userId'])
+        && request.resource.data.lat is number
+        && request.resource.data.lat >= -90 && request.resource.data.lat <= 90
+        && request.resource.data.lng is number
+        && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
+        && request.resource.data.answer in ['accessibile', 'gradini', 'non_trovato']
+        && request.resource.data.timestamp == request.time
+        && request.resource.data.userId == request.auth.uid
+        && stampsNow('lastEntranceAt');
+    }
+
     match /limiti/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
       allow create, update: if signedIn()
         && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['lastReportAt', 'lastRemovalAt'])
+        && request.resource.data.keys().hasOnly(['lastReportAt', 'lastRemovalAt', 'lastEntranceAt'])
         && validStamp('lastReportAt', 30)
-        && validStamp('lastRemovalAt', 10);
+        && validStamp('lastRemovalAt', 10)
+        && validStamp('lastEntranceAt', 60);
     }
 
     // Tutto il resto del database è chiuso.

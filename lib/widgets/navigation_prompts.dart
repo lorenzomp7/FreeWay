@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/entrance_report.dart';
 import '../models/obstacle.dart';
 import '../theme/app_theme.dart';
 
@@ -228,6 +229,172 @@ class ResumeTripCard extends StatelessWidget {
           label: const Text('Riprendi'),
         ),
         TextButton(onPressed: onDismiss, child: const Text('No')),
+      ],
+    );
+  }
+}
+
+/// "Com'era l'ingresso?" all'arrivo, come la domanda sul parcheggio che
+/// alcuni navigatori fanno a destinazione. Le risposte compaiono nella
+/// scheda del luogo per chi ci andrà dopo.
+class ArrivalEntranceCard extends StatelessWidget {
+  const ArrivalEntranceCard({
+    super.key,
+    required this.onAnswer,
+    required this.onSkip,
+  });
+
+  final ValueChanged<EntranceAnswer> onAnswer;
+  final VoidCallback onSkip;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PromptCard(
+      icon: Icons.door_front_door_outlined,
+      iconColor: AppPalette.primary,
+      title: "Com'era l'ingresso?",
+      message:
+          'La tua risposta compare nella scheda del luogo per chi ci '
+          'andrà dopo di te.',
+      onClose: onSkip,
+      actions: [
+        FilledButton.icon(
+          onPressed: () => onAnswer(EntranceAnswer.accessible),
+          icon: const Icon(Icons.accessible_rounded, size: 18),
+          label: Text(EntranceAnswer.accessible.label),
+        ),
+        OutlinedButton.icon(
+          onPressed: () => onAnswer(EntranceAnswer.steps),
+          icon: const Icon(Icons.stairs_outlined, size: 18),
+          label: Text(EntranceAnswer.steps.label),
+        ),
+        OutlinedButton(
+          onPressed: () => onAnswer(EntranceAnswer.notFound),
+          child: Text(EntranceAnswer.notFound.label),
+        ),
+      ],
+    );
+  }
+}
+
+/// "Hai cambiato strada per un ostacolo?" dopo un'uscita dal percorso: chi
+/// devia spesso lo fa perché la strada era bloccata, come le chiusure che
+/// alcuni navigatori deducono da chi cambia strada nello stesso punto.
+class DeviationObstacleCard extends StatelessWidget {
+  const DeviationObstacleCard({
+    super.key,
+    required this.onReport,
+    required this.onDismiss,
+  });
+
+  final VoidCallback onReport;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    return _PromptCard(
+      icon: Icons.alt_route_rounded,
+      iconColor: colors.warning,
+      title: 'Hai cambiato strada per un ostacolo?',
+      message:
+          'Se sì, segnalalo nel punto in cui hai lasciato il percorso: '
+          'gli altri lo eviteranno.',
+      onClose: onDismiss,
+      actions: [
+        FilledButton.icon(
+          onPressed: onReport,
+          icon: const Icon(Icons.add_location_alt_outlined, size: 18),
+          label: const Text('Sì, segnala'),
+        ),
+        TextButton(onPressed: onDismiss, child: const Text('No')),
+      ],
+    );
+  }
+}
+
+/// "Si riesce a passare in sedia a rotelle?" dopo aver confermato che un
+/// ostacolo c'è ancora: una domanda di dettaglio, come quelle che alcuni
+/// navigatori fanno per arricchire una segnalazione.
+class PassabilityCard extends StatelessWidget {
+  const PassabilityCard({
+    super.key,
+    required this.obstacle,
+    required this.onVote,
+    required this.onSkip,
+  });
+
+  final Obstacle obstacle;
+  final ValueChanged<PassVote> onVote;
+  final VoidCallback onSkip;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PromptCard(
+      icon: Icons.accessible_rounded,
+      iconColor: AppPalette.primary,
+      title: 'Si riesce a passare in sedia a rotelle?',
+      message:
+          '${obstacle.type}. Con abbastanza "sì" i percorsi in sedia a '
+          'rotelle smettono di evitarlo.',
+      onClose: onSkip,
+      actions: [
+        for (final vote in PassVote.values)
+          vote == PassVote.yes
+              ? FilledButton(
+                  onPressed: () => onVote(vote),
+                  child: Text(vote.label),
+                )
+              : OutlinedButton(
+                  onPressed: () => onVote(vote),
+                  child: Text(vote.label),
+                ),
+        TextButton(onPressed: onSkip, child: const Text('Non so')),
+      ],
+    );
+  }
+}
+
+/// Conferma di una segnalazione fatta a voce: "Segnalo «Gradino…» qui?".
+/// Il tipo è riconosciuto dalle parole dette; se è sbagliato si sceglie
+/// dall'elenco.
+class VoiceReportCard extends StatelessWidget {
+  const VoiceReportCard({
+    super.key,
+    required this.heard,
+    required this.type,
+    required this.onConfirm,
+    required this.onChooseFromList,
+    required this.onCancel,
+  });
+
+  /// Quello che il riconoscimento vocale ha capito.
+  final String heard;
+
+  /// Il tipo di ostacolo riconosciuto.
+  final String type;
+  final VoidCallback onConfirm;
+  final VoidCallback onChooseFromList;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PromptCard(
+      icon: Icons.mic_rounded,
+      iconColor: AppPalette.primary,
+      title: 'Segnalo «$type» qui?',
+      message: 'Ho capito: «$heard».',
+      onClose: onCancel,
+      actions: [
+        FilledButton.icon(
+          onPressed: onConfirm,
+          icon: const Icon(Icons.add_location_alt_outlined, size: 18),
+          label: const Text('Segnala'),
+        ),
+        OutlinedButton(
+          onPressed: onChooseFromList,
+          child: const Text("Scegli dall'elenco"),
+        ),
       ],
     );
   }

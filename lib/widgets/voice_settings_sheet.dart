@@ -85,6 +85,28 @@ class _VoiceSettingsSheetState extends State<VoiceSettingsSheet> {
                 widget.onLanguageChanged(value.first);
               },
             ),
+            title('Annunci'),
+            SegmentedButton<VoiceGuidanceMode>(
+              segments: [
+                for (final m in VoiceGuidanceMode.values)
+                  ButtonSegment(value: m, label: Text(m.label)),
+              ],
+              selected: {tts.guidance},
+              onSelectionChanged: (value) {
+                setState(() => tts.guidance = value.first);
+                tts.saveSettings();
+              },
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                tts.guidance == VoiceGuidanceMode.full
+                    ? 'Annuncia ogni svolta in anticipo e quando è il momento.'
+                    : 'Solo quando è il momento di svoltare, all\'arrivo e '
+                          'per gli ostacoli.',
+                style: textTheme.bodySmall,
+              ),
+            ),
             title('Volume'),
             SegmentedButton<VoiceVolume>(
               segments: [

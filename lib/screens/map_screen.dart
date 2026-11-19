@@ -10,25 +10,32 @@ import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../models/entrance_report.dart';
 import '../models/obstacle.dart';
 import '../models/place_accessibility.dart';
 import '../models/route_option.dart';
 import '../models/travel_mode.dart';
 import '../services/along_route_service.dart';
+import '../services/entrance_report_service.dart';
 import '../services/geo_utils.dart';
 import '../services/geocoding_service.dart';
-import '../services/instruction_translator.dart';
 import '../services/location_service.dart';
 import '../services/navigation_service.dart';
 import '../services/obstacle_alerts.dart';
+import '../services/nearby_accessible_service.dart';
 import '../services/obstacle_service.dart';
+import '../services/position_filter.dart';
 import '../services/place_accessibility_service.dart';
 import '../services/recent_places_service.dart';
 import '../services/saved_places_service.dart';
 import '../services/routing_service.dart';
 import '../services/trip_resume_service.dart';
 import '../services/weather_service.dart';
+import '../services/speech_input.dart';
+import '../services/thanks_notifier.dart';
+import '../services/voice_report_matcher.dart';
 import '../services/tts_service.dart';
+import '../services/voice_guidance.dart';
 import '../theme/app_theme.dart';
 import '../widgets/along_route_widgets.dart';
 import '../widgets/map_widgets.dart';
@@ -74,6 +81,27 @@ class _MapScreenState extends State<MapScreen> {
   final ObstacleService _obstacleService = ObstacleService(
     FirebaseFirestore.instance,
   );
+  final EntranceReportService _entranceService = EntranceReportService(
+    FirebaseFirestore.instance,
+  );
+  final ArrivalQuestionPolicy _arrivalPolicy = ArrivalQuestionPolicy();
+  final ThanksNotifier _thanksNotifier = ThanksNotifier();
+  final SpeechInput _speechInput = SpeechInput();
+  final NearbyAccessibleService _nearbyService = NearbyAccessibleService();
+  NearbySearch _nearby = const NearbySearch();
+  int _nearbyRequest = 0;
+  bool _isListening = false;
+
+  /// Segnalazione detta a voce in attesa di conferma: punto, frase capita e
+  /// tipo riconosciuto.
+  ({LatLng point, String heard, String type})? _voiceReport;
+
+  /// Una posizione stimata dalla rete non sostituisce un buon fix GPS
+  /// ottenuto da poco.
+  final PositionFilter _userFix = PositionFilter(
+    staleAfter: const Duration(minutes: 2),
+    maxSpeed: 50,
+  );
   final NavigationService _navigationService = NavigationService();
   final TtsService _ttsService = TtsService();
 
@@ -98,6 +126,12 @@ class _MapScreenState extends State<MapScreen> {
 
   bool _isCalculating = false;
   bool _isRecalculating = false;
+  DateTime? _lastRecalculation;
+  final VoiceGuidance _voiceGuidance = VoiceGuidance();
+
+  /// Ostacoli di cui si è già avvisato in questa navigazione.
+  final Set<String> _announcedObstacleIds = {};
+  DateTime? _lastObstacleWarningAt;
   bool _isLocatingStart = false;
   bool _isLocatingEnd = false;
   bool _isLocatingUser = false;
@@ -153,6 +187,28 @@ class _MapScreenState extends State<MapScreen> {
   /// Ostacolo su cui si sta chiedendo "C'è ancora?" durante la navigazione.
   Obstacle? _verifyPrompt;
   Timer? _verifyTimer;
+
+  /// Ostacolo su cui si chiede "Si riesce a passare in sedia a rotelle?".
+  Obstacle? _passPrompt;
+
+  /// Destinazione su cui chiedere "Com'era l'ingresso?", mentre la domanda
+  /// è aperta.
+  LatLng? _arrivalPrompt;
+  Timer? _arrivalTimer;
+  bool _arrivalHandled = false;
+
+  /// Ultimo punto del tracciato su cui si era prima di uscirne.
+  LatLng? _lastOnRoutePoint;
+
+  /// Punto in cui si è lasciato il percorso, mentre è aperta la domanda
+  /// "Hai cambiato strada per un ostacolo?" (una volta per viaggio).
+  LatLng? _deviationPrompt;
+  Timer? _deviationTimer;
+  bool _deviationAsked = false;
+
+  /// Risposte sull'ingresso vicino al luogo aperto nella scheda.
+  EntranceSummary _entranceSummary = const EntranceSummary();
+  int _entranceRequest = 0;
 
   /// Ostacoli già chiesti in questa navigazione: si chiede una volta sola.
   final Set<String> _askedObstacleIds = {};
@@ -211,6 +267,7 @@ class _MapScreenState extends State<MapScreen> {
       if (!mounted) return;
       setState(() => _obstacles = active);
       _checkNewObstaclesOnRoute(active);
+      _announceNewThanks(obstacles);
     });
     _mapController.mapEventStream.listen((event) {
       if (!mounted) return;
@@ -226,6 +283,9 @@ class _MapScreenState extends State<MapScreen> {
     _ttsService.reset();
     _navigationSubscription?.cancel();
     _verifyTimer?.cancel();
+    _arrivalTimer?.cancel();
+    _deviationTimer?.cancel();
+    _speechInput.cancel();
     _gpsWatchdog?.cancel();
     _navigationService.dispose();
     _obstacleService.dispose();
@@ -633,6 +693,7 @@ class _MapScreenState extends State<MapScreen> {
   void _loadAccessibility(Map<String, dynamic> place, LatLng point) {
     final request = ++_accessibilityRequest;
     final supported = PlaceAccessibilityService.supports(place);
+    _loadEntranceSummary(point);
     setState(() {
       _destinationPlacePoint = point;
       _placeAccessibility = null;
@@ -648,6 +709,16 @@ class _MapScreenState extends State<MapScreen> {
         if (_stage == SearchPhase.directions) moved = _applyEntrance();
       });
       if (moved && _startPoint != null && !_isNavigating) _calculateRoute();
+    });
+  }
+
+  /// Le risposte "Com'era l'ingresso?" di chi è già arrivato a [point].
+  void _loadEntranceSummary(LatLng point) {
+    final request = ++_entranceRequest;
+    _entranceSummary = const EntranceSummary();
+    _entranceService.near(point).then((summary) {
+      if (!mounted || request != _entranceRequest) return;
+      setState(() => _entranceSummary = summary);
     });
   }
 
@@ -1042,6 +1113,12 @@ class _MapScreenState extends State<MapScreen> {
       _navigationFirstStep = route.steps.first;
       _navigationGpsFailed = false;
       _askedObstacleIds.clear();
+      _announcedObstacleIds.clear();
+      _arrivalHandled = false;
+      _closeArrivalPromptInState();
+      _lastOnRoutePoint = null;
+      _deviationAsked = false;
+      _closeDeviationPromptInState();
       _knownObstacleIds
         ..clear()
         ..addAll(_obstacles.map((o) => o.id));
@@ -1079,6 +1156,12 @@ class _MapScreenState extends State<MapScreen> {
         setState(() => _navigationGpsFailed = true);
       },
     );
+    _followRoute(route);
+  }
+
+  /// Segue [route] da capo: ricomincia anche gli annunci vocali.
+  void _followRoute(RouteOption route) {
+    _voiceGuidance.reset();
     _navigationService.start(route);
   }
 
@@ -1090,6 +1173,9 @@ class _MapScreenState extends State<MapScreen> {
       _navigationUpdate = update;
       _userLocation = update.position;
       _userAccuracy = update.accuracy > 0 ? update.accuracy : null;
+      _userFix.remember(
+        PositionFix(update.position, update.accuracy, DateTime.now()),
+      );
       _gpsSignalLost = false;
       // Le tappe raggiunte non servono più a un eventuale ricalcolo.
       _stops = _stops
@@ -1105,28 +1191,69 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    final instruction = InstructionTranslator(
+    // Gli annunci arrivano a tappe (prosegui, tra 100 metri, ora): prima
+    // l'istruzione si ripeteva a ogni aggiornamento del GPS.
+    final speech = _voiceGuidance.next(
+      update,
       _voiceLanguage,
-    ).translate(update.currentStep.instruction);
-    final distance = update.distanceToNextStep >= 1000
-        ? '${(update.distanceToNextStep / 1000).toStringAsFixed(1)} chilometri'
-        : '${update.distanceToNextStep.round()} metri';
-    final String speech;
+      brief: _ttsService.guidance == VoiceGuidanceMode.brief,
+    );
+    if (speech != null) _ttsService.speak(speech, _voiceLanguage);
     if (update.hasArrived) {
-      // Dice anche il lato: "la destinazione è sulla sinistra".
-      speech = instruction;
       unawaited(_tripResume.clear());
-    } else {
-      speech = _voiceLanguage == 'it'
-          ? 'Tra $distance, $instruction'
-          : 'In $distance, $instruction';
+      _maybeAskAboutEntrance();
     }
-    _ttsService.speak(speech, _voiceLanguage);
+    // Un avviso alla volta: se è appena stata detta una manovra, l'ostacolo
+    // si annuncia al prossimo aggiornamento.
+    if (speech == null) _maybeWarnObstacleAhead(update);
     _maybeAskAboutObstacle(update.position);
 
-    if (update.isOffRoute && !_isRecalculating && _endPoint != null) {
-      _recalculate(update.position);
+    if (!update.isOffRoute && update.snappedPosition != null) {
+      _lastOnRoutePoint = update.snappedPosition;
     }
+    if (update.isOffRoute && !_isRecalculating && _endPoint != null) {
+      final last = _lastRecalculation;
+      // Un ricalcolo ogni 10 secondi al massimo: il servizio dei percorsi
+      // ha un limite di richieste e il GPS può restare impreciso a lungo.
+      if (last == null ||
+          DateTime.now().difference(last) >= const Duration(seconds: 10)) {
+        _lastRecalculation = DateTime.now();
+        _recalculate(update.position, leftAt: _lastOnRoutePoint);
+      }
+    }
+  }
+
+  /// Avvisa a voce di un ostacolo segnalato sul percorso prima di
+  /// arrivarci (circa 45 secondi prima, tra 35 e 80 m lungo il tracciato),
+  /// una volta per ostacolo.
+  void _maybeWarnObstacleAhead(NavigationUpdate update) {
+    final tracker = _navigationService.tracker;
+    if (tracker == null || update.hasArrived || update.isOffRoute) return;
+    final along = tracker.totalLength - update.remainingDistance;
+    // Tra due avvisi di ostacoli passano almeno 8 secondi.
+    final last = _lastObstacleWarningAt;
+    if (last != null &&
+        DateTime.now().difference(last) < const Duration(seconds: 8)) {
+      return;
+    }
+    final ahead = obstacleAheadToAnnounce(
+      tracker,
+      along,
+      _obstacles,
+      _announcedObstacleIds,
+      FirebaseAuth.instance.currentUser?.uid,
+      maxAhead: aheadWarningDistance(update.speed),
+    );
+    if (ahead == null) return;
+    _announcedObstacleIds.add(ahead.obstacle.id);
+    _lastObstacleWarningAt = DateTime.now();
+    final spoken = VoiceGuidance.spokenDistance(ahead.distance, _voiceLanguage);
+    _ttsService.speak(
+      _voiceLanguage == 'it'
+          ? 'Attenzione, tra $spoken ostacolo segnalato: ${ahead.obstacle.type}'
+          : 'Caution, reported obstacle in $spoken',
+      _voiceLanguage,
+    );
   }
 
   /// Come "GPS signal lost" di Google Maps: se la posizione non arriva da
@@ -1155,7 +1282,9 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  Future<void> _recalculate(LatLng from) async {
+  /// Ricalcola il percorso da [from]. Con [leftAt], il punto in cui si è
+  /// lasciato il percorso, chiede poi se la deviazione era per un ostacolo.
+  Future<void> _recalculate(LatLng from, {LatLng? leftAt}) async {
     _isRecalculating = true;
     try {
       final routes = await _routingService.getRoutes(
@@ -1174,7 +1303,8 @@ class _MapScreenState extends State<MapScreen> {
           _selectedRouteIndex = 0;
           _routePoints = routes.first.points;
         });
-        _navigationService.start(routes.first);
+        _followRoute(routes.first);
+        if (leftAt != null) _maybeAskAboutDeviation(leftAt);
       }
     } catch (_) {
       // Si riprova al prossimo aggiornamento di posizione.
@@ -1205,6 +1335,8 @@ class _MapScreenState extends State<MapScreen> {
       _navigationUpdate = null;
       _navigationFirstStep = null;
       _verifyPrompt = null;
+      _passPrompt = null;
+      _closeDeviationPromptInState();
       _clearRouteAlert();
     });
     _fitRoute();
@@ -1218,6 +1350,15 @@ class _MapScreenState extends State<MapScreen> {
     if (!mounted) return;
     setState(() => _isLocatingUser = false);
     final position = result.position;
+    if (position != null &&
+        !_userFix.accept(
+          PositionFix(position, result.accuracy ?? 0, DateTime.now()),
+        )) {
+      // Resta la posizione precedente, più precisa e ancora recente.
+      final kept = _userLocation;
+      if (kept != null) _mapController.move(kept, 16);
+      return;
+    }
     if (position != null) {
       setState(() {
         _userLocation = _center = position;
@@ -1296,7 +1437,9 @@ class _MapScreenState extends State<MapScreen> {
     return left > Duration.zero ? left.inSeconds + 1 : null;
   }
 
-  Future<void> _reportObstacle(LatLng point) async {
+  /// Segnala un ostacolo in [point]. Con [preset] (per esempio un tipo
+  /// detto a voce) non si apre la scheda per sceglierlo.
+  Future<void> _reportObstacle(LatLng point, {ReportDraft? preset}) async {
     final wait = _secondsToWait(_lastReportAt, _reportInterval);
     if (wait != null) {
       _showError(
@@ -1305,7 +1448,7 @@ class _MapScreenState extends State<MapScreen> {
       );
       return;
     }
-    final draft = await showReportObstacleSheet(context);
+    final draft = preset ?? await showReportObstacleSheet(context);
     if (draft == null || !mounted) return;
     final type = draft.type;
     final userId = FirebaseAuth.instance.currentUser?.uid;
@@ -1386,6 +1529,83 @@ class _MapScreenState extends State<MapScreen> {
     await _reportObstacle(point);
   }
 
+  /// Filtri di accessibilità della ricerca: cerca su OpenStreetMap nella
+  /// zona inquadrata dalla mappa. Con `null` il filtro si toglie.
+  Future<void> _searchNearby(NearbyFilter? filter) async {
+    final request = ++_nearbyRequest;
+    if (filter == null) {
+      setState(() => _nearby = const NearbySearch());
+      return;
+    }
+    setState(() => _nearby = NearbySearch(filter: filter, isLoading: true));
+    final results = await _nearbyService.search(
+      filter,
+      _mapController.camera.center,
+    );
+    if (!mounted || request != _nearbyRequest) return;
+    setState(() => _nearby = NearbySearch(filter: filter, results: results));
+  }
+
+  /// "Segnala a voce": si dice il tipo di ostacolo ("gradino", "auto sul
+  /// marciapiede") e l'app chiede conferma prima di salvarlo nella
+  /// posizione in cui ci si trovava quando si è parlato.
+  Future<void> _reportByVoice() async {
+    if (_isListening) {
+      _speechInput.cancel();
+      return;
+    }
+    if (FirebaseAuth.instance.currentUser == null) return;
+    final point = _userLocation ?? _mapController.camera.center;
+    _ttsService.stop();
+    setState(() {
+      _isListening = true;
+      _voiceReport = null;
+    });
+    _showSnack(
+      _voiceLanguage == 'it'
+          ? 'Ti ascolto: di\' il tipo di ostacolo, per esempio «gradino» o '
+                '«auto sul marciapiede».'
+          : 'Listening: say the obstacle, for example "step" or "parked car".',
+      iconColor: AppColors.of(context).info,
+      icon: Icons.mic_rounded,
+    );
+    final heard = await _speechInput.listen(_voiceLanguage);
+    if (!mounted) return;
+    setState(() => _isListening = false);
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    for (final text in heard) {
+      final type = matchObstacleType(text);
+      if (type != null) {
+        setState(() => _voiceReport = (point: point, heard: text, type: type));
+        return;
+      }
+    }
+    if (heard.isEmpty) {
+      _showError(
+        'Non ho sentito nulla. Controlla che il microfono sia consentito e '
+        'riprova.',
+        Icons.mic_off_rounded,
+      );
+      return;
+    }
+    _showError(
+      'Non ho riconosciuto il tipo di ostacolo in «${heard.first}». '
+      "Sceglilo dall'elenco.",
+      Icons.help_outline_rounded,
+    );
+    await _reportObstacle(point);
+  }
+
+  Future<void> _confirmVoiceReport({required bool fromList}) async {
+    final report = _voiceReport;
+    setState(() => _voiceReport = null);
+    if (report == null) return;
+    await _reportObstacle(
+      report.point,
+      preset: fromList ? null : ReportDraft(report.type),
+    );
+  }
+
   Future<void> _confirmObstacle(Obstacle obstacle, String userId) async {
     try {
       await _obstacleService.confirm(obstacle.id, userId);
@@ -1415,6 +1635,15 @@ class _MapScreenState extends State<MapScreen> {
     if (action == null || !mounted) return;
     if (action == ObstacleAction.confirm) {
       if (userId != null) await _confirmObstacle(obstacle, userId);
+      return;
+    }
+    if (action == ObstacleAction.thank) {
+      if (userId != null) await _thankReporter(obstacle, userId);
+      return;
+    }
+    final vote = action.passVote;
+    if (vote != null) {
+      if (userId != null) await _votePass(obstacle, userId, vote);
       return;
     }
     if (userId == null) return;
@@ -1543,6 +1772,170 @@ class _MapScreenState extends State<MapScreen> {
     _verifyTimer = Timer(const Duration(seconds: 45), _closeVerifyPrompt);
   }
 
+  /// All'arrivo chiede com'era l'ingresso, una volta per viaggio e non
+  /// più di qualche volta al giorno (vedi [ArrivalQuestionPolicy]).
+  Future<void> _maybeAskAboutEntrance() async {
+    if (_arrivalHandled) return;
+    _arrivalHandled = true;
+    final destination = _endPoint;
+    if (destination == null || FirebaseAuth.instance.currentUser == null) {
+      return;
+    }
+    if (!await _arrivalPolicy.tryAsk() || !mounted) return;
+    setState(() => _arrivalPrompt = destination);
+    // Prima si lascia finire l'annuncio dell'arrivo.
+    Timer(const Duration(seconds: 4), () {
+      if (!mounted || _arrivalPrompt == null || _voiceLanguage != 'it') return;
+      _ttsService.speak("Com'era l'ingresso?", _voiceLanguage);
+    });
+    _arrivalTimer?.cancel();
+    _arrivalTimer = Timer(const Duration(seconds: 60), _closeArrivalPrompt);
+  }
+
+  /// Dopo un ricalcolo per uscita dal percorso chiede se si è cambiata
+  /// strada per un ostacolo, una volta per viaggio e solo se lì vicino non
+  /// c'è già una segnalazione.
+  void _maybeAskAboutDeviation(LatLng leftAt) {
+    if (_deviationAsked ||
+        FirebaseAuth.instance.currentUser == null ||
+        !shouldAskAboutDeviation(leftAt, _obstacles)) {
+      return;
+    }
+    _deviationAsked = true;
+    setState(() => _deviationPrompt = leftAt);
+    _ttsService.speak(
+      _voiceLanguage == 'it'
+          ? 'Hai cambiato strada per un ostacolo?'
+          : 'Did you change route because of an obstacle?',
+      _voiceLanguage,
+    );
+    _deviationTimer?.cancel();
+    _deviationTimer = Timer(const Duration(seconds: 45), _closeDeviationPrompt);
+  }
+
+  /// Da chiamare dentro setState.
+  void _closeDeviationPromptInState() {
+    _deviationTimer?.cancel();
+    _deviationPrompt = null;
+  }
+
+  void _closeDeviationPrompt() {
+    if (mounted && _deviationPrompt != null) {
+      setState(_closeDeviationPromptInState);
+    }
+  }
+
+  Future<void> _reportDeviation() async {
+    final point = _deviationPrompt;
+    _closeDeviationPrompt();
+    if (point != null) await _reportObstacle(point);
+  }
+
+  /// Da chiamare dentro setState.
+  void _closeArrivalPromptInState() {
+    _arrivalTimer?.cancel();
+    _arrivalPrompt = null;
+  }
+
+  void _closeArrivalPrompt() {
+    if (mounted && _arrivalPrompt != null) {
+      setState(_closeArrivalPromptInState);
+    }
+  }
+
+  Future<void> _answerArrivalPrompt(EntranceAnswer answer) async {
+    final destination = _arrivalPrompt;
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    _closeArrivalPrompt();
+    if (destination == null || userId == null) return;
+    try {
+      await _entranceService.add(destination, answer, userId);
+      if (!mounted) return;
+      _showSnack(
+        "Grazie! La tua risposta aiuta chi andrà lì dopo di te.",
+        iconColor: AppColors.of(context).success,
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile salvare la risposta. Riprova più tardi.',
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
+  void _closePassPrompt() {
+    if (mounted && _passPrompt != null) setState(() => _passPrompt = null);
+  }
+
+  Future<void> _answerPassPrompt(PassVote vote) async {
+    final obstacle = _passPrompt;
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    _closePassPrompt();
+    if (obstacle != null && userId != null) {
+      await _votePass(obstacle, userId, vote);
+    }
+  }
+
+  Future<void> _thankReporter(Obstacle obstacle, String userId) async {
+    try {
+      await _obstacleService.thank(obstacle.id, userId);
+      if (!mounted) return;
+      _showSnack(
+        'Grazie inviato a chi ha segnalato questo ostacolo.',
+        iconColor: AppColors.of(context).success,
+        icon: Icons.favorite_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile inviare il grazie. Riprova.',
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
+  /// Se le proprie segnalazioni hanno ricevuto nuovi grazie, lo dice.
+  Future<void> _announceNewThanks(List<Obstacle> obstacles) async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    final fresh = await _thanksNotifier.newThanks(
+      userId,
+      thanksReceived(obstacles, userId),
+    );
+    if (fresh == 0 || !mounted) return;
+    _showSnack(
+      fresh == 1
+          ? 'Una persona ti ha ringraziato per una tua segnalazione.'
+          : '$fresh persone ti hanno ringraziato per le tue segnalazioni.',
+      iconColor: AppColors.of(context).success,
+      icon: Icons.favorite_rounded,
+    );
+  }
+
+  Future<void> _votePass(
+    Obstacle obstacle,
+    String userId,
+    PassVote vote,
+  ) async {
+    try {
+      await _obstacleService.votePass(obstacle.id, userId, vote);
+      if (!mounted) return;
+      _showSnack(
+        'Grazie! La tua risposta aiuta a scegliere i percorsi.',
+        iconColor: AppColors.of(context).success,
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile salvare la risposta. Riprova.',
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
   void _closeVerifyPrompt() {
     _verifyTimer?.cancel();
     if (mounted && _verifyPrompt != null) setState(() => _verifyPrompt = null);
@@ -1555,6 +1948,12 @@ class _MapScreenState extends State<MapScreen> {
     if (obstacle == null || userId == null) return;
     if (stillThere) {
       await _confirmObstacle(obstacle, userId);
+      // Poi una domanda di dettaglio, se non ha già risposto.
+      if (mounted && _isNavigating && obstacle.canVotePassBy(userId)) {
+        setState(() => _passPrompt = obstacle);
+        _verifyTimer?.cancel();
+        _verifyTimer = Timer(const Duration(seconds: 45), _closePassPrompt);
+      }
     } else {
       await _removeObstacle(obstacle, userId);
     }
@@ -1637,7 +2036,7 @@ class _MapScreenState extends State<MapScreen> {
       _routePoints = routes.first.points;
       _clearRouteAlert();
     });
-    _navigationService.start(routes.first);
+    _followRoute(routes.first);
     _ttsService.speak(
       _voiceLanguage == 'it' ? 'Nuovo percorso' : 'New route',
       _voiceLanguage,
@@ -1741,6 +2140,8 @@ class _MapScreenState extends State<MapScreen> {
               onUseMyLocation: _useMyLocation,
               onChooseOnMap: _chooseOnMap,
               onPaste: _pasteAddress,
+              nearby: _nearby,
+              onNearbyFilter: _searchNearby,
               onClear: _clearPoint,
               onSwap: _swapPoints,
               onCalculate: _calculateRoute,
@@ -1854,10 +2255,26 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    if (_isNavigating) {
-      final alertObstacle = _routeAlertObstacle;
-      final verify = _verifyPrompt;
-      final Widget? prompt = alertObstacle != null
+    if (_isNavigating || _arrivalPrompt != null || _voiceReport != null) {
+      final alertObstacle = _isNavigating ? _routeAlertObstacle : null;
+      final voiceReport = _voiceReport;
+      final verify = _isNavigating ? _verifyPrompt : null;
+      final deviation = _isNavigating ? _deviationPrompt : null;
+      final pass = _isNavigating ? _passPrompt : null;
+      final Widget? prompt = voiceReport != null
+          ? VoiceReportCard(
+              heard: voiceReport.heard,
+              type: voiceReport.type,
+              onConfirm: () => _confirmVoiceReport(fromList: false),
+              onChooseFromList: () => _confirmVoiceReport(fromList: true),
+              onCancel: () => setState(() => _voiceReport = null),
+            )
+          : _arrivalPrompt != null
+          ? ArrivalEntranceCard(
+              onAnswer: _answerArrivalPrompt,
+              onSkip: _closeArrivalPrompt,
+            )
+          : alertObstacle != null
           ? RouteAlertCard(
               obstacle: alertObstacle,
               isSearching: _routeAlertSearching,
@@ -1874,6 +2291,17 @@ class _MapScreenState extends State<MapScreen> {
               onStillThere: () => _answerVerifyPrompt(stillThere: true),
               onGone: () => _answerVerifyPrompt(stillThere: false),
               onSkip: _closeVerifyPrompt,
+            )
+          : pass != null
+          ? PassabilityCard(
+              obstacle: pass,
+              onVote: _answerPassPrompt,
+              onSkip: _closePassPrompt,
+            )
+          : deviation != null
+          ? DeviationObstacleCard(
+              onReport: _reportDeviation,
+              onDismiss: _closeDeviationPrompt,
             )
           : null;
       if (prompt != null) {
@@ -1909,6 +2337,14 @@ class _MapScreenState extends State<MapScreen> {
           onLocate: () => _locateUser(showErrors: true),
           isLocating: _isLocatingUser,
           onReport: _isNavigating || choosing != null ? null : _reportHere,
+          // A voce si segnala anche durante la navigazione, senza mani.
+          onVoiceReport:
+              _speechInput.isSupported &&
+                  choosing == null &&
+                  FirebaseAuth.instance.currentUser != null
+              ? _reportByVoice
+              : null,
+          isListening: _isListening,
         ),
       ),
     );
@@ -1988,6 +2424,7 @@ class _MapScreenState extends State<MapScreen> {
                 nearbyObstacles: _obstaclesNear(_endPoint!),
                 accessibility: _placeAccessibility,
                 isLoadingAccessibility: _isLoadingAccessibility,
+                entranceSummary: _entranceSummary,
                 onDirections: _openDirections,
                 onStart: _startFromPlace,
                 onShare: _sharePlace,
