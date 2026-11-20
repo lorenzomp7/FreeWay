@@ -59,8 +59,10 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   `segnalazioni`): si tiene premuto sulla mappa oppure si usa il pulsante
   "Segnala un ostacolo qui". Toccando un ostacolo se ne vedono i dettagli, si
   può confermare che c'è ancora oppure rimuoverlo. Gli ostacoli temporanei
-  (auto in sosta, cantieri, ingombri) spariscono da mappa e percorsi dopo 14
-  giorni senza conferme; i dati restano su Firestore.
+  spariscono da mappa e percorsi se nessuno conferma che ci sono ancora, dopo
+  un tempo che dipende dal tipo: 1 giorno per un'auto in sosta, 3 giorni per
+  rifiuti e ingombri, 30 giorni per un cantiere (14 per gli altri). Ogni
+  conferma fa ripartire il conteggio; i dati restano su Firestore.
 - Filtri per categoria e raggruppamento degli ostacoli vicini.
 - Navigazione passo-passo con istruzioni vocali in italiano o inglese, ricalcolo
   quando si esce dal percorso e schermo sempre acceso durante il tragitto.

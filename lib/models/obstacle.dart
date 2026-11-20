@@ -207,8 +207,29 @@ class Obstacle {
 
   int get confirmationCount => confirmedBy.length;
 
-  /// Dopo quanto tempo senza conferme un ostacolo temporaneo sparisce.
+  /// Dopo quanto tempo senza conferme sparisce un ostacolo temporaneo di
+  /// cui non si conosce una durata tipica.
   static const Duration temporaryLifetime = Duration(days: 14);
+
+  /// Un'auto in sosta di solito se ne va in qualche ora.
+  static const Duration parkedCarLifetime = Duration(days: 1);
+
+  /// Rifiuti e ingombri si portano via in pochi giorni.
+  static const Duration clutterLifetime = Duration(days: 3);
+
+  /// Un cantiere dura settimane.
+  static const Duration worksLifetime = Duration(days: 30);
+
+  /// Dopo quanto tempo senza conferme sparisce questo ostacolo, secondo il
+  /// tipo; `null` per gli ostacoli permanenti. Ogni conferma fa ripartire
+  /// il conteggio.
+  Duration? get lifetime {
+    if (!isTemporary) return null;
+    if (_has('Auto') || _has('parcheggiata')) return parkedCarLifetime;
+    if (_has('Cantieri')) return worksLifetime;
+    if (_has('Rifiuti') || _has('ingombri')) return clutterLifetime;
+    return temporaryLifetime;
+  }
 
   /// Auto in sosta, cantieri e ingombri: ostacoli destinati a sparire.
   bool get isTemporary => category == 'Ostacoli temporanei';
@@ -226,8 +247,9 @@ class Obstacle {
   /// conferma che c'è ancora. `null` per gli ostacoli permanenti.
   DateTime? get expiresAt {
     final seen = lastSeenAt;
-    if (!isTemporary || seen == null) return null;
-    return seen.add(temporaryLifetime);
+    final duration = lifetime;
+    if (duration == null || seen == null) return null;
+    return seen.add(duration);
   }
 
   bool isExpired([DateTime? now]) {

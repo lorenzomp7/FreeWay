@@ -166,7 +166,9 @@ class _ReportObstacleSheetState extends State<ReportObstacleSheet> {
       bytes = null;
       if (mounted) {
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          const SnackBar(content: Text('Non è stato possibile aprire la foto.')),
+          const SnackBar(
+            content: Text('Non è stato possibile aprire la foto.'),
+          ),
         );
       }
     }
@@ -195,7 +197,11 @@ class _ReportObstacleSheetState extends State<ReportObstacleSheet> {
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(
             children: [
-              Icon(Icons.photo_camera_outlined, color: colors.textTertiary, size: 16),
+              Icon(
+                Icons.photo_camera_outlined,
+                color: colors.textTertiary,
+                size: 16,
+              ),
               const SizedBox(width: 8),
               Text('FOTO (FACOLTATIVA)', style: textTheme.labelSmall),
             ],
@@ -266,29 +272,33 @@ class _ReportObstacleSheetState extends State<ReportObstacleSheet> {
 
     final items = <Widget>[];
     for (final entry in obstacleTypesByCategory.entries) {
-      items.add(Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: [
-            Icon(
-              obstacleCategoryIcons[entry.key] ?? Icons.place_outlined,
-              color: colors.textTertiary,
-              size: 16,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              entry.key.toUpperCase(),
-              style: Theme.of(context).textTheme.labelSmall,
-            ),
-          ],
+      items.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              Icon(
+                obstacleCategoryIcons[entry.key] ?? Icons.place_outlined,
+                color: colors.textTertiary,
+                size: 16,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                entry.key.toUpperCase(),
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ],
+          ),
         ),
-      ));
+      );
       for (final type in entry.value) {
-        items.add(ObstacleOption(
-          label: type,
-          isSelected: _selected == type,
-          onTap: () => setState(() => _selected = type),
-        ));
+        items.add(
+          ObstacleOption(
+            label: type,
+            isSelected: _selected == type,
+            onTap: () => setState(() => _selected = type),
+          ),
+        );
       }
       items.add(const SizedBox(height: 12));
     }
@@ -331,8 +341,9 @@ class _ReportObstacleSheetState extends State<ReportObstacleSheet> {
                   child: FilledButton.icon(
                     onPressed: _selected == null || _pickingPhoto
                         ? null
-                        : () => Navigator.of(context)
-                            .pop(ReportDraft(_selected!, photo: _photo)),
+                        : () => Navigator.of(
+                            context,
+                          ).pop(ReportDraft(_selected!, photo: _photo)),
                     icon: const Icon(Icons.send_rounded, size: 18),
                     label: const Text('Invia segnalazione'),
                   ),
@@ -384,10 +395,10 @@ class ObstacleOption extends StatelessWidget {
                 child: Text(
                   label,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: isSelected && !isDark
-                            ? AppPalette.primaryDark
-                            : colors.textPrimary,
-                      ),
+                    color: isSelected && !isDark
+                        ? AppPalette.primaryDark
+                        : colors.textPrimary,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -398,13 +409,19 @@ class ObstacleOption extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isSelected ? AppPalette.primary : Colors.transparent,
                   border: Border.all(
-                    color: isSelected ? AppPalette.primary : colors.borderStrong,
+                    color: isSelected
+                        ? AppPalette.primary
+                        : colors.borderStrong,
                     width: 2,
                   ),
                   shape: BoxShape.circle,
                 ),
                 child: isSelected
-                    ? const Icon(Icons.check_rounded, size: 13, color: Colors.white)
+                    ? const Icon(
+                        Icons.check_rounded,
+                        size: 13,
+                        color: Colors.white,
+                      )
                     : null,
               ),
             ],
@@ -442,6 +459,17 @@ class ObstacleDetailsSheet extends StatelessWidget {
     return date == null ? '' : timeAgo(date);
   }
 
+  /// Data di scadenza; per gli ostacoli che durano pochi giorni (un'auto in
+  /// sosta) anche l'ora.
+  static String _formatExpiry(Obstacle obstacle) {
+    final expiry = obstacle.expiresAt!;
+    final short =
+        (obstacle.lifetime ?? Duration.zero) < const Duration(days: 3);
+    if (!short) return _formatDay(expiry);
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${_formatDay(expiry)} alle ${two(expiry.hour)}:${two(expiry.minute)}';
+  }
+
   static String _formatDay(DateTime date) {
     String two(int value) => value.toString().padLeft(2, '0');
     return '${two(date.day)}/${two(date.month)}/${date.year}';
@@ -460,7 +488,9 @@ class ObstacleDetailsSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final textTheme = Theme.of(context).textTheme;
-    final when = _timeAgo.isEmpty ? _formattedDate : '$_formattedDate · $_timeAgo';
+    final when = _timeAgo.isEmpty
+        ? _formattedDate
+        : '$_formattedDate · $_timeAgo';
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
@@ -489,9 +519,7 @@ class ObstacleDetailsSheet extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       if (obstacle.hasPhoto && loadPhoto != null) ...[
-                        ObstaclePhoto(
-                          load: () => loadPhoto!(obstacle.id),
-                        ),
+                        ObstaclePhoto(load: () => loadPhoto!(obstacle.id)),
                         const SizedBox(height: 12),
                       ],
                       Text(obstacle.type, style: textTheme.titleMedium),
@@ -504,7 +532,9 @@ class ObstacleDetailsSheet extends StatelessWidget {
                             size: 15,
                           ),
                           const SizedBox(width: 6),
-                          Expanded(child: Text(when, style: textTheme.bodySmall)),
+                          Expanded(
+                            child: Text(when, style: textTheme.bodySmall),
+                          ),
                         ],
                       ),
                       if (obstacle.expiresAt != null) ...[
@@ -521,7 +551,7 @@ class ObstacleDetailsSheet extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 'Ostacolo temporaneo: sparisce dalla mappa il '
-                                '${_formatDay(obstacle.expiresAt!)} se nessuno '
+                                '${_formatExpiry(obstacle)} se nessuno '
                                 "conferma che c'è ancora.",
                                 style: textTheme.bodySmall,
                               ),
@@ -544,7 +574,7 @@ class ObstacleDetailsSheet extends StatelessWidget {
                                 obstacle.notThereBy.length == 1
                                     ? "1 persona dice che non c'è più"
                                     : '${obstacle.notThereBy.length} persone '
-                                        "dicono che non c'è più",
+                                          "dicono che non c'è più",
                                 style: textTheme.bodySmall,
                               ),
                             ),
@@ -648,7 +678,8 @@ class ObstacleDetailsSheet extends StatelessWidget {
                 if (!obstacle.isReportedBy(currentUserId)) ...[
                   OutlinedButton.icon(
                     onPressed: obstacle.canBeConfirmedBy(currentUserId)
-                        ? () => Navigator.of(context).pop(ObstacleAction.confirm)
+                        ? () =>
+                              Navigator.of(context).pop(ObstacleAction.confirm)
                         : null,
                     icon: const Icon(Icons.visibility_outlined, size: 19),
                     label: Text(
@@ -662,7 +693,10 @@ class ObstacleDetailsSheet extends StatelessWidget {
                 FilledButton.icon(
                   onPressed: () =>
                       Navigator.of(context).pop(ObstacleAction.remove),
-                  icon: const Icon(Icons.check_circle_outline_rounded, size: 19),
+                  icon: const Icon(
+                    Icons.check_circle_outline_rounded,
+                    size: 19,
+                  ),
                   label: const Text("L'ostacolo non c'è più"),
                   style: FilledButton.styleFrom(
                     backgroundColor: colors.successSoft,
@@ -673,7 +707,9 @@ class ObstacleDetailsSheet extends StatelessWidget {
                 Text(
                   'Rimuovendolo aiuti le altre persone a ricevere percorsi aggiornati.',
                   textAlign: TextAlign.center,
-                  style: textTheme.bodySmall?.copyWith(color: colors.textTertiary),
+                  style: textTheme.bodySmall?.copyWith(
+                    color: colors.textTertiary,
+                  ),
                 ),
               ],
             ),
@@ -702,15 +738,15 @@ class _ObstaclePhotoState extends State<ObstaclePhoto> {
     final colors = AppColors.of(context);
     final textTheme = Theme.of(context).textTheme;
     Widget placeholder(Widget child) => Container(
-          height: 180,
-          width: double.infinity,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: colors.surface,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: child,
-        );
+      height: 180,
+      width: double.infinity,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: child,
+    );
     final unavailable = placeholder(
       Text('Foto non disponibile', style: textTheme.bodySmall),
     );
