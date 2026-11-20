@@ -125,6 +125,40 @@ class RouteOption {
   /// dati (OSRM) l'assenza di avvisi non vuol dire che non ci siano difficoltà.
   bool hasTerrainData = false;
 
+  /// Nessun percorso rispettava le opzioni scelte (pendenza, cordoli,
+  /// fondo): questo è stato calcolato senza.
+  bool ignoresPreferences = false;
+
+  /// Lo stesso percorso con i tempi corretti dalla velocità personale
+  /// ([factor] 0,75 = più lento, 1,25 = più veloce).
+  RouteOption withPace(double factor) {
+    if (factor == 1) return this;
+    return RouteOption(
+        points: points,
+        distance: distance,
+        duration: duration / factor,
+        steps: [
+          for (final s in steps)
+            RouteStep(
+              instruction: s.instruction,
+              location: s.location,
+              maneuverType: s.maneuverType,
+              modifier: s.modifier,
+              streetName: s.streetName,
+              distance: s.distance,
+              duration: s.duration / factor,
+            ),
+        ],
+        index: index,
+      )
+      ..obstacleCount = obstacleCount
+      ..isRecommended = isRecommended
+      ..label = label
+      ..warnings = warnings
+      ..hasTerrainData = hasTerrainData
+      ..ignoresPreferences = ignoresPreferences;
+  }
+
   int get hardWarningCount => warnings.where((w) => w.isHard).length;
 
   String get distanceText {

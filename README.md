@@ -193,6 +193,17 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   visibile, la navigazione continua sul percorso e il ricalcolo riparte
   quando torna la rete. L'app va aperta con la rete: il service worker
   resta dismesso apposta, per non servire versioni vecchie.
+- "Opzioni del percorso" (icona con i cursori nella scheda dei percorsi),
+  come "Route options" di Google Maps ma per la sedia a rotelle: pendenza
+  massima (3, 6, 10 o 15%), altezza massima di cordoli e scalini (3, 6 o
+  10 cm) ed "Evita ciottoli, ghiaia e sterrato", passati al profilo
+  carrozzina di OpenRouteService (`profile_params.restrictions`). Se nessun
+  percorso li rispetta l'app mostra il migliore senza limiti e lo dice. Nello
+  stesso pannello la velocità personale (lenta, normale, veloce) corregge
+  tutti i tempi. Le scelte restano sul dispositivo.
+- "Elenco indicazioni" nella scheda dei percorsi, come "Steps" di Google
+  Maps: tutte le svolte con le distanze prima di partire, lette una per una
+  dai lettori di schermo ("Passo 2 di 5: …").
 - "Segnala un ostacolo a voce" (pulsante col microfono, anche durante la
   navigazione): si dice il tipo di ostacolo ("gradino", "auto sul
   marciapiede", "cantiere"…) e l'app lo riconosce dalle parole chiave, in

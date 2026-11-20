@@ -22,6 +22,9 @@ class RouteOptionsSheet extends StatelessWidget {
     this.onSaveOffline,
     this.offlineProgress,
     this.isSavedOffline = false,
+    this.onOpenPreferences,
+    this.preferencesSummary,
+    this.onShowSteps,
   });
 
   final List<RouteOption> routes;
@@ -51,6 +54,15 @@ class RouteOptionsSheet extends StatelessWidget {
   /// Avanzamento del salvataggio (fatte, totali), `null` se fermo.
   final (int, int)? offlineProgress;
   final bool isSavedOffline;
+
+  /// "Opzioni del percorso" (pendenza, cordoli, fondo, velocità).
+  final VoidCallback? onOpenPreferences;
+
+  /// Riassunto delle opzioni diverse da quelle predefinite, o `null`.
+  final String? preferencesSummary;
+
+  /// "Elenco indicazioni" del percorso scelto.
+  final VoidCallback? onShowSteps;
 
   @override
   Widget build(BuildContext context) {
@@ -84,11 +96,37 @@ class RouteOptionsSheet extends StatelessWidget {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleMedium,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        if (preferencesSummary != null)
+                          Text(
+                            preferencesSummary!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: colors.textSecondary),
+                          ),
+                      ],
                     ),
                   ),
+                  if (onOpenPreferences != null) ...[
+                    IconButton(
+                      tooltip: 'Opzioni del percorso',
+                      icon: const Icon(Icons.tune_rounded, size: 20),
+                      onPressed: onOpenPreferences,
+                      style: IconButton.styleFrom(
+                        backgroundColor: colors.surfaceMuted,
+                        foregroundColor: colors.textSecondary,
+                        fixedSize: const Size(34, 34),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
                   IconButton(
                     tooltip: 'Chiudi',
                     icon: const Icon(Icons.close_rounded, size: 20),
@@ -116,6 +154,30 @@ class RouteOptionsSheet extends StatelessWidget {
                 ),
               ),
             ),
+            if (selectedIndex < routes.length &&
+                routes[selectedIndex].ignoresPreferences)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 2, 20, 2),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 16,
+                      color: colors.warning,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Nessun percorso rispetta tutte le tue opzioni: '
+                        'questo non ne tiene conto.',
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodySmall?.copyWith(color: colors.warning),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             if (selectedIndex < routes.length &&
                 routes[selectedIndex].warnings.isNotEmpty)
               RouteWarningsList(warnings: routes[selectedIndex].warnings),
@@ -210,15 +272,31 @@ class RouteOptionsSheet extends StatelessWidget {
                   ),
                 ),
               ),
-            if (onSaveOffline != null)
+            if (onSaveOffline != null || onShowSteps != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: OfflineRouteChip(
-                    progress: offlineProgress,
-                    isSaved: isSavedOffline,
-                    onPressed: onSaveOffline!,
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      if (onShowSteps != null)
+                        ActionChip(
+                          avatar: const Icon(
+                            Icons.format_list_numbered_rounded,
+                            size: 18,
+                          ),
+                          label: const Text('Elenco indicazioni'),
+                          onPressed: onShowSteps,
+                        ),
+                      if (onSaveOffline != null)
+                        OfflineRouteChip(
+                          progress: offlineProgress,
+                          isSaved: isSavedOffline,
+                          onPressed: onSaveOffline!,
+                        ),
+                    ],
                   ),
                 ),
               ),

@@ -14,6 +14,7 @@ import '../models/entrance_report.dart';
 import '../models/obstacle.dart';
 import '../models/place_accessibility.dart';
 import '../models/route_option.dart';
+import '../models/route_preferences.dart';
 import '../models/travel_mode.dart';
 import '../services/along_route_service.dart';
 import '../services/entrance_report_service.dart';
@@ -46,6 +47,7 @@ import '../widgets/navigation_panel.dart';
 import '../widgets/navigation_prompts.dart';
 import '../widgets/obstacle_sheets.dart';
 import '../widgets/place_sheet.dart';
+import '../widgets/route_details_sheets.dart';
 import '../widgets/route_options_sheet.dart';
 import '../widgets/saved_places_widgets.dart';
 import '../widgets/search_panel.dart';
@@ -123,6 +125,9 @@ class _MapScreenState extends State<MapScreen> {
 
   /// Il percorso le cui tile sono state salvate.
   List<LatLng>? _offlineSavedFor;
+
+  /// "Opzioni del percorso": pendenza, cordoli, fondo e velocità.
+  RoutePreferences _routePrefs = RoutePreferences.defaults;
 
   double _zoom = 13;
   LatLng _center = const LatLng(45.4642, 9.19); // Milano
@@ -274,6 +279,9 @@ class _MapScreenState extends State<MapScreen> {
       if (mounted) setState(() => _saved = saved);
     });
     _ttsService.loadSettings();
+    RoutePreferences.load().then((prefs) {
+      if (mounted) setState(() => _routePrefs = prefs);
+    });
     _offlineRoute.load().then((_) {
       if (mounted) setState(() {});
     });
@@ -985,6 +993,7 @@ class _MapScreenState extends State<MapScreen> {
         _obstacles,
         mode: mode,
         via: [for (final stop in _stops) stop.position],
+        preferences: _routePrefs,
       );
       if (!mounted ||
           _startPoint != start ||
@@ -1001,6 +1010,13 @@ class _MapScreenState extends State<MapScreen> {
       });
       _fitRoute();
       unawaited(_loadWeather(start));
+      if (routes.isNotEmpty && routes.first.ignoresPreferences) {
+        _showSnack(
+          'Nessun percorso rispetta tutte le tue opzioni: ti mostro il '
+          'migliore senza limiti. Controlla le difficoltà nella scheda.',
+          icon: Icons.warning_amber_rounded,
+        );
+      }
       if (startNavigation) _startNavigation();
     } catch (_) {
       if (!mounted ||
@@ -1015,6 +1031,56 @@ class _MapScreenState extends State<MapScreen> {
         Icons.error_outline_rounded,
       );
     }
+  }
+
+  /// "Opzioni del percorso" nella scheda dei percorsi.
+  Future<void> _openRoutePreferences() async {
+    final chosen = await showRoutePreferencesSheet(
+      context,
+      _routePrefs,
+      showWheelchairOptions: _travelMode == TravelMode.wheelchair,
+    );
+    if (chosen == null || !mounted) return;
+    final before = _routePrefs;
+    setState(() => _routePrefs = chosen);
+    unawaited(chosen.save());
+    if (_routes.isEmpty) return;
+    if (!chosen.sameRestrictions(before) &&
+        _travelMode == TravelMode.wheelchair) {
+      // Pendenza, cordoli o fondo diversi: serve un nuovo percorso.
+      await _calculateRoute();
+    } else if (chosen.pace != before.pace) {
+      // Cambia solo la velocità: si correggono i tempi.
+      final ratio = chosen.pace.factor / before.pace.factor;
+      setState(() {
+        _routes = [for (final r in _routes) r.withPace(ratio)];
+        _routePoints = _routes[_selectedRouteIndex].points;
+      });
+    }
+  }
+
+  /// "Elenco indicazioni" del percorso scelto.
+  void _showRouteSteps() {
+    if (_routes.isEmpty) return;
+    showRouteStepsSheet(
+      context,
+      _routes[_selectedRouteIndex],
+      language: _voiceLanguage,
+    );
+  }
+
+  /// Riassunto delle opzioni scelte, se diverse da quelle predefinite.
+  String? get _routePrefsSummary {
+    final prefs = _routePrefs;
+    if (_travelMode != TravelMode.wheelchair) {
+      return prefs.pace == TravelPace.normal
+          ? null
+          : 'Velocità ${prefs.pace.label.toLowerCase()}';
+    }
+    if (prefs.hasDefaultRestrictions && prefs.pace == TravelPace.normal) {
+      return null;
+    }
+    return 'Opzioni: ${prefs.summary}';
   }
 
   void _selectRoute(int index) {
@@ -1132,6 +1198,12 @@ class _MapScreenState extends State<MapScreen> {
   /// Altezza stimata della scheda dei percorsi.
   double get _routeSheetHeight =>
       404 +
+      (_routePrefsSummary == null ? 0 : 18) +
+      (_routes.isNotEmpty &&
+              _routes[_selectedRouteIndex.clamp(0, _routes.length - 1)]
+                  .ignoresPreferences
+          ? 22
+          : 0) +
       32.0 * _selectedRouteWarningCount +
       (_stops.isEmpty ? 0 : 44) +
       (_weatherWarning == null ? 0 : 36);
@@ -1359,6 +1431,7 @@ class _MapScreenState extends State<MapScreen> {
         _obstacles,
         mode: _travelMode,
         via: [for (final stop in _stops) stop.position],
+        preferences: _routePrefs,
       );
       if (mounted &&
           routes.isNotEmpty &&
@@ -2228,6 +2301,7 @@ class _MapScreenState extends State<MapScreen> {
         _obstacles,
         mode: _travelMode,
         via: [for (final stop in _stops) stop.position],
+        preferences: _routePrefs,
       );
     } catch (_) {
       routes = const [];
@@ -2688,6 +2762,9 @@ class _MapScreenState extends State<MapScreen> {
             weatherWarning: _weatherWarning,
             onRemoveStop: _removeStop,
             onSaveOffline: _saveRouteOffline,
+            onOpenPreferences: _openRoutePreferences,
+            preferencesSummary: _routePrefsSummary,
+            onShowSteps: _showRouteSteps,
             offlineProgress: _offlineProgress,
             isSavedOffline: identical(_offlineSavedFor, _routePoints),
           ),

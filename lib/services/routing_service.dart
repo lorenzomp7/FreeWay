@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../models/obstacle.dart';
 import '../models/route_option.dart';
+import '../models/route_preferences.dart';
 import '../models/travel_mode.dart';
 import 'arrival_side.dart';
 import 'geo_utils.dart';
@@ -53,8 +54,23 @@ class RoutingService {
     List<Obstacle> obstacles, {
     TravelMode mode = TravelMode.wheelchair,
     List<LatLng> via = const [],
+    RoutePreferences preferences = RoutePreferences.defaults,
   }) async {
     final walking = mode == TravelMode.walking;
+    final routes = await _getRoutes(start, end, obstacles,
+        walking: walking, via: via, preferences: preferences);
+    // Velocità personale: i tempi del servizio sono quelli di un passo medio.
+    return [for (final r in routes) r.withPace(preferences.pace.factor)];
+  }
+
+  Future<List<RouteOption>> _getRoutes(
+    LatLng start,
+    LatLng end,
+    List<Obstacle> obstacles, {
+    required bool walking,
+    required List<LatLng> via,
+    required RoutePreferences preferences,
+  }) async {
     // Un ostacolo che più persone dicono superabile in sedia a rotelle non
     // si evita né si conta.
     if (!walking) {
@@ -65,10 +81,25 @@ class RoutingService {
     var candidates = <RouteOption>[];
     if (usesWheelchairProfile) {
       try {
-        candidates = walking
-            ? await _fetchOrsRoutes(waypoints,
-                alternatives: true, profile: 'foot-walking')
-            : await _orsCandidates(waypoints, obstacles);
+        if (walking) {
+          candidates = await _fetchOrsRoutes(waypoints,
+              alternatives: true, profile: 'foot-walking');
+        } else {
+          final restrictions = preferences.hasDefaultRestrictions
+              ? null
+              : preferences.orsRestrictions;
+          candidates =
+              await _orsCandidates(waypoints, obstacles, restrictions);
+          // Nessun percorso rispetta tutte le opzioni (o il servizio non le
+          // accetta): meglio un percorso senza, detto chiaramente, che
+          // nessun percorso.
+          if (candidates.isEmpty && restrictions != null) {
+            candidates = await _orsCandidates(waypoints, obstacles, null);
+            for (final route in candidates) {
+              route.ignoresPreferences = true;
+            }
+          }
+        }
       } catch (_) {
         candidates = [];
       }
@@ -163,6 +194,7 @@ class RoutingService {
   Future<List<RouteOption>> _orsCandidates(
     List<LatLng> waypoints,
     List<Obstacle> obstacles,
+    Map<String, Object>? restrictions,
   ) async {
     final nearbyIds = <String>{};
     final nearby = <Obstacle>[];
@@ -173,8 +205,10 @@ class RoutingService {
     }
     final avoid = nearby.take(maxAvoidedObstacles).toList();
     final requests = <Future<List<RouteOption>>>[
-      _fetchOrsRoutes(waypoints, alternatives: true),
-      if (avoid.isNotEmpty) _fetchOrsRoutes(waypoints, avoid: avoid),
+      _fetchOrsRoutes(waypoints,
+          alternatives: true, restrictions: restrictions),
+      if (avoid.isNotEmpty)
+        _fetchOrsRoutes(waypoints, avoid: avoid, restrictions: restrictions),
     ];
     final results = await Future.wait(
       requests.map((r) => r.catchError((Object _) => <RouteOption>[])),
@@ -187,6 +221,7 @@ class RoutingService {
     bool alternatives = false,
     List<Obstacle> avoid = const [],
     String profile = 'wheelchair',
+    Map<String, Object>? restrictions,
   }) async {
     final body = <String, dynamic>{
       'coordinates': [
@@ -202,8 +237,13 @@ class RoutingService {
           'share_factor': 0.6,
           'weight_factor': 1.6,
         },
-      if (avoid.isNotEmpty)
-        'options': {'avoid_polygons': avoidPolygons(avoid)},
+      if (avoid.isNotEmpty || restrictions != null)
+        'options': {
+          if (avoid.isNotEmpty) 'avoid_polygons': avoidPolygons(avoid),
+          // Pendenza, cordoli e fondo scelti in "Opzioni del percorso".
+          if (restrictions != null)
+            'profile_params': {'restrictions': restrictions},
+        },
     };
     final response = await _client.post(
       Uri.parse(
