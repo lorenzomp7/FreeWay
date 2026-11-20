@@ -128,6 +128,21 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   collezione `foto` di Firestore insieme alla segnalazione; si vede aprendo la
   scheda dell'ostacolo. La scheda ricorda di non inquadrare persone né
   targhe.
+- "Condividi il viaggio", come "Share trip progress" di Google Maps: durante
+  la navigazione l'app copia un link (`?viaggio=…`) da mandare a chi vuoi.
+  Chi lo apre vede sulla mappa dove sei, la destinazione e l'arrivo previsto,
+  anche senza account. La posizione si aggiorna al massimo ogni 10 secondi;
+  la condivisione finisce all'arrivo, con "Interrompi la condivisione" o dopo
+  4 ore, e non contiene nome né email.
+- "Salva per l'uso senza rete" nella scheda dei percorsi: salva nel browser
+  (Cache Storage) le tile di OpenStreetMap di un corridoio di 120 m intorno
+  al tragitto, agli zoom 15 e 16 e al massimo 160 tile, e le tiene una
+  settimana. I limiti servono a rispettare le regole d'uso delle tile di
+  OpenStreetMap, che vietano di scaricare grandi aree. Se la rete cade
+  durante la navigazione l'app lo dice (anche a voce), la mappa resta
+  visibile, la navigazione continua sul percorso e il ricalcolo riparte
+  quando torna la rete. L'app va aperta con la rete: il service worker
+  resta dismesso apposta, per non servire versioni vecchie.
 - Sotto la casella di ricerca, "Incolla l'indirizzo copiato" mette nel campo
   il testo degli appunti e lo cerca.
 - Se durante la navigazione qualcuno segnala un ostacolo sul tratto ancora da
@@ -206,6 +221,13 @@ richieste; superato quello, l'app torna da sola a OSRM.
   (circa 500 KB), non si modifica e si cancella solo insieme alla
   segnalazione. Le foto stanno in Firestore e non in Firebase Storage, che
   ora richiede il piano a pagamento Blaze;
+- un viaggio condiviso (`viaggi/{id}`, con id lungo e casuale) si legge solo
+  conoscendone l'id e finché non scade, anche senza account; nessuno può
+  elencare i viaggi. Lo crea solo chi viaggia, a proprio nome e per al
+  massimo 4 ore; solo lui lo aggiorna (non più di una volta ogni 3 secondi)
+  o lo cancella, e la scadenza può solo avvicinarsi. Per cancellare da soli
+  i viaggi scaduti si può attivare in console una regola TTL di Firestore
+  sul campo `expiresAt` della collezione `viaggi`;
 - ognuno può fare al massimo una segnalazione ogni 30 secondi e una rimozione
   ogni 10 secondi (l'ora dell'ultima azione è nel documento `limiti/{uid}`,
   aggiornato nella stessa scrittura);

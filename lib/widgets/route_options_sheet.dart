@@ -19,6 +19,9 @@ class RouteOptionsSheet extends StatelessWidget {
     this.stops = const [],
     this.onRemoveStop,
     this.weatherWarning,
+    this.onSaveOffline,
+    this.offlineProgress,
+    this.isSavedOffline = false,
   });
 
   final List<RouteOption> routes;
@@ -41,6 +44,13 @@ class RouteOptionsSheet extends StatelessWidget {
 
   /// Avviso meteo sul percorso (pioggia, neve, ghiaccio, caldo).
   final String? weatherWarning;
+
+  /// "Salva per l'uso senza rete", come "Download offline map".
+  final VoidCallback? onSaveOffline;
+
+  /// Avanzamento del salvataggio (fatte, totali), `null` se fermo.
+  final (int, int)? offlineProgress;
+  final bool isSavedOffline;
 
   @override
   Widget build(BuildContext context) {
@@ -197,6 +207,18 @@ class RouteOptionsSheet extends StatelessWidget {
                           onPressed: () => onSearchAlong!(category),
                         ),
                     ],
+                  ),
+                ),
+              ),
+            if (onSaveOffline != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: OfflineRouteChip(
+                    progress: offlineProgress,
+                    isSaved: isSavedOffline,
+                    onPressed: onSaveOffline!,
                   ),
                 ),
               ),
@@ -572,6 +594,58 @@ class AlongRouteChip extends StatelessWidget {
           ? 'Nessun risultato su OpenStreetMap lungo il percorso'
           : 'Mostrati sulla mappa',
       onPressed: isLoading ? null : onPressed,
+    );
+  }
+}
+
+/// "Salva per l'uso senza rete": salva la mappa del tragitto.
+class OfflineRouteChip extends StatelessWidget {
+  const OfflineRouteChip({
+    super.key,
+    required this.progress,
+    required this.isSaved,
+    required this.onPressed,
+  });
+
+  final (int, int)? progress;
+  final bool isSaved;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final saving = progress;
+    if (saving != null) {
+      final (done, total) = saving;
+      return ActionChip(
+        avatar: const SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        label: Text(
+          total == 0 ? 'Salvo la mappa…' : 'Salvo la mappa… $done/$total',
+        ),
+        onPressed: null,
+      );
+    }
+    if (isSaved) {
+      return ActionChip(
+        avatar: Icon(
+          Icons.offline_pin_rounded,
+          size: 18,
+          color: colors.success,
+        ),
+        label: const Text('Mappa salvata per l\'uso senza rete'),
+        tooltip: 'Salva di nuovo',
+        onPressed: onPressed,
+      );
+    }
+    return ActionChip(
+      avatar: const Icon(Icons.download_for_offline_outlined, size: 18),
+      label: const Text('Salva per l\'uso senza rete'),
+      tooltip: 'Salva la mappa del tragitto, nel caso la rete cada',
+      onPressed: onPressed,
     );
   }
 }

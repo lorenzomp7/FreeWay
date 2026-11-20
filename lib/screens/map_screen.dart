@@ -1,11 +1,11 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -22,6 +22,8 @@ import '../services/location_service.dart';
 import '../services/navigation_service.dart';
 import '../services/obstacle_alerts.dart';
 import '../services/obstacle_service.dart';
+import '../services/offline/connectivity.dart';
+import '../services/offline/offline_route_service.dart';
 import '../services/place_accessibility_service.dart';
 import '../services/recent_places_service.dart';
 import '../services/saved_places_service.dart';
@@ -81,6 +83,18 @@ class _MapScreenState extends State<MapScreen> {
   final TripShareService _tripShare = TripShareService(
     FirebaseFirestore.instance,
   );
+
+  /// "Salva per l'uso senza rete" e stato della rete.
+  final OfflineRouteService _offlineRoute = OfflineRouteService();
+  final Connectivity _connectivity = Connectivity();
+  StreamSubscription<bool>? _connectivitySubscription;
+  bool _isOffline = false;
+
+  /// Avanzamento del salvataggio (fatte, totali), `null` se fermo.
+  (int, int)? _offlineProgress;
+
+  /// Il percorso le cui tile sono state salvate.
+  List<LatLng>? _offlineSavedFor;
 
   double _zoom = 13;
   LatLng _center = const LatLng(45.4642, 9.19); // Milano
@@ -204,6 +218,11 @@ class _MapScreenState extends State<MapScreen> {
       if (mounted) setState(() => _saved = saved);
     });
     _ttsService.loadSettings();
+    _offlineRoute.load().then((_) {
+      if (mounted) setState(() {});
+    });
+    _isOffline = !_connectivity.isOnline;
+    _connectivitySubscription = _connectivity.changes.listen(_onConnectivity);
     _tripResume.load().then((trip) {
       if (mounted && trip != null) setState(() => _pendingTrip = trip);
     });
@@ -235,6 +254,8 @@ class _MapScreenState extends State<MapScreen> {
     _navigationService.dispose();
     if (_tripShare.isSharing) unawaited(_tripShare.stop());
     _tripShare.dispose();
+    _connectivitySubscription?.cancel();
+    _offlineRoute.dispose();
     _obstacleService.dispose();
     _geocodingService.dispose();
     _accessibilityService.dispose();
@@ -1024,13 +1045,25 @@ class _MapScreenState extends State<MapScreen> {
     final points = List<LatLng>.of(_routePoints);
     if (_startPoint != null) points.add(_startPoint!);
     if (_endPoint != null) points.add(_endPoint!);
+    // In basso c'è la scheda dei percorsi: il tragitto va nello spazio
+    // libero sopra, senza superare metà schermo sui telefoni piccoli.
+    final height = MediaQuery.sizeOf(context).height;
+    final bottom = math.min(_routeSheetHeight + 110, height * 0.62);
+    final top = math.min(200.0, height * 0.25);
     _mapController.fitCamera(
       CameraFit.bounds(
         bounds: LatLngBounds.fromPoints(points),
-        padding: const EdgeInsets.fromLTRB(48, 150, 48, 360),
+        padding: EdgeInsets.fromLTRB(48, top, 48, bottom),
       ),
     );
   }
+
+  /// Altezza stimata della scheda dei percorsi.
+  double get _routeSheetHeight =>
+      404 +
+      32.0 * _selectedRouteWarningCount +
+      (_stops.isEmpty ? 0 : 44) +
+      (_weatherWarning == null ? 0 : 36);
 
   // --- Navigazione ---------------------------------------------------------
 
@@ -1104,7 +1137,13 @@ class _MapScreenState extends State<MapScreen> {
           .toList();
     });
     _restartGpsWatchdog();
-    _mapController.move(update.position, 17.5);
+    // Senza rete si resta allo zoom delle tile salvate per il percorso.
+    _mapController.move(
+      update.position,
+      _isOffline && _offlineRoute.hasSavedRoute
+          ? OfflineRouteService.offlineZoom
+          : 17.5,
+    );
     if (signalBack) {
       _ttsService.speak(
         _voiceLanguage == 'it' ? 'Segnale GPS ritrovato' : 'GPS signal found',
@@ -1146,7 +1185,12 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
-    if (update.isOffRoute && !_isRecalculating && _endPoint != null) {
+    // Senza rete il ricalcolo non può riuscire: si segue la linea e si
+    // ricalcola quando la rete torna.
+    if (update.isOffRoute &&
+        !_isRecalculating &&
+        !_isOffline &&
+        _endPoint != null) {
       _recalculate(update.position);
     }
   }
@@ -1209,6 +1253,84 @@ class _MapScreenState extends State<MapScreen> {
   /// consente).
   void _keepScreenOn(bool enable) {
     unawaited(WakelockPlus.toggle(enable: enable).catchError((Object _) {}));
+  }
+
+  /// La rete è caduta o tornata.
+  void _onConnectivity(bool online) {
+    if (!mounted || _isOffline == !online) return;
+    setState(() => _isOffline = !online);
+    if (!_isNavigating) {
+      _showSnack(
+        online
+            ? 'Connessione tornata.'
+            : 'Sei senza rete: ricerche e nuovi percorsi non sono disponibili.',
+        icon: online ? Icons.wifi_rounded : Icons.cloud_off_rounded,
+      );
+      return;
+    }
+    _ttsService.speak(
+      online
+          ? (_voiceLanguage == 'it' ? 'Connessione tornata' : 'Back online')
+          : (_voiceLanguage == 'it'
+                ? 'Sei senza rete. Continua a seguire il percorso.'
+                : 'You are offline. Keep following the route.'),
+      _voiceLanguage,
+    );
+    final update = _navigationUpdate;
+    if (online &&
+        update != null &&
+        update.isOffRoute &&
+        !_isRecalculating &&
+        _endPoint != null) {
+      _recalculate(update.position);
+    }
+  }
+
+  /// "Salva per l'uso senza rete" nella scheda dei percorsi.
+  Future<void> _saveRouteOffline() async {
+    final points = _routePoints;
+    if (points.isEmpty || _offlineProgress != null) return;
+    setState(() => _offlineProgress = (0, 0));
+    final result = await _offlineRoute.saveRoute(
+      points,
+      onProgress: (done, total) {
+        if (mounted) setState(() => _offlineProgress = (done, total));
+      },
+    );
+    if (!mounted) return;
+    setState(() {
+      _offlineProgress = null;
+      if (result == OfflineSaveResult.saved ||
+          result == OfflineSaveResult.partial) {
+        _offlineSavedFor = points;
+      }
+    });
+    final colors = AppColors.of(context);
+    switch (result) {
+      case OfflineSaveResult.saved:
+        _showSnack(
+          'Mappa del percorso salvata: se la rete cade resta visibile, e la '
+          'navigazione continua.',
+          iconColor: colors.success,
+          icon: Icons.offline_pin_rounded,
+        );
+      case OfflineSaveResult.partial:
+        _showSnack(
+          'Mappa salvata in parte: senza rete potrebbe mancare qualche zona.',
+          icon: Icons.offline_pin_outlined,
+        );
+      case OfflineSaveResult.tooLong:
+        _showError(
+          'Percorso troppo lungo da salvare: si salvano al massimo pochi '
+          'chilometri.',
+          Icons.info_outline_rounded,
+        );
+      case OfflineSaveResult.failed:
+        _showError(
+          'Non è stato possibile salvare la mappa. Controlla la connessione.',
+          Icons.error_outline_rounded,
+        );
+    }
   }
 
   /// Metri e secondi che mancano all'arrivo, stimati dall'avanzamento.
@@ -1788,10 +1910,7 @@ class _MapScreenState extends State<MapScreen> {
         : choosing != null
         ? 96
         : hasRoutes
-        ? 360 +
-              32.0 * _selectedRouteWarningCount +
-              (_stops.isEmpty ? 0 : 44) +
-              (_weatherWarning == null ? 0 : 36)
+        ? _routeSheetHeight
         : showPlaceSheet
         ? 196 +
               22.0 *
@@ -1956,6 +2075,7 @@ class _MapScreenState extends State<MapScreen> {
             onRepeat: _ttsService.repeat,
             onShareTrip: _shareTrip,
             isSharingTrip: _tripShare.isSharing,
+            isOffline: _isOffline,
           ),
         ),
       );
@@ -2130,6 +2250,9 @@ class _MapScreenState extends State<MapScreen> {
             stops: [for (final stop in _stops) stop.name],
             weatherWarning: _weatherWarning,
             onRemoveStop: _removeStop,
+            onSaveOffline: _saveRouteOffline,
+            offlineProgress: _offlineProgress,
+            isSavedOffline: identical(_offlineSavedFor, _routePoints),
           ),
         ),
       );
@@ -2207,7 +2330,10 @@ class _MapScreenState extends State<MapScreen> {
         maxZoom: _maxZoom,
         // Annulla il download delle tile uscite dallo schermo: mappa più
         // reattiva sul web e meno richieste ai server di OpenStreetMap.
-        tileProvider: CancellableNetworkTileProvider(),
+        // Le tile salvate per il percorso si leggono dall'archivio, anche
+        // senza rete; le altre arrivano dalla rete annullando quelle uscite
+        // dallo schermo.
+        tileProvider: RouteTileProvider(_offlineRoute),
         tileBuilder: isDark ? darkTileBuilder : lightTileBuilder,
       ),
     ];

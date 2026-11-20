@@ -233,7 +233,10 @@ class TripShareService {
       firestore
           .collection('viaggi')
           .doc(id)
-          .snapshots()
+          .snapshots(includeMetadataChanges: true)
+          // Un documento assente solo nella cache locale non vuol dire che
+          // il viaggio sia finito: si aspetta la risposta del server.
+          .where((s) => s.exists || !s.metadata.isFromCache)
           .map((snapshot) => SharedTrip.fromMap(snapshot.data()))
           // Un viaggio scaduto non si può più leggere: è finito.
           .transform(
