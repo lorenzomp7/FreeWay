@@ -55,6 +55,11 @@ class RoutingService {
     List<LatLng> via = const [],
   }) async {
     final walking = mode == TravelMode.walking;
+    // Un ostacolo che più persone dicono superabile in sedia a rotelle non
+    // si evita né si conta.
+    if (!walking) {
+      obstacles = obstacles.where((o) => !o.isWheelchairPassable).toList();
+    }
     // Tappe intermedie scelte dall'utente, come "Add stop" di Google Maps.
     final waypoints = [start, ...via, end];
     var candidates = <RouteOption>[];

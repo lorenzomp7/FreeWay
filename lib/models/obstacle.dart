@@ -67,6 +67,19 @@ String obstacleCategoryOf(String type) {
   return 'Altro';
 }
 
+/// Risposta a "Si riesce a passare in sedia a rotelle?" su un ostacolo.
+enum PassVote {
+  yes('passYesBy', 'Sì'),
+  hard('passHardBy', 'A fatica'),
+  no('passNoBy', 'No');
+
+  const PassVote(this.field, this.label);
+
+  /// Campo di Firestore con gli uid di chi ha dato questa risposta.
+  final String field;
+  final String label;
+}
+
 /// Segnalazione di un ostacolo salvata su Firestore (collezione `segnalazioni`).
 class Obstacle {
   Obstacle({
@@ -81,6 +94,10 @@ class Obstacle {
     this.notThereBy = const [],
     this.lastNotThereAt,
     this.hasPhoto = false,
+    this.passYesBy = const [],
+    this.passHardBy = const [],
+    this.passNoBy = const [],
+    this.thankedBy = const [],
   }) : _storedCategory = category;
 
   final String id;
@@ -101,6 +118,14 @@ class Obstacle {
 
   /// C'è una foto in `foto/{id}`, da caricare solo aprendo la scheda.
   final bool hasPhoto;
+
+  /// Chi ha detto che in sedia a rotelle si passa, a fatica o no.
+  final List<String> passYesBy;
+  final List<String> passHardBy;
+  final List<String> passNoBy;
+
+  /// Chi ha ringraziato l'autore della segnalazione.
+  final List<String> thankedBy;
 
   final String? _storedCategory;
 
@@ -131,13 +156,80 @@ class Obstacle {
           const [],
       lastNotThereAt: notThere is Timestamp ? notThere.toDate() : null,
       hasPhoto: data['hasPhoto'] == true,
+      passYesBy: _uids(data[PassVote.yes.field]),
+      passHardBy: _uids(data[PassVote.hard.field]),
+      passNoBy: _uids(data[PassVote.no.field]),
+      thankedBy: _uids(data['thankedBy']),
     );
+  }
+
+  static List<String> _uids(Object? value) =>
+      (value as List?)?.whereType<String>().toList() ?? const [];
+
+  /// [uid] può ringraziare chi ha segnalato: una volta, e solo se la
+  /// segnalazione è di qualcun altro e se ne conosce l'autore.
+  bool canBeThankedBy(String? uid) =>
+      uid != null &&
+      userId != null &&
+      !isReportedBy(uid) &&
+      !thankedBy.contains(uid);
+
+  int get passVoteCount =>
+      passYesBy.length + passHardBy.length + passNoBy.length;
+
+  /// [uid] può dire se si passa: una volta sola e non sulla propria
+  /// segnalazione.
+  bool canVotePassBy(String? uid) =>
+      uid != null &&
+      !isReportedBy(uid) &&
+      !passYesBy.contains(uid) &&
+      !passHardBy.contains(uid) &&
+      !passNoBy.contains(uid);
+
+  /// Almeno due persone dicono che in sedia a rotelle si passa, e sono più
+  /// di quelle che dicono "a fatica" o "no": i percorsi in sedia a rotelle
+  /// non lo evitano più.
+  bool get isWheelchairPassable =>
+      passYesBy.length >= 2 &&
+      passYesBy.length > passHardBy.length + passNoBy.length;
+
+  /// Per esempio "In sedia a rotelle: si passa per 2 persone, no per 1".
+  String? get passLabel {
+    if (passVoteCount == 0) return null;
+    String people(int n) => n == 1 ? '1 persona' : '$n persone';
+    final parts = [
+      if (passYesBy.isNotEmpty) 'si passa per ${people(passYesBy.length)}',
+      if (passHardBy.isNotEmpty) 'a fatica per ${people(passHardBy.length)}',
+      if (passNoBy.isNotEmpty) 'non si passa per ${people(passNoBy.length)}',
+    ];
+    return 'In sedia a rotelle: ${parts.join(', ')}';
   }
 
   int get confirmationCount => confirmedBy.length;
 
-  /// Dopo quanto tempo senza conferme un ostacolo temporaneo sparisce.
+  /// Dopo quanto tempo senza conferme sparisce un ostacolo temporaneo di
+  /// cui non si conosce una durata tipica.
   static const Duration temporaryLifetime = Duration(days: 14);
+
+  /// Un'auto in sosta di solito se ne va in qualche ora.
+  static const Duration parkedCarLifetime = Duration(days: 1);
+
+  /// Rifiuti e ingombri si portano via in pochi giorni.
+  static const Duration clutterLifetime = Duration(days: 3);
+
+  /// Un cantiere dura settimane.
+  static const Duration worksLifetime = Duration(days: 30);
+
+  /// Dopo quanto tempo senza conferme sparisce questo ostacolo, secondo il
+  /// tipo; `null` per gli ostacoli permanenti. Ogni conferma fa ripartire
+  /// il conteggio.
+  Duration? get lifetime {
+    if (!isTemporary) return null;
+    if (_has('Auto') || _has('parcheggiata')) return parkedCarLifetime;
+    if (_has('Cantieri')) return worksLifetime;
+    if (_has('Rifiuti') || _has('ingombri')) return clutterLifetime;
+    return temporaryLifetime;
+  }
 
   /// Auto in sosta, cantieri e ingombri: ostacoli destinati a sparire.
   bool get isTemporary => category == 'Ostacoli temporanei';
@@ -155,8 +247,9 @@ class Obstacle {
   /// conferma che c'è ancora. `null` per gli ostacoli permanenti.
   DateTime? get expiresAt {
     final seen = lastSeenAt;
-    if (!isTemporary || seen == null) return null;
-    return seen.add(temporaryLifetime);
+    final duration = lifetime;
+    if (duration == null || seen == null) return null;
+    return seen.add(duration);
   }
 
   bool isExpired([DateTime? now]) {
@@ -251,4 +344,12 @@ class Obstacle {
     }
     return obstacleCategoryOf(type);
   }
+}
+
+/// Quanti "grazie" hanno ricevuto in tutto le segnalazioni di [userId].
+int thanksReceived(Iterable<Obstacle> obstacles, String? userId) {
+  if (userId == null) return 0;
+  return obstacles
+      .where((o) => o.isReportedBy(userId))
+      .fold(0, (total, o) => total + o.thankedBy.length);
 }

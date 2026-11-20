@@ -38,6 +38,12 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
      da solo e si sceglie il mezzo: "Sedia a rotelle" o "A piedi". Ogni
      campo propone "La tua posizione", "Scegli sulla mappa" (sposti la mappa
      sotto il segnaposto e premi "Fatto") e le ricerche recenti.
+- Filtri di accessibilità nella ricerca: toccando la casella della
+  destinazione compaiono "Accessibili in sedia a rotelle", "Parcheggi
+  disabili" e "Bagni accessibili". Scelto un filtro, l'app cerca su
+  OpenStreetMap (tramite Overpass) i luoghi segnati così entro 800 m dal
+  centro della mappa e li elenca dai più vicini; toccandone uno si apre la
+  sua scheda come per gli altri risultati.
 - Una nuova ricerca può partire anche se la precedente è ancora in corso. Le
   ricerche già fatte restano in memoria. Nominatim restituisce l'indirizzo
   dei punti scelti sulla mappa.
@@ -53,11 +59,26 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   `segnalazioni`): si tiene premuto sulla mappa oppure si usa il pulsante
   "Segnala un ostacolo qui". Toccando un ostacolo se ne vedono i dettagli, si
   può confermare che c'è ancora oppure rimuoverlo. Gli ostacoli temporanei
-  (auto in sosta, cantieri, ingombri) spariscono da mappa e percorsi dopo 14
-  giorni senza conferme; i dati restano su Firestore.
+  spariscono da mappa e percorsi se nessuno conferma che ci sono ancora, dopo
+  un tempo che dipende dal tipo: 1 giorno per un'auto in sosta, 3 giorni per
+  rifiuti e ingombri, 30 giorni per un cantiere (14 per gli altri). Ogni
+  conferma fa ripartire il conteggio; i dati restano su Firestore.
 - Filtri per categoria e raggruppamento degli ostacoli vicini.
 - Navigazione passo-passo con istruzioni vocali in italiano o inglese, ricalcolo
   quando si esce dal percorso e schermo sempre acceso durante il tragitto.
+  La posizione si proietta sul tratto di percorso più vicino (non sul
+  vertice), così distanze e avanzamento si misurano lungo il tracciato. La
+  voce annuncia ogni manovra al massimo tre volte: "Prosegui per 300 metri"
+  dopo la manovra precedente, "Tra 100 metri, svolta a destra" e infine
+  "Svolta a destra", seguito da "poi…" se la manovra dopo arriva entro 40 m.
+  Si è fuori percorso solo con due posizioni di fila oltre 30–70 m dal
+  tracciato (la soglia cresce con l'incertezza del GPS; con più di ±60 m la
+  posizione non decide), e si ricalcola al massimo ogni 10 secondi. Un
+  ostacolo segnalato sul percorso viene annunciato a voce circa 45 secondi
+  prima alla velocità attuale (tra 35 e 80 m più avanti lungo il tracciato;
+  80 m se la velocità non è nota). Gli avvisi non si accavallano: un
+  ostacolo non si annuncia nello stesso momento di una manovra, e tra due
+  avvisi di ostacoli passano almeno 8 secondi.
 - All'arrivo l'app dice da che lato della strada è la destinazione ("la
   destinazione è sulla sinistra"), a schermo e a voce, come "X on your left"
   di Google Maps: il lato si calcola dalla direzione dell'ultimo tratto.
@@ -68,6 +89,13 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   "Segnale GPS perso" (anche a voce) e poi "Segnale GPS ritrovato". Se la
   posizione non si trova l'app distingue il permesso negato dal segnale
   assente e suggerisce di spostarsi all'aperto.
+- Filtro della posizione: si usa solo una posizione più recente
+  dell'ultima e, finché l'ultima è fresca, si scartano quelle molto meno
+  precise (per esempio una stima dalla rete dopo un buon fix GPS) e i salti
+  impossibili da raggiungere a 8 m/s tenendo conto dell'incertezza. Dopo
+  tre scarti di fila la posizione si accetta comunque. Fuori dalla
+  navigazione una stima dalla rete non sostituisce un fix GPS degli ultimi 2
+  minuti.
 - Avvisi sul percorso, come "This route has stairs" o "Steep hill" di Google
   Maps: con OpenRouteService l'app chiede pendenza, fondo stradale e tipo di
   via e segnala gradini, salite e discese oltre il 7%, pendenze del 4–6% e
@@ -97,6 +125,27 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   altrui vota, e quando almeno due persone hanno detto che l'ostacolo non c'è
   più (dopo l'ultima conferma) l'app smette di mostrarlo e di usarlo nei
   percorsi. Una conferma successiva lo fa ricomparire.
+- All'arrivo l'app chiede "Com'era l'ingresso?" (Accessibile, Con gradini,
+  Non l'ho trovato), anche a voce. La domanda si chiude da sola dopo 60
+  secondi e compare al massimo 2 volte al giorno e 5 alla settimana. Le
+  risposte vanno nella collezione `ingressi` di Firestore e la scheda del
+  luogo le riassume ("Ingresso secondo chi è arrivato qui: accessibile per 3
+  persone"), contando quelle entro 40 m e dell'ultimo anno.
+- Dopo un'uscita dal percorso e il ricalcolo l'app chiede "Hai cambiato
+  strada per un ostacolo?" (anche a voce): con "Sì, segnala" si apre la
+  segnalazione nel punto in cui si è lasciato il percorso. Si chiede una
+  volta per viaggio, solo a chi ha fatto accesso, e non se entro 40 m c'è
+  già un ostacolo segnalato; la domanda sparisce dopo 45 secondi.
+- "Si riesce a passare in sedia a rotelle?" (Sì, A fatica, No): si risponde
+  dalla scheda dell'ostacolo oppure in navigazione, subito dopo aver detto
+  "C'è ancora". La scheda riassume le risposte; quando almeno due persone
+  dicono "Sì" e sono più di quelle che dicono "A fatica" o "No", i percorsi
+  in sedia a rotelle non evitano più quell'ostacolo e non lo contano.
+- "Grazie a chi l'ha segnalato": dalla scheda di un ostacolo segnalato da
+  altri si può ringraziare chi l'ha segnalato, una volta. La scheda mostra
+  quante persone hanno ringraziato e chi ha segnalato, alla riapertura
+  dell'app, legge "N persone ti hanno ringraziato per le tue segnalazioni"
+  (il conteggio già visto resta sul dispositivo).
 - Se l'app si chiude durante la navigazione, alla riapertura (entro 3 ore)
   chiede "Stai ancora andando a…?" e con "Riprendi" ricalcola il percorso
   dalla posizione attuale con lo stesso mezzo.
@@ -114,9 +163,10 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   temperature vicine allo zero o caldo intenso la scheda dei percorsi lo dice
   (rampe scivolose, ghiaccio, fontanelle) e la navigazione lo ripete a voce
   alla partenza.
-- Impostazioni della voce in navigazione: voce sì o no, lingua, volume
-  (bassa, media, alta) e velocità (lenta, normale, veloce), con "Prova la
-  voce". Le scelte restano sul dispositivo. Toccando l'istruzione la si
+- Impostazioni della voce in navigazione: voce sì o no, lingua, annunci
+  (completi o brevi: solo la manovra quando è il momento, l'arrivo e gli
+  ostacoli), volume (bassa, media, alta) e velocità (lenta, normale,
+  veloce), con "Prova la voce". Le scelte restano sul dispositivo. Toccando l'istruzione la si
   riascolta.
 - Casa, Lavoro e luoghi salvati, come in Google Maps: nella scheda del luogo
   "Salva" lo memorizza come Casa, Lavoro o con un nome a scelta. Toccando la
@@ -143,6 +193,13 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   visibile, la navigazione continua sul percorso e il ricalcolo riparte
   quando torna la rete. L'app va aperta con la rete: il service worker
   resta dismesso apposta, per non servire versioni vecchie.
+- "Segnala un ostacolo a voce" (pulsante col microfono, anche durante la
+  navigazione): si dice il tipo di ostacolo ("gradino", "auto sul
+  marciapiede", "cantiere"…) e l'app lo riconosce dalle parole chiave, in
+  italiano o in inglese, poi chiede conferma ("Segnalo «…» qui?") prima di
+  salvarlo nella posizione in cui si è parlato. Se non lo riconosce apre
+  l'elenco dei tipi. Usa il riconoscimento vocale del browser (Chrome, Edge,
+  Safari); dove non c'è il pulsante non compare.
 - Sotto la casella di ricerca, "Incolla l'indirizzo copiato" mette nel campo
   il testo degli appunti e lo cerca.
 - Se durante la navigazione qualcuno segnala un ostacolo sul tratto ancora da
@@ -231,9 +288,15 @@ richieste; superato quello, l'app torna da sola a OSRM.
 - ognuno può fare al massimo una segnalazione ogni 30 secondi e una rimozione
   ogni 10 secondi (l'ora dell'ultima azione è nel documento `limiti/{uid}`,
   aggiornato nella stessa scrittura);
-- le uniche modifiche ammesse sono "Confermo, c'è ancora" e il voto "Non c'è
-  più": si aggiunge il proprio uid a `confirmedBy` o a `notThereBy`, una sola
-  volta e non sulle proprie segnalazioni;
+- le risposte "Com'era l'ingresso?" (`ingressi/{id}`) hanno solo `lat`,
+  `lng`, `answer` (`accessibile`, `gradini` o `non_trovato`), `timestamp` e
+  `userId`, si creano a proprio nome al massimo una ogni 60 secondi
+  (`lastEntranceAt` in `limiti/{uid}`) e non si modificano né si cancellano;
+- le uniche modifiche ammesse sono "Confermo, c'è ancora", il voto "Non c'è
+  più", il "Grazie" e la risposta "Si riesce a passare?": si aggiunge il proprio uid a
+  `confirmedBy`, a `notThereBy`, a `thankedBy` (il "grazie", con
+  `lastThankAt`) o a una sola tra `passYesBy`, `passHardBy` e `passNoBy`
+  (con `lastPassVoteAt`), una sola volta e non sulle proprie segnalazioni;
 - chi ha un account può rimuovere qualsiasi segnalazione ("L'ostacolo non c'è
   più"), un ospite solo le proprie;
 - il resto del database è chiuso.
