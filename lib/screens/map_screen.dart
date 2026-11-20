@@ -27,6 +27,7 @@ import '../services/recent_places_service.dart';
 import '../services/saved_places_service.dart';
 import '../services/routing_service.dart';
 import '../services/trip_resume_service.dart';
+import '../services/trip_share_service.dart';
 import '../services/weather_service.dart';
 import '../services/tts_service.dart';
 import '../theme/app_theme.dart';
@@ -40,6 +41,7 @@ import '../widgets/route_options_sheet.dart';
 import '../widgets/saved_places_widgets.dart';
 import '../widgets/search_panel.dart';
 import '../widgets/top_bar.dart';
+import '../widgets/trip_share_widgets.dart';
 import '../widgets/voice_settings_sheet.dart';
 
 /// Schermata principale: mappa, ricerca percorso, ostacoli e navigazione.
@@ -76,6 +78,9 @@ class _MapScreenState extends State<MapScreen> {
   );
   final NavigationService _navigationService = NavigationService();
   final TtsService _ttsService = TtsService();
+  final TripShareService _tripShare = TripShareService(
+    FirebaseFirestore.instance,
+  );
 
   double _zoom = 13;
   LatLng _center = const LatLng(45.4642, 9.19); // Milano
@@ -228,6 +233,8 @@ class _MapScreenState extends State<MapScreen> {
     _verifyTimer?.cancel();
     _gpsWatchdog?.cancel();
     _navigationService.dispose();
+    if (_tripShare.isSharing) unawaited(_tripShare.stop());
+    _tripShare.dispose();
     _obstacleService.dispose();
     _geocodingService.dispose();
     _accessibilityService.dispose();
@@ -1123,6 +1130,21 @@ class _MapScreenState extends State<MapScreen> {
     }
     _ttsService.speak(speech, _voiceLanguage);
     _maybeAskAboutObstacle(update.position);
+    if (_tripShare.isSharing) {
+      if (update.hasArrived) {
+        _tripShare.arrived(update.position);
+        unawaited(_tripShare.finishAfterArrival());
+        setState(() {});
+      } else {
+        final remaining = _remaining(update);
+        _tripShare.update(
+          position: update.position,
+          accuracy: update.accuracy,
+          remainingMeters: remaining?.$1,
+          remainingSeconds: remaining?.$2,
+        );
+      }
+    }
 
     if (update.isOffRoute && !_isRecalculating && _endPoint != null) {
       _recalculate(update.position);
@@ -1189,8 +1211,91 @@ class _MapScreenState extends State<MapScreen> {
     unawaited(WakelockPlus.toggle(enable: enable).catchError((Object _) {}));
   }
 
+  /// Metri e secondi che mancano all'arrivo, stimati dall'avanzamento.
+  (double, double)? _remaining(NavigationUpdate? update) {
+    if (_routes.isEmpty) return null;
+    final route = _routes[_selectedRouteIndex.clamp(0, _routes.length - 1)];
+    final left = 1 - (update?.progress ?? 0).clamp(0.0, 1.0);
+    return (route.distance * left, route.duration * left);
+  }
+
+  /// "Condividi il viaggio" durante la navigazione, come "Share trip
+  /// progress" di Google Maps.
+  Future<void> _shareTrip() async {
+    if (_tripShare.isSharing) {
+      final action = await showShareTripOptions(context);
+      if (!mounted || action == null) return;
+      if (action == ShareTripAction.copyLink) {
+        await _copyTripLink(_tripShare.activeId!);
+      } else {
+        await _tripShare.stop();
+        if (!mounted) return;
+        setState(() {});
+        _showSnack(
+          'Condivisione interrotta: il link non mostra più la tua posizione.',
+          icon: Icons.location_off_outlined,
+        );
+      }
+      return;
+    }
+    final destination = _endPoint;
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (destination == null || userId == null) return;
+    final name = _endController.text.isEmpty
+        ? 'destinazione'
+        : _endController.text;
+    if (!await showShareTripConsent(context, name) || !mounted) return;
+    final position =
+        _navigationUpdate?.position ?? _userLocation ?? _startPoint;
+    if (position == null) {
+      _showError(
+        'Serve la tua posizione per condividere il viaggio.',
+        Icons.location_disabled_rounded,
+      );
+      return;
+    }
+    final remaining = _remaining(_navigationUpdate);
+    try {
+      final id = await _tripShare.start(
+        userId: userId,
+        position: position,
+        accuracy: _userAccuracy ?? 0,
+        destination: destination,
+        destinationName: name,
+        remainingMeters: remaining?.$1,
+        remainingSeconds: remaining?.$2,
+      );
+      if (!mounted) return;
+      setState(() {});
+      await _copyTripLink(id);
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile condividere il viaggio. Riprova.',
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
+  Future<void> _copyTripLink(String id) async {
+    final link = TripShareService.linkFor(id, Uri.base).toString();
+    try {
+      await Clipboard.setData(ClipboardData(text: link));
+      if (!mounted) return;
+      _showSnack(
+        'Link copiato: invialo a chi vuoi, per esempio su WhatsApp.',
+        iconColor: AppColors.of(context).success,
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack('Link del viaggio: $link', icon: Icons.link_rounded);
+    }
+  }
+
   void _stopNavigation() {
     _keepScreenOn(false);
+    if (_tripShare.isSharing) unawaited(_tripShare.stop());
     unawaited(_tripResume.clear());
     _gpsWatchdog?.cancel();
     _gpsSignalLost = false;
@@ -1849,6 +1954,8 @@ class _MapScreenState extends State<MapScreen> {
               onMutedChanged: (_) => setState(() {}),
             ),
             onRepeat: _ttsService.repeat,
+            onShareTrip: _shareTrip,
+            isSharingTrip: _tripShare.isSharing,
           ),
         ),
       );

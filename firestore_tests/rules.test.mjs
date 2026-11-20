@@ -105,6 +105,30 @@ await check('foto cancellata da sola rifiutata', assertFails(writeBatch(alice).d
 await age('alice', 'lastRemovalAt', 11);
 await check('foto cancellata con la segnalazione', assertSucceeds((() => { const b = writeBatch(alice); b.delete(doc(alice, 'segnalazioni/p1')); b.delete(doc(alice, 'foto/p1')); b.set(doc(alice, 'limiti/alice'), { lastRemovalAt: serverTimestamp() }, { merge: true }); return b.commit(); })()));
 
+// --- viaggio condiviso ---
+const tripId = 'Tr1pAbCdEfGhIjKlMnOp';
+const inHours = h => Timestamp.fromMillis(Date.now() + h * 3600 * 1000);
+const trip = (uid, extra = {}) => ({ ownerId: uid, lat: 45.54, lng: 10.22, accuracy: 8, destLat: 45.55, destLng: 10.23, destName: 'Piazza Loggia', remainingMeters: 900, remainingSeconds: 720, arrived: false, updatedAt: serverTimestamp(), expiresAt: inHours(2), ...extra });
+const { getDoc, deleteDoc } = await import('firebase/firestore');
+await check('crea viaggio condiviso', assertSucceeds(setDoc(doc(guest, 'viaggi/' + tripId), trip('guest1'))));
+await check('chiunque col link legge il viaggio', assertSucceeds(getDoc(doc(anon, 'viaggi/' + tripId))));
+await check('nessuno elenca i viaggi', assertFails(getDocs(collection(anon, 'viaggi'))));
+await check('viaggio a nome di altri rifiutato', assertFails(setDoc(doc(guest, 'viaggi/Tr1pAltruiXXXXXXXXXX'), trip('alice'))));
+await check('viaggio oltre 4 ore rifiutato', assertFails(setDoc(doc(guest, 'viaggi/Tr1pLungoXXXXXXXXXXX'), trip('guest1', { expiresAt: inHours(5) }))));
+await check('id corto rifiutato', assertFails(setDoc(doc(guest, 'viaggi/corto'), trip('guest1'))));
+await check('campo extra nel viaggio rifiutato', assertFails(setDoc(doc(guest, 'viaggi/Tr1pExtraXXXXXXXXXXX'), trip('guest1', { email: 'x@y.z' }))));
+await check('aggiornamento troppo ravvicinato rifiutato', assertFails(updateDoc(doc(guest, 'viaggi/' + tripId), { lat: 45.541, updatedAt: serverTimestamp() })));
+await env.withSecurityRulesDisabled(c => updateDoc(doc(c.firestore(), 'viaggi/' + tripId), { updatedAt: Timestamp.fromMillis(Date.now() - 10000) }));
+await check('posizione aggiornata dopo 10 s', assertSucceeds(updateDoc(doc(guest, 'viaggi/' + tripId), { lat: 45.541, updatedAt: serverTimestamp() })));
+await env.withSecurityRulesDisabled(c => updateDoc(doc(c.firestore(), 'viaggi/' + tripId), { updatedAt: Timestamp.fromMillis(Date.now() - 10000) }));
+await check('altri non aggiornano il viaggio', assertFails(updateDoc(doc(alice, 'viaggi/' + tripId), { lat: 1, updatedAt: serverTimestamp() })));
+await check('destinazione non modificabile', assertFails(updateDoc(doc(guest, 'viaggi/' + tripId), { destName: 'Altro', updatedAt: serverTimestamp() })));
+await check('scadenza non allungabile', assertFails(updateDoc(doc(guest, 'viaggi/' + tripId), { expiresAt: inHours(3), updatedAt: serverTimestamp() })));
+await check('altri non cancellano il viaggio', assertFails(deleteDoc(doc(alice, 'viaggi/' + tripId))));
+await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'viaggi/Tr1pScadutoXXXXXXXXX'), { ...trip('guest1'), updatedAt: Timestamp.now(), expiresAt: Timestamp.fromMillis(Date.now() - 3600 * 1000) }));
+await check('viaggio scaduto non leggibile col link', assertFails(getDoc(doc(anon, 'viaggi/Tr1pScadutoXXXXXXXXX'))));
+await check('chi condivide interrompe', assertSucceeds(deleteDoc(doc(guest, 'viaggi/' + tripId))));
+
 await check('altre collezioni chiuse', assertFails(setDoc(doc(alice, 'utenti/alice'), { a: 1 })));
 await env.cleanup();
 console.log(`\n${ok} passati, ${fail} falliti`);

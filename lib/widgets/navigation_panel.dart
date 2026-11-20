@@ -20,6 +20,9 @@ class NavigationPanel extends StatelessWidget {
     required this.onLanguageChanged,
     this.onOpenVoiceSettings,
     this.onRepeat,
+    this.onShareTrip,
+    this.isSharingTrip = false,
+    this.isOffline = false,
   });
 
   final NavigationUpdate? update;
@@ -41,6 +44,13 @@ class NavigationPanel extends StatelessWidget {
 
   /// Toccando l'istruzione la voce la ripete.
   final VoidCallback? onRepeat;
+
+  /// "Condividi il viaggio"; senza, il pulsante non c'è.
+  final VoidCallback? onShareTrip;
+  final bool isSharingTrip;
+
+  /// Il dispositivo è senza rete: la navigazione continua sul percorso.
+  final bool isOffline;
 
   @override
   Widget build(BuildContext context) {
@@ -79,6 +89,29 @@ class NavigationPanel extends StatelessWidget {
     if (gpsWarning != null) {
       children.add(
         _Banner(text: gpsWarning, icon: Icons.gps_not_fixed_rounded),
+      );
+    }
+    if (isOffline && !arrived) {
+      children.add(
+        _Banner(
+          text: isItalian
+              ? 'Senza rete: segui la linea, ricalcolo quando torna il segnale'
+              : 'Offline: follow the line, rerouting when back online',
+          icon: Icons.cloud_off_rounded,
+        ),
+      );
+    }
+    if (isSharingTrip) {
+      children.add(
+        _Banner(
+          text: isItalian
+              ? 'Stai condividendo la posizione con chi ha il link'
+              : 'Sharing your location with anyone who has the link',
+          icon: Icons.share_location_rounded,
+          background: AppPalette.shareBanner,
+          foreground: AppPalette.shareText,
+          onTap: onShareTrip,
+        ),
       );
     }
     if (!gpsFailed && update?.isOffRoute == true) {
@@ -237,6 +270,21 @@ class NavigationPanel extends StatelessWidget {
               isMuted: isMuted,
             ),
             const SizedBox(width: 6),
+            if (onShareTrip != null) ...[
+              _NavIconButton(
+                icon: isSharingTrip
+                    ? Icons.share_location_rounded
+                    : Icons.person_pin_circle_outlined,
+                tooltip: isSharingTrip
+                    ? (isItalian
+                          ? 'Condivisione del viaggio attiva'
+                          : 'Trip sharing on')
+                    : (isItalian ? 'Condividi il viaggio' : 'Share trip'),
+                onTap: onShareTrip!,
+                isMuted: false,
+              ),
+              const SizedBox(width: 6),
+            ],
             if (onOpenVoiceSettings != null)
               _NavIconButton(
                 icon: Icons.record_voice_over_rounded,
@@ -310,34 +358,54 @@ const double kWeakAccuracyMeters = 40;
 
 /// Striscia di avviso in cima al pannello (GPS perso o poco preciso).
 class _Banner extends StatelessWidget {
-  const _Banner({required this.text, required this.icon});
+  const _Banner({
+    required this.text,
+    required this.icon,
+    this.background = AppPalette.offRouteBanner,
+    this.foreground = AppPalette.offRouteText,
+    this.onTap,
+  });
 
   final String text;
   final IconData icon;
+  final Color background;
+  final Color foreground;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       liveRegion: true,
-      child: Container(
-        width: double.infinity,
-        color: AppPalette.offRouteBanner,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        child: Row(
-          children: [
-            Icon(icon, size: 15, color: AppPalette.offRouteText),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                text,
-                style: const TextStyle(
-                  color: AppPalette.offRouteText,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+      button: onTap != null,
+      child: Material(
+        color: background,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Row(
+              children: [
+                Icon(icon, size: 15, color: foreground),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
-              ),
+                if (onTap != null)
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 16,
+                    color: foreground,
+                  ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
