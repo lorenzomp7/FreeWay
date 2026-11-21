@@ -406,24 +406,22 @@ push su `main` e in ogni pull request.
 ## Pubblicazione
 
 Il sito sta solo su GitHub Pages (vedi sopra). Firebase serve unicamente per
-login e segnalazioni (Authentication e Firestore). Le regole di Firestore si
-pubblicano a mano sul proprio progetto Firebase, solo quando cambiano:
+login e segnalazioni (Authentication e Firestore).
+[Come creare e impostare il progetto Firebase](docs/firebase-setup.md).
+
+Le regole di Firestore si pubblicano da sole a ogni push su `main`, dopo che
+le prove nell'emulatore sono passate, se il repository ha il secret
+`FIREBASE_SERVICE_ACCOUNT` e la variabile `FIREBASE_PROJECT_ID`. A mano:
 
 ```bash
 firebase deploy --only firestore:rules --project ID-DEL-TUO-PROGETTO
 ```
 
-### Contatto per la privacy
+### Titolare e contatto per la privacy
 
-L'informativa mostra il contatto del titolare passato in fase di build:
-
-```bash
-flutter run -d chrome --dart-define=PRIVACY_CONTACT=privacy@esempio.it
-```
-
-Per GitHub Pages aggiungilo come variabile `PRIVACY_CONTACT` (non segreta) in
-**Settings → Secrets and variables → Actions → Variables**. Senza, l'informativa
-rimanda a "Chi siamo".
+L'informativa ("Privacy" nel menu) mostra il titolare del trattamento e il
+contatto scritti in `lib/models/info_page.dart` (`kPrivacyController` e
+`kPrivacyContact`). Finché sono vuoti, indica il team FREE WAY.
 
 ### Firebase App Check (facoltativo)
 
