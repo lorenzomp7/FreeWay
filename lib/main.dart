@@ -17,9 +17,48 @@ Future<void> main() async {
   // Sul web Flutter attiva il supporto ai lettori di schermo solo dopo un clic
   // su un pulsante nascosto: per un'app sull'accessibilità lo attiviamo subito.
   if (kIsWeb) SemanticsBinding.instance.ensureSemantics();
+  // Senza un progetto Firebase configurato l'app non si collega a nulla.
+  if (!DefaultFirebaseOptions.isConfigured) {
+    runApp(const NotConfiguredApp());
+    return;
+  }
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await _activateAppCheck();
   runApp(const FreeWayApp());
+}
+
+/// Mostrata quando `lib/firebase_options.dart` non ha ancora i dati del
+/// progetto Firebase.
+class NotConfiguredApp extends StatelessWidget {
+  const NotConfiguredApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'FREE WAY',
+      debugShowCheckedModeBanner: false,
+      theme: buildAppTheme(AppColors.light, Brightness.light),
+      darkTheme: buildAppTheme(AppColors.dark, Brightness.dark),
+      home: const Scaffold(
+        body: Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AppLogo(height: 70),
+                SizedBox(height: 24),
+                Text(
+                  'FREE WAY è in manutenzione: torna presto.',
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Chiave del sito reCAPTCHA Enterprise per Firebase App Check, passata in

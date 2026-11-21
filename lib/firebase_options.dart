@@ -1,9 +1,15 @@
-// Configurazione Firebase del progetto `progetto-rimosso`.
+// Configurazione Firebase dell'app web.
 //
-// È la configurazione web pubblica, la stessa inclusa nella web app pubblicata.
-// Per aggiungere altre piattaforme rigenerare il file con `flutterfire configure`.
+// I valori si copiano dalla console Firebase del proprio progetto:
+// Impostazioni progetto → Generali → Le tue app → app web (firebaseConfig).
+// Non sono segreti: finiscono comunque nel JavaScript pubblicato.
+// Finché sono vuoti l'app non si collega a nessun progetto e lo dice.
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart' show kIsWeb;
+
+/// ID client OAuth per "Accedi con Google" sul web (Authentication → Metodo
+/// di accesso → Google → Configurazione SDK web). Vuoto finché non c'è.
+const String kGoogleWebClientId = '';
 
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
@@ -14,15 +20,16 @@ class DefaultFirebaseOptions {
     );
   }
 
+  /// `true` quando la configurazione del progetto è stata inserita.
+  static bool get isConfigured =>
+      web.apiKey.isNotEmpty && web.projectId.isNotEmpty;
+
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'RIMOSSO',
-    appId: 'RIMOSSO',
-    messagingSenderId: 'RIMOSSO',
-    projectId: 'progetto-rimosso',
-    authDomain: 'progetto-rimosso.firebaseapp.com',
-    databaseURL:
-        'https://progetto-rimosso-default-rtdb.europe-west1.firebasedatabase.app',
-    storageBucket: 'progetto-rimosso.firebasestorage.app',
-    measurementId: 'RIMOSSO',
+    apiKey: '',
+    appId: '',
+    messagingSenderId: '',
+    projectId: '',
+    authDomain: '',
+    storageBucket: '',
   );
 }

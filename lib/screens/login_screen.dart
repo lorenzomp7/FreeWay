@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../firebase_options.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import '../widgets/info_sheet.dart';
@@ -78,7 +79,9 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      final account = await GoogleSignIn().signIn();
+      final account = await GoogleSignIn(
+        clientId: kGoogleWebClientId.isEmpty ? null : kGoogleWebClientId,
+      ).signIn();
       if (account == null) {
         if (mounted) {
           setState(() {
