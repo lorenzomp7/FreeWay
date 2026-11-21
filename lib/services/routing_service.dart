@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
+import '../models/disabled_parking.dart';
 import '../models/obstacle.dart';
 import '../models/route_option.dart';
 import '../models/travel_mode.dart';
@@ -18,23 +19,47 @@ const String kUserAgent = 'FreeWayApp/2.0 (freeway-accessibility-app)';
 /// `--dart-define=ORS_API_KEY=...`. Se manca si usa solo OSRM.
 const String kOrsApiKey = String.fromEnvironment('ORS_API_KEY');
 
+/// Server pubblico di Valhalla gestito da FOSSGIS (gratuito, senza chiave,
+/// al massimo una richiesta al secondo).
+const String kValhallaHost = 'valhalla1.openstreetmap.de';
+
+/// Server OSRM di FOSSGIS con il profilo pedonale. Il server dimostrativo
+/// `router.project-osrm.org` ha solo il profilo auto: lì `foot` nell'indirizzo
+/// viene ignorato e il percorso seguirebbe i sensi unici delle auto.
+const String kOsrmFootBase = 'https://routing.openstreetmap.de/routed-foot';
+
+/// Server OSRM per il tratto in auto.
+const String kOsrmCarBase = 'https://router.project-osrm.org';
+
 /// Calcola percorsi pedonali tenendo conto degli ostacoli segnalati.
 ///
-/// Con una chiave di OpenRouteService usa il profilo `wheelchair` (che evita
-/// gradini, pendenze e fondi sconnessi) e passa gli ostacoli come zone da
-/// evitare. Senza chiave, o se OpenRouteService non risponde, usa il profilo
-/// pedonale di OSRM con una deviazione intorno al primo ostacolo.
+/// In sedia a rotelle prova, nell'ordine:
+/// 1. OpenRouteService con il profilo `wheelchair` (evita gradini, pendenze
+///    e fondi sconnessi e dà i dati sul terreno), se c'è la chiave;
+/// 2. Valhalla con il costo pedonale di tipo `wheelchair` (evita gradini e
+///    pendenze ripide), gratuito e senza chiave;
+/// 3. il profilo pedonale di OSRM con una deviazione intorno al primo
+///    ostacolo.
+/// Gli ostacoli segnalati sono passati come zone da evitare.
 ///
 /// Con [TravelMode.walking] cerca invece il percorso a piedi più veloce
 /// (profilo `foot-walking` di OpenRouteService o pedonale di OSRM) e si limita
 /// a contare gli ostacoli lungo il tragitto.
+///
+/// Con [TravelMode.car] porta in auto fino a un parcheggio per disabili
+/// vicino alla destinazione e da lì in sedia a rotelle ([getCarRoutes]).
 class RoutingService {
-  RoutingService({http.Client? client, String orsApiKey = kOrsApiKey})
-      : _client = client ?? http.Client(),
-        _orsApiKey = orsApiKey;
+  RoutingService({
+    http.Client? client,
+    String orsApiKey = kOrsApiKey,
+    bool useValhalla = true,
+  }) : _client = client ?? http.Client(),
+       _orsApiKey = orsApiKey,
+       _useValhalla = useValhalla;
 
   final http.Client _client;
   final String _orsApiKey;
+  final bool _useValhalla;
 
   /// Raggio (in metri) entro cui un ostacolo è considerato sul percorso.
   static const double obstacleRadius = 30;
@@ -44,6 +69,10 @@ class RoutingService {
 
   /// Massimo numero di ostacoli passati a OpenRouteService per richiesta.
   static const int maxAvoidedObstacles = 100;
+
+  /// Valhalla accetta zone da evitare per un perimetro totale limitato
+  /// (10 km sul server pubblico): 60 quadrati da 120 m stanno ben sotto.
+  static const int maxValhallaAvoided = 60;
 
   bool get usesWheelchairProfile => _orsApiKey.isNotEmpty;
 
@@ -64,6 +93,13 @@ class RoutingService {
             ? await _fetchOrsRoutes(waypoints,
                 alternatives: true, profile: 'foot-walking')
             : await _orsCandidates(waypoints, obstacles);
+      } catch (_) {
+        candidates = [];
+      }
+    }
+    if (candidates.isEmpty && !walking && _useValhalla) {
+      try {
+        candidates = await _fetchValhallaRoutes(waypoints, obstacles);
       } catch (_) {
         candidates = [];
       }
@@ -329,6 +365,7 @@ class RoutingService {
         steps: steps,
         index: i,
       );
+      route.provider = 'openrouteservice';
       final extras = properties['extras'];
       if (extras is Map<String, dynamic>) {
         route
@@ -372,6 +409,375 @@ class RoutingService {
       default:
         return ('continue', 'straight');
     }
+  }
+
+  // --- Valhalla -------------------------------------------------------------
+
+  /// Percorsi in sedia a rotelle da Valhalla, con le alternative (solo tra
+  /// due punti) e gli ostacoli come zone da evitare, in una sola richiesta.
+  ///
+  /// La richiesta è un GET semplice con il parametro `json`, come fa il sito
+  /// openstreetmap.org: nel browser non serve il controllo preventivo CORS.
+  Future<List<RouteOption>> _fetchValhallaRoutes(
+    List<LatLng> waypoints,
+    List<Obstacle> obstacles,
+  ) async {
+    final nearbyIds = <String>{};
+    final avoid = <Obstacle>[];
+    for (var i = 1; i < waypoints.length; i++) {
+      for (final o in obstaclesNear(waypoints[i - 1], waypoints[i], obstacles)) {
+        // Un'area sopra la partenza o l'arrivo renderebbe il punto
+        // irraggiungibile: quegli ostacoli si contano soltanto.
+        final onEndpoint = waypoints.any(
+          (p) => haversineDistance(p, o.position) < avoidHalfSide * 2,
+        );
+        if (!onEndpoint && nearbyIds.add(o.id)) avoid.add(o);
+      }
+    }
+    final request = valhallaRequest(
+      waypoints,
+      avoid.take(maxValhallaAvoided).toList(),
+    );
+    final response = await _client
+        .get(
+          Uri.https(kValhallaHost, '/route', {'json': jsonEncode(request)}),
+        )
+        .timeout(const Duration(seconds: 15));
+    if (response.statusCode != 200) return [];
+    return parseValhallaRoutes(
+      jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
+    );
+  }
+
+  /// Corpo della richiesta `/route` di Valhalla per la sedia a rotelle.
+  @visibleForTesting
+  static Map<String, dynamic> valhallaRequest(
+    List<LatLng> waypoints,
+    List<Obstacle> avoid, {
+    String type = 'wheelchair',
+  }) {
+    return {
+      'locations': [
+        for (var i = 0; i < waypoints.length; i++)
+          {
+            'lat': waypoints[i].latitude,
+            'lon': waypoints[i].longitude,
+            // Le tappe sono fermate vere ("Hai raggiunto la tappa").
+            'type': 'break',
+          },
+      ],
+      'costing': 'pedestrian',
+      'costing_options': {
+        'pedestrian': {'type': type},
+      },
+      if (avoid.isNotEmpty)
+        'exclude_polygons': [
+          for (final obstacle in avoid) _square(obstacle.position),
+        ],
+      if (waypoints.length == 2) 'alternates': 2,
+      'directions_options': {'units': 'kilometers', 'language': 'it-IT'},
+    };
+  }
+
+  /// Converte la risposta di Valhalla (percorso principale e `alternates`)
+  /// in [RouteOption], con le manovre nello stesso formato di OSRM.
+  @visibleForTesting
+  static List<RouteOption> parseValhallaRoutes(Map<String, dynamic> data) {
+    final trips = <Map<String, dynamic>>[
+      if (data['trip'] is Map<String, dynamic>)
+        data['trip'] as Map<String, dynamic>,
+      for (final alternate in data['alternates'] as List? ?? const [])
+        if (alternate is Map && alternate['trip'] is Map<String, dynamic>)
+          alternate['trip'] as Map<String, dynamic>,
+    ];
+    final result = <RouteOption>[];
+    for (final trip in trips) {
+      if ((trip['status'] as num?)?.toInt() case final status?
+          when status != 0) {
+        continue;
+      }
+      final points = <LatLng>[];
+      final legs = <List<RouteStep>>[];
+      for (final rawLeg in trip['legs'] as List? ?? const []) {
+        final leg = rawLeg as Map<String, dynamic>;
+        final shape = decodePolyline(leg['shape'] as String? ?? '', 6);
+        if (shape.isEmpty) continue;
+        // I tratti successivi ripetono il punto d'arrivo del precedente.
+        final offset = points.isEmpty ? 0 : points.length - 1;
+        points.addAll(points.isEmpty ? shape : shape.skip(1));
+        final steps = <RouteStep>[];
+        legs.add(steps);
+        for (final rawManeuver in leg['maneuvers'] as List? ?? const []) {
+          final maneuver = rawManeuver as Map<String, dynamic>;
+          final (type, modifier) =
+              valhallaManeuver((maneuver['type'] as num?)?.toInt());
+          final names = maneuver['street_names'];
+          final name = names is List && names.isNotEmpty
+              ? '${names.first}'
+              : '';
+          final index = ((maneuver['begin_shape_index'] as num?)?.toInt() ?? 0)
+              .clamp(0, shape.length - 1);
+          steps.add(RouteStep(
+            instruction: '$type|$modifier|$name',
+            location: points[offset + index],
+            maneuverType: type,
+            modifier: modifier,
+            streetName: name,
+            // Valhalla misura in chilometri.
+            distance: ((maneuver['length'] as num?)?.toDouble() ?? 0) * 1000,
+            duration: (maneuver['time'] as num?)?.toDouble() ?? 0,
+          ));
+        }
+      }
+      if (points.length < 2) continue;
+      final summary = trip['summary'] as Map<String, dynamic>? ?? const {};
+      result.add(RouteOption(
+        points: points,
+        distance: ((summary['length'] as num?)?.toDouble() ?? 0) * 1000,
+        duration: (summary['time'] as num?)?.toDouble() ?? 0,
+        steps: joinLegs(legs, keepStops: true),
+        index: result.length,
+      )..provider = 'valhalla');
+    }
+    return result;
+  }
+
+  /// Tipi di manovra di Valhalla tradotti in tipo e modificatore OSRM.
+  @visibleForTesting
+  static (String, String) valhallaManeuver(int? type) {
+    switch (type) {
+      case 1:
+      case 2:
+      case 3:
+        return ('depart', '');
+      case 4:
+      case 5:
+      case 6:
+        return ('arrive', '');
+      case 9:
+        return ('turn', 'slight right');
+      case 10:
+        return ('turn', 'right');
+      case 11:
+        return ('turn', 'sharp right');
+      case 12:
+      case 13:
+        return ('turn', 'uturn');
+      case 14:
+        return ('turn', 'sharp left');
+      case 15:
+        return ('turn', 'left');
+      case 16:
+        return ('turn', 'slight left');
+      case 17:
+        return ('on ramp', 'straight');
+      case 18:
+        return ('on ramp', 'right');
+      case 19:
+        return ('on ramp', 'left');
+      case 20:
+        return ('off ramp', 'right');
+      case 21:
+        return ('off ramp', 'left');
+      case 22:
+        return ('fork', 'straight');
+      case 23:
+        return ('fork', 'slight right');
+      case 24:
+        return ('fork', 'slight left');
+      case 25:
+        return ('merge', 'straight');
+      case 37:
+        return ('merge', 'slight right');
+      case 38:
+        return ('merge', 'slight left');
+      case 26:
+        return ('roundabout', '');
+      case 27:
+        return ('exit roundabout', '');
+      default:
+        // 7 "diventa", 8 "prosegui", ascensori, ingressi in edifici…
+        return ('continue', 'straight');
+    }
+  }
+
+  /// Decodifica una polilinea codificata (Valhalla usa la precisione 6).
+  @visibleForTesting
+  static List<LatLng> decodePolyline(String encoded, int precision) {
+    final factor = math.pow(10, precision).toDouble();
+    final points = <LatLng>[];
+    var index = 0;
+    var lat = 0;
+    var lng = 0;
+    int next() {
+      var result = 0;
+      var shift = 0;
+      int byte;
+      do {
+        if (index >= encoded.length) throw const FormatException('polilinea');
+        byte = encoded.codeUnitAt(index++) - 63;
+        result |= (byte & 0x1f) << shift;
+        shift += 5;
+      } while (byte >= 0x20);
+      return (result & 1) != 0 ? ~(result >> 1) : result >> 1;
+    }
+
+    try {
+      while (index < encoded.length) {
+        lat += next();
+        lng += next();
+        points.add(LatLng(lat / factor, lng / factor));
+      }
+    } on FormatException {
+      return const [];
+    }
+    return points;
+  }
+
+  // --- In auto fino al parcheggio per disabili ------------------------------
+
+  /// In auto fino a un parcheggio per disabili tra [parkings] (i più vicini
+  /// alla destinazione), poi in sedia a rotelle fino a [end]. Prova al
+  /// massimo [maxParkings] parcheggi, uno dopo l'altro per rispettare i
+  /// limiti dei server gratuiti.
+  ///
+  /// Senza parcheggi segnati porta in auto direttamente alla destinazione.
+  Future<List<RouteOption>> getCarRoutes(
+    LatLng start,
+    LatLng end,
+    List<Obstacle> obstacles, {
+    List<DisabledParking> parkings = const [],
+    int maxParkings = 2,
+  }) async {
+    final chosen = <DisabledParking>[];
+    for (final parking in parkings) {
+      // Due stalli uno accanto all'altro sono lo stesso parcheggio.
+      if (chosen.any(
+        (p) => haversineDistance(p.position, parking.position) < 40,
+      )) {
+        continue;
+      }
+      chosen.add(parking);
+      if (chosen.length >= maxParkings) break;
+    }
+
+    final result = <RouteOption>[];
+    if (chosen.isEmpty) {
+      final drives = await _fetchDriving([start, end]);
+      if (drives.isEmpty) throw Exception('Nessun percorso trovato');
+      for (final drive in drives) {
+        applyArrivalSide(drive, end);
+        drive
+          ..driveEndIndex = drive.points.length - 1
+          ..isRecommended = result.isEmpty
+          ..label = result.isEmpty ? 'In auto' : 'Alternativa';
+        result.add(drive);
+      }
+      return result;
+    }
+
+    for (final parking in chosen) {
+      try {
+        final drives = await _fetchDriving([start, parking.position]);
+        if (drives.isEmpty) continue;
+        final walks = await getRoutes(
+          parking.position,
+          end,
+          obstacles,
+          mode: TravelMode.wheelchair,
+        );
+        if (walks.isEmpty) continue;
+        result.add(
+          combineCarAndWalk(drives.first, walks.first, parking, result.length),
+        );
+      } catch (_) {
+        // Si prova con il parcheggio successivo.
+      }
+    }
+    if (result.isEmpty) throw Exception('Nessun percorso trovato');
+
+    // Prima i tratti a piedi senza ostacoli né gradini, poi il più breve
+    // da percorrere in sedia a rotelle, poi il più veloce in tutto.
+    result.sort((a, b) {
+      final byObstacles = a.obstacleCount.compareTo(b.obstacleCount);
+      if (byObstacles != 0) return byObstacles;
+      final byWarnings = a.hardWarningCount.compareTo(b.hardWarningCount);
+      if (byWarnings != 0) return byWarnings;
+      final byWalk = a.walkDistance.compareTo(b.walkDistance);
+      if (byWalk != 0) return byWalk;
+      return a.duration.compareTo(b.duration);
+    });
+    for (var i = 0; i < result.length; i++) {
+      result[i]
+        ..isRecommended = i == 0
+        ..label = i == 0 ? 'Consigliato' : 'Altro parcheggio';
+    }
+    return result;
+  }
+
+  /// Unisce il tratto in auto e quello in sedia a rotelle: l'arrivo al
+  /// parcheggio diventa "Parcheggia" e gli ostacoli contano solo a piedi.
+  @visibleForTesting
+  static RouteOption combineCarAndWalk(
+    RouteOption drive,
+    RouteOption walk,
+    DisabledParking parking,
+    int index,
+  ) {
+    final steps = <RouteStep>[];
+    for (final step in drive.steps) {
+      if (step.maneuverType == 'arrive') {
+        final name = parking.name ?? '';
+        steps.add(RouteStep(
+          instruction: 'park||$name',
+          location: parking.position,
+          maneuverType: 'park',
+          modifier: '',
+          streetName: name,
+        ));
+      } else {
+        steps.add(step);
+      }
+    }
+    if (steps.isEmpty || steps.last.maneuverType != 'park') {
+      steps.add(RouteStep(
+        instruction: 'park||${parking.name ?? ''}',
+        location: parking.position,
+        maneuverType: 'park',
+        modifier: '',
+        streetName: parking.name ?? '',
+      ));
+    }
+    steps.addAll(walk.steps);
+    final points = [...drive.points, ...walk.points];
+    return RouteOption(
+      points: points,
+      distance: drive.distance + walk.distance,
+      duration: drive.duration + walk.duration,
+      steps: steps,
+      index: index,
+    )
+      ..parking = parking
+      ..driveEndIndex = drive.points.length - 1
+      ..walkDistance = walk.distance
+      ..walkDuration = walk.duration
+      ..obstacleCount = walk.obstacleCount
+      ..warnings = walk.warnings
+      ..hasTerrainData = walk.hasTerrainData
+      ..provider = walk.provider;
+  }
+
+  /// Percorso in auto con OSRM.
+  Future<List<RouteOption>> _fetchDriving(List<LatLng> waypoints) async {
+    final coordinates =
+        waypoints.map((p) => '${p.longitude},${p.latitude}').join(';');
+    final url = '$kOsrmCarBase/route/v1/driving/$coordinates'
+        '?overview=full&geometries=geojson&steps=true';
+    final response = await _client
+        .get(Uri.parse(url), headers: {'User-Agent': kUserAgent})
+        .timeout(const Duration(seconds: 15));
+    if (response.statusCode != 200) return [];
+    return parseOsrmRoutes(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   // --- OSRM -----------------------------------------------------------------
@@ -466,7 +872,7 @@ class RoutingService {
   }) async {
     final coordinates =
         waypoints.map((p) => '${p.longitude},${p.latitude}').join(';');
-    var url = 'https://router.project-osrm.org/route/v1/foot/$coordinates'
+    var url = '$kOsrmFootBase/route/v1/foot/$coordinates'
         '?overview=full&geometries=geojson&steps=true';
     // OSRM dà alternative solo tra due punti.
     if (alternatives > 0 && waypoints.length == 2) {
@@ -476,8 +882,18 @@ class RoutingService {
     final response =
         await _client.get(Uri.parse(url), headers: {'User-Agent': kUserAgent});
     if (response.statusCode != 200) return [];
+    return parseOsrmRoutes(
+      jsonDecode(response.body) as Map<String, dynamic>,
+      userStops: userStops,
+    );
+  }
 
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+  /// Converte la risposta di OSRM in [RouteOption].
+  @visibleForTesting
+  static List<RouteOption> parseOsrmRoutes(
+    Map<String, dynamic> data, {
+    bool userStops = true,
+  }) {
     final routes = data['routes'] as List?;
     if (routes == null || routes.isEmpty) return [];
 
@@ -524,7 +940,7 @@ class RoutingService {
         duration: (route['duration'] as num).toDouble(),
         steps: steps,
         index: i,
-      ));
+      )..provider = 'osrm');
     }
     return result;
   }

@@ -87,6 +87,15 @@ class InstructionTranslator {
       text = isItalian
           ? 'Hai raggiunto la tappa$where'
           : 'You have reached your stop$where';
+    } else if (type == 'park') {
+      final where = street.isNotEmpty
+          ? (isItalian ? ' ($street)' : ' ($street)')
+          : '';
+      text = isItalian
+          ? 'Parcheggia nel posto riservato alle persone con disabilità$where, '
+                'poi prosegui in sedia a rotelle'
+          : 'Park in the accessible parking space$where, then continue '
+                'by wheelchair';
     } else if (type == 'arrive') {
       final side = isItalian
           ? const {
@@ -130,6 +139,7 @@ class InstructionTranslator {
 String maneuverEmoji(String type, String modifier) {
   if (type == 'arrive') return '🏁';
   if (type == 'stop') return '📍';
+  if (type == 'park') return '🅿️';
   if (type == 'depart') return '🚶';
   switch (modifier) {
     case 'uturn':

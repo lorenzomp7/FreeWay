@@ -19,6 +19,48 @@ class InfoPage {
   final String footer;
 }
 
+/// Contatto per la privacy, passato in fase di build con
+/// `--dart-define=PRIVACY_CONTACT=...` (per esempio un'email del team).
+const String kPrivacyContact = String.fromEnvironment('PRIVACY_CONTACT');
+
+/// Informativa sul trattamento dei dati (artt. 13 e 14 GDPR), in breve.
+const InfoPage privacyPage = InfoPage(
+  title: 'Privacy',
+  subtitle: 'Quali dati usa FREE WAY e come eliminarli',
+  icon: Icons.privacy_tip_outlined,
+  paragraphs: [
+    'Titolare del trattamento è il team FREE WAY di Enactus UniBs '
+        "(Università degli Studi di Brescia). Per domande o per esercitare i "
+        'tuoi diritti: '
+        '${kPrivacyContact == '' ? 'scrivi al team (vedi "Chi siamo")' : kPrivacyContact}.',
+    'Account e segnalazioni sono salvati su Google Firebase (Authentication '
+        'e Cloud Firestore), che li tratta per conto nostro secondo i '
+        'Firebase Data Processing and Security Terms.',
+  ],
+  bullets: [
+    "Account: email (o profilo Google) e un codice anonimo per l'ospite. "
+        "Servono a far funzionare l'app (art. 6.1.b GDPR).",
+    'Segnalazioni: posizione e tipo dell’ostacolo, ora, il tuo codice '
+        'utente, la foto se la aggiungi, conferme e voti "Non c\'è più". '
+        'Sono visibili a chi usa l’app. Non fotografare persone né targhe.',
+    'La tua posizione GPS e il mezzo scelto (sedia a rotelle, a piedi, in '
+        'auto) non vengono salvati sui nostri server. Le coordinate dei '
+        'punti cercati e dei percorsi vengono inviate ai servizi di mappa: '
+        'OpenStreetMap, Photon (Komoot), Nominatim, Overpass, '
+        'OpenRouteService, Valhalla e OSRM (FOSSGIS), Open-Meteo; senza GPS '
+        'la posizione è stimata dall’indirizzo IP (ipwho.is, ipapi.co).',
+    'Sul dispositivo restano ricerche recenti, luoghi salvati, impostazioni '
+        'della voce e il viaggio in corso (per 3 ore).',
+    'Hai diritto di accedere ai tuoi dati, averne una copia, correggerli e '
+        'cancellarli, e di reclamare al Garante per la protezione dei dati '
+        'personali. Dal menu "I tuoi dati" puoi copiarli o eliminare account '
+        'e dati in ogni momento.',
+  ],
+  footer:
+      'Le segnalazioni restano finché sono utili: quelle temporanee spariscono '
+      'dalla mappa dopo 14 giorni senza conferme.',
+);
+
 const List<InfoPage> infoPages = [
   InfoPage(
     title: 'Chi siamo',
@@ -67,4 +109,5 @@ const List<InfoPage> infoPages = [
     ],
     footer: 'Continua a seguirci: il cambiamento passa anche da te!',
   ),
+  privacyPage,
 ];

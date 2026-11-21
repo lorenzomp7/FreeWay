@@ -69,7 +69,15 @@ class MapControls extends StatelessWidget {
     required this.onLocate,
     required this.isLocating,
     this.onReport,
+    this.onToggleParking,
+    this.showsParking = false,
+    this.isLoadingParking = false,
   });
+
+  /// Mostra o nasconde i parcheggi per disabili della zona inquadrata.
+  final VoidCallback? onToggleParking;
+  final bool showsParking;
+  final bool isLoadingParking;
 
   final VoidCallback onZoomIn;
   final VoidCallback onZoomOut;
@@ -124,6 +132,24 @@ class MapControls extends StatelessWidget {
             color: AppPalette.primary,
           ),
         ),
+        if (onToggleParking != null) ...[
+          const SizedBox(height: 8),
+          Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: decoration().copyWith(
+              color: showsParking ? AppPalette.parkingBlue : null,
+            ),
+            child: MapControlButton(
+              icon: Icons.local_parking_rounded,
+              onPressed: onToggleParking!,
+              tooltip: showsParking
+                  ? 'Nascondi i parcheggi per disabili'
+                  : 'Mostra i parcheggi per disabili',
+              isLoading: isLoadingParking,
+              color: showsParking ? Colors.white : AppPalette.parkingBlue,
+            ),
+          ),
+        ],
         if (onReport != null) ...[
           const SizedBox(height: 8),
           Container(
@@ -603,6 +629,57 @@ class ClusterBadge extends StatelessWidget {
             fontWeight: FontWeight.w700,
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Segnaposto blu di un parcheggio per persone con disabilità.
+class ParkingMarker extends StatelessWidget {
+  const ParkingMarker({
+    super.key,
+    required this.label,
+    this.onTap,
+    this.isSelected = false,
+  });
+
+  final String label;
+  final VoidCallback? onTap;
+
+  /// Il parcheggio del percorso scelto, un po' più evidente.
+  final bool isSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final marker = Container(
+      width: 28,
+      height: 28,
+      decoration: BoxDecoration(
+        color: AppPalette.parkingBlue,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(
+          color: isSelected ? AppPalette.offRouteBanner : Colors.white,
+          width: isSelected ? 3 : 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.25),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: const Icon(Icons.accessible_rounded, color: Colors.white, size: 17),
+    );
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        button: onTap != null,
+        label: label,
+        excludeSemantics: true,
+        child: onTap == null
+            ? marker
+            : GestureDetector(onTap: onTap, child: marker),
       ),
     );
   }

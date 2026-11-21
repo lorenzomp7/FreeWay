@@ -104,6 +104,20 @@ service cloud.firestore {
         && request.auth.uid in after;
     }
 
+    // Diritto alla cancellazione (art. 17 GDPR): chi elimina i propri dati
+    // toglie il proprio uid da [field] ("Confermo" o "Non c'è più") senza
+    // cambiare altro.
+    function withdrawsOwnVote(field) {
+      let before = resource.data.get(field, []);
+      let after = request.resource.data.get(field, []);
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([field])
+        && request.auth.uid in before
+        && !(request.auth.uid in after)
+        && after is list
+        && after.size() == before.size() - 1
+        && before.hasAll(after);
+    }
+
     match /segnalazioni/{reportId} {
       // Le segnalazioni sono visibili a tutti gli utenti dell'app (ospiti inclusi).
       allow read: if signedIn();
@@ -115,14 +129,17 @@ service cloud.firestore {
         && stampsNow('lastReportAt');
 
       // Le uniche modifiche ammesse sono la conferma che l'ostacolo c'è
-      // ancora e il voto "non c'è più".
-      allow update: if signedIn() && (validConfirmation() || validNotThere());
+      // ancora, il voto "non c'è più" e il ritiro del proprio uid quando si
+      // eliminano i propri dati.
+      allow update: if signedIn() && (validConfirmation() || validNotThere()
+        || withdrawsOwnVote('confirmedBy') || withdrawsOwnVote('notThereBy'));
 
-      // "L'ostacolo non c'è più": chi ha un account può rimuovere qualsiasi
-      // segnalazione, un ospite solo le proprie; al massimo una ogni 10 secondi.
+      // Le proprie segnalazioni si cancellano sempre, anche tutte insieme
+      // ("Elimina account e dati"). "L'ostacolo non c'è più" su quelle degli
+      // altri: solo con un account e al massimo una ogni 10 secondi.
       allow delete: if signedIn()
-        && (!isGuest() || resource.data.userId == request.auth.uid)
-        && stampsNow('lastRemovalAt');
+        && (resource.data.userId == request.auth.uid
+          || (!isGuest() && stampsNow('lastRemovalAt')));
     }
 
     // Foto di una segnalazione, compressa dall'app (JPEG in base64, meno di
@@ -154,6 +171,14 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['lastReportAt', 'lastRemovalAt'])
         && validStamp('lastReportAt', 30)
         && validStamp('lastRemovalAt', 10);
+      // Si cancellano con l'account, ma non per saltare l'attesa: solo
+      // quando i tempi minimi sono già passati.
+      allow delete: if signedIn()
+        && request.auth.uid == uid
+        && resource.data.get('lastReportAt', request.time - duration.value(1, 'h'))
+          + duration.value(30, 's') <= request.time
+        && resource.data.get('lastRemovalAt', request.time - duration.value(1, 'h'))
+          + duration.value(10, 's') <= request.time;
     }
 
     // Tutto il resto del database è chiuso.

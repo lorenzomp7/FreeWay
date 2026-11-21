@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/info_page.dart';
 import '../theme/app_theme.dart';
+import 'account_sheet.dart';
 import 'common.dart';
 import 'info_sheet.dart';
 
@@ -29,7 +30,7 @@ class TopBar extends StatelessWidget {
           const SizedBox(width: 8),
           const Wordmark(),
           const SizedBox(width: 12),
-          PopupMenuButton<InfoPage>(
+          PopupMenuButton<Object>(
             tooltip: 'Informazioni',
             elevation: 8,
             offset: const Offset(0, 44),
@@ -38,10 +39,16 @@ class TopBar extends StatelessWidget {
               borderRadius: BorderRadius.circular(14),
               side: BorderSide(color: colors.border),
             ),
-            onSelected: (page) => showInfoSheet(context, page),
+            onSelected: (value) {
+              if (value is InfoPage) {
+                showInfoSheet(context, value);
+              } else {
+                showAccountSheet(context);
+              }
+            },
             itemBuilder: (context) => [
               for (final page in infoPages)
-                PopupMenuItem<InfoPage>(
+                PopupMenuItem<Object>(
                   value: page,
                   height: 46,
                   child: Row(
@@ -55,6 +62,25 @@ class TopBar extends StatelessWidget {
                     ],
                   ),
                 ),
+              const PopupMenuDivider(),
+              PopupMenuItem<Object>(
+                value: 'account',
+                height: 46,
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.manage_accounts_outlined,
+                      color: AppPalette.primary,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'I tuoi dati',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ],
+                ),
+              ),
             ],
             child: CircleIconBadge(
               icon: Icons.info_outline_rounded,

@@ -10,11 +10,13 @@ import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../models/disabled_parking.dart';
 import '../models/obstacle.dart';
 import '../models/place_accessibility.dart';
 import '../models/route_option.dart';
 import '../models/travel_mode.dart';
 import '../services/along_route_service.dart';
+import '../services/disabled_parking_service.dart';
 import '../services/geo_utils.dart';
 import '../services/geocoding_service.dart';
 import '../services/instruction_translator.dart';
@@ -59,6 +61,21 @@ class _MapScreenState extends State<MapScreen> {
       PlaceAccessibilityService();
   final AlongRouteService _alongRouteService = AlongRouteService();
   final WeatherService _weatherService = WeatherService();
+  final DisabledParkingService _parkingService = DisabledParkingService();
+
+  /// Livello della mappa con i parcheggi per disabili nella zona inquadrata.
+  bool _showParkingLayer = false;
+  bool _isLoadingParkings = false;
+  List<DisabledParking> _layerParkings = [];
+  Timer? _parkingDebounce;
+  int _parkingRequest = 0;
+
+  /// Zoom minimo per chiedere i parcheggi della zona inquadrata.
+  static const double _parkingMinZoom = 14;
+
+  /// In auto, durante la navigazione: l'auto è già al parcheggio e da qui
+  /// si prosegue in sedia a rotelle.
+  bool _passedParking = false;
 
   /// Avviso meteo per il percorso calcolato (pioggia, neve, ghiaccio, caldo).
   String? _weatherWarning;
@@ -233,6 +250,8 @@ class _MapScreenState extends State<MapScreen> {
     _accessibilityService.dispose();
     _alongRouteService.dispose();
     _weatherService.dispose();
+    _parkingService.dispose();
+    _parkingDebounce?.cancel();
     _startController.dispose();
     _endController.dispose();
     _startFocus.dispose();
@@ -880,13 +899,7 @@ class _MapScreenState extends State<MapScreen> {
       _along = {};
     });
     try {
-      final routes = await _routingService.getRoutes(
-        start,
-        end,
-        _obstacles,
-        mode: mode,
-        via: [for (final stop in _stops) stop.position],
-      );
+      final routes = await _getRoutes(start, end, mode);
       if (!mounted ||
           _startPoint != start ||
           _endPoint != end ||
@@ -916,6 +929,193 @@ class _MapScreenState extends State<MapScreen> {
         Icons.error_outline_rounded,
       );
     }
+  }
+
+  /// Percorsi con il mezzo scelto. In auto cerca prima i parcheggi per
+  /// disabili vicino alla destinazione; durante la navigazione resta sul
+  /// parcheggio scelto e, una volta lasciata l'auto, prosegue in sedia a
+  /// rotelle.
+  Future<List<RouteOption>> _getRoutes(
+    LatLng from,
+    LatLng to,
+    TravelMode mode, {
+    bool duringNavigation = false,
+  }) async {
+    if (mode != TravelMode.car) {
+      return _routingService.getRoutes(
+        from,
+        to,
+        _obstacles,
+        mode: mode,
+        via: [for (final stop in _stops) stop.position],
+      );
+    }
+    if (duringNavigation) {
+      if (_passedParking) {
+        return _routingService.getRoutes(
+          from,
+          to,
+          _obstacles,
+          mode: TravelMode.wheelchair,
+        );
+      }
+      final current = _routes.isEmpty
+          ? null
+          : _routes[_selectedRouteIndex].parking;
+      if (current != null) {
+        return _routingService.getCarRoutes(
+          from,
+          to,
+          _obstacles,
+          parkings: [current],
+        );
+      }
+    }
+    final parkings =
+        await _parkingService.near(to) ?? const <DisabledParking>[];
+    return _routingService.getCarRoutes(
+      from,
+      to,
+      _obstacles,
+      parkings: parkings,
+    );
+  }
+
+  // --- Parcheggi per disabili sulla mappa ---------------------------------
+
+  void _toggleParkingLayer() {
+    final show = !_showParkingLayer;
+    setState(() {
+      _showParkingLayer = show;
+      if (!show) {
+        _layerParkings = [];
+        _isLoadingParkings = false;
+        _parkingRequest++;
+      }
+    });
+    if (show) {
+      if (_mapController.camera.zoom < _parkingMinZoom) {
+        _showSnack(
+          'Avvicina la mappa per vedere i parcheggi per disabili.',
+          icon: Icons.zoom_in_rounded,
+        );
+      }
+      _refreshParkings();
+    }
+  }
+
+  void _onMapMoved() {
+    if (!_showParkingLayer) return;
+    _parkingDebounce?.cancel();
+    _parkingDebounce = Timer(
+      const Duration(milliseconds: 700),
+      _refreshParkings,
+    );
+  }
+
+  Future<void> _refreshParkings() async {
+    if (!_showParkingLayer || !mounted) return;
+    final camera = _mapController.camera;
+    if (camera.zoom < _parkingMinZoom) return;
+    final bounds = camera.visibleBounds;
+    final request = ++_parkingRequest;
+    setState(() => _isLoadingParkings = true);
+    final found = await _parkingService.inBounds(
+      bounds.southWest,
+      bounds.northEast,
+    );
+    if (!mounted || request != _parkingRequest) return;
+    setState(() {
+      _isLoadingParkings = false;
+      if (found != null) _layerParkings = found;
+    });
+    if (found == null) {
+      _showError(
+        'Non è stato possibile caricare i parcheggi. Riprova tra poco.',
+        Icons.cloud_off_rounded,
+      );
+    } else if (found.isEmpty) {
+      _showSnack(
+        'In questa zona OpenStreetMap non segna parcheggi per disabili.',
+        icon: Icons.local_parking_rounded,
+      );
+    }
+  }
+
+  void _openParking(DisabledParking parking) {
+    final colors = AppColors.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const ParkingMarker(label: 'Parcheggio per disabili'),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Parcheggio per disabili',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(parking.summary),
+              if (_userLocation != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'A ${_formatMeters(haversineDistance(_userLocation!, parking.position))} da te',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 6),
+              Text(
+                'Dati di OpenStreetMap: controlla sul posto i cartelli e '
+                'gli orari.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colors.textTertiary,
+                ),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  icon: const Icon(Icons.directions_car_rounded),
+                  label: const Text('Indicazioni in auto'),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _directionsToParking(parking);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _formatMeters(double meters) => meters >= 1000
+      ? '${(meters / 1000).toStringAsFixed(1).replaceAll('.', ',')} km'
+      : '${meters.round()} m';
+
+  void _directionsToParking(DisabledParking parking) {
+    setState(() {
+      _travelMode = TravelMode.car;
+      _selectedPlace = null;
+      _stops = [];
+      _setPoint(false, parking.position, parking.name ?? 'Parcheggio per disabili');
+    });
+    _openDirections();
   }
 
   void _selectRoute(int index) {
@@ -1039,6 +1239,7 @@ class _MapScreenState extends State<MapScreen> {
     }
     setState(() {
       _isNavigating = true;
+      _passedParking = false;
       _navigationFirstStep = route.steps.first;
       _navigationGpsFailed = false;
       _askedObstacleIds.clear();
@@ -1091,6 +1292,14 @@ class _MapScreenState extends State<MapScreen> {
       _userLocation = update.position;
       _userAccuracy = update.accuracy > 0 ? update.accuracy : null;
       _gpsSignalLost = false;
+      // Arrivati al parcheggio si prosegue in sedia a rotelle.
+      final parking = _routes.isEmpty
+          ? null
+          : _routes[_selectedRouteIndex].parking;
+      if (parking != null &&
+          haversineDistance(parking.position, update.position) <= 40) {
+        _passedParking = true;
+      }
       // Le tappe raggiunte non servono più a un eventuale ricalcolo.
       _stops = _stops
           .where((s) => haversineDistance(s.position, update.position) > 30)
@@ -1158,12 +1367,11 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _recalculate(LatLng from) async {
     _isRecalculating = true;
     try {
-      final routes = await _routingService.getRoutes(
+      final routes = await _getRoutes(
         from,
         _endPoint!,
-        _obstacles,
-        mode: _travelMode,
-        via: [for (final stop in _stops) stop.position],
+        _travelMode,
+        duringNavigation: true,
       );
       if (mounted &&
           routes.isNotEmpty &&
@@ -1596,12 +1804,11 @@ class _MapScreenState extends State<MapScreen> {
 
     List<RouteOption> routes = const [];
     try {
-      routes = await _routingService.getRoutes(
+      routes = await _getRoutes(
         position,
         _endPoint!,
-        _obstacles,
-        mode: _travelMode,
-        via: [for (final stop in _stops) stop.position],
+        _travelMode,
+        duringNavigation: true,
       );
     } catch (_) {
       routes = const [];
@@ -1909,6 +2116,9 @@ class _MapScreenState extends State<MapScreen> {
           onLocate: () => _locateUser(showErrors: true),
           isLocating: _isLocatingUser,
           onReport: _isNavigating || choosing != null ? null : _reportHere,
+          onToggleParking: choosing != null ? null : _toggleParkingLayer,
+          showsParking: _showParkingLayer,
+          isLoadingParking: _isLoadingParkings,
         ),
       ),
     );
@@ -2087,6 +2297,48 @@ class _MapScreenState extends State<MapScreen> {
     ];
   }
 
+  /// Il percorso scelto; in auto il tratto da guidare è blu scuro e quello
+  /// in sedia a rotelle dopo il parcheggio ha il colore solito.
+  List<Polyline<Object>> _selectedRoutePolylines() {
+    if (_routePoints.isEmpty) return const [];
+    final route = _selectedRouteIndex < _routes.length
+        ? _routes[_selectedRouteIndex]
+        : null;
+    final split = route != null &&
+            route.usesCar &&
+            identical(route.points, _routePoints)
+        ? route.driveEndIndex
+        : 0;
+    if (split <= 0) {
+      return [
+        Polyline(
+          points: _routePoints,
+          strokeWidth: 8,
+          color: AppPalette.primary,
+          borderColor: Colors.white,
+          borderStrokeWidth: 2.5,
+        ),
+      ];
+    }
+    return [
+      Polyline(
+        points: _routePoints.sublist(0, split + 1),
+        strokeWidth: 8,
+        color: AppPalette.driveRoute,
+        borderColor: Colors.white,
+        borderStrokeWidth: 2.5,
+      ),
+      if (split < _routePoints.length - 1)
+        Polyline(
+          points: _routePoints.sublist(split),
+          strokeWidth: 8,
+          color: AppPalette.primary,
+          borderColor: Colors.white,
+          borderStrokeWidth: 2.5,
+        ),
+    ];
+  }
+
   Widget _buildMap(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -2116,14 +2368,7 @@ class _MapScreenState extends State<MapScreen> {
               borderStrokeWidth: 1,
               borderColor: Colors.white.withValues(alpha: 0.4),
             ),
-        if (_routePoints.isNotEmpty)
-          Polyline(
-            points: _routePoints,
-            strokeWidth: 8,
-            color: AppPalette.primary,
-            borderColor: Colors.white,
-            borderStrokeWidth: 2.5,
-          ),
+        ..._selectedRoutePolylines(),
       ];
       layers.add(PolylineLayer(polylines: polylines));
     } else if (_routePoints.isNotEmpty) {
@@ -2249,6 +2494,30 @@ class _MapScreenState extends State<MapScreen> {
                     onTap: () => _openAlongPlace(place),
                   ),
                 ),
+          if (_showParkingLayer)
+            for (final parking in _layerParkings)
+              Marker(
+                point: parking.position,
+                width: 28,
+                height: 28,
+                child: ParkingMarker(
+                  label: 'Parcheggio per disabili: ${parking.summary}',
+                  onTap: () => _openParking(parking),
+                ),
+              ),
+          for (final route in _routes)
+            if (route.parking != null &&
+                !_layerParkings.any((p) => p.id == route.parking!.id))
+              Marker(
+                point: route.parking!.position,
+                width: 30,
+                height: 30,
+                child: ParkingMarker(
+                  label: 'Parcheggio per disabili: ${route.parking!.summary}',
+                  isSelected: route == _routes[_selectedRouteIndex],
+                  onTap: () => _openParking(route.parking!),
+                ),
+              ),
           for (var i = 0; i < _stops.length; i++)
             Marker(
               point: _stops[i].position,
@@ -2278,6 +2547,7 @@ class _MapScreenState extends State<MapScreen> {
         onLongPress: (_, point) {
           if (_choosingOnMapFor == null) _reportObstacle(point);
         },
+        onPositionChanged: (_, _) => _onMapMoved(),
         interactionOptions: const InteractionOptions(
           flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
         ),

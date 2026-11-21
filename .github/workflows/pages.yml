@@ -24,14 +24,18 @@ jobs:
       - name: Build web for repository URL
         # Chiavi facoltative: ORS_API_KEY attiva i percorsi in sedia a rotelle
         # di OpenRouteService, RECAPTCHA_SITE_KEY attiva Firebase App Check.
+        # PRIVACY_CONTACT (variabile, non segreta) è il contatto mostrato
+        # nell'informativa.
         env:
           ORS_API_KEY: ${{ secrets.ORS_API_KEY }}
           RECAPTCHA_SITE_KEY: ${{ secrets.RECAPTCHA_SITE_KEY }}
+          PRIVACY_CONTACT: ${{ vars.PRIVACY_CONTACT }}
         run: >-
           flutter build web --release --pwa-strategy=none
           --base-href "/${{ github.event.repository.name }}/"
           --dart-define=ORS_API_KEY="$ORS_API_KEY"
           --dart-define=RECAPTCHA_SITE_KEY="$RECAPTCHA_SITE_KEY"
+          --dart-define=PRIVACY_CONTACT="$PRIVACY_CONTACT"
       - name: Version application entrypoints to prevent stale browser caches
         run: python3 tool/version_entrypoints.py build/web "${{ github.sha }}"
       - name: Disable Jekyll

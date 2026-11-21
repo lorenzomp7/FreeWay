@@ -178,8 +178,11 @@ void main() {
 
       final routes = await service.getRoutes(start, end, []);
 
-      expect(hosts, contains('router.project-osrm.org'));
+      // Prima Valhalla (qui risponde senza percorsi), poi OSRM pedonale.
+      expect(hosts, contains('valhalla1.openstreetmap.de'));
+      expect(hosts.last, 'routing.openstreetmap.de');
       expect(routes.single.distance, 470);
+      expect(routes.single.provider, 'osrm');
     });
 
     test('senza chiave non chiama OpenRouteService', () async {
@@ -192,7 +195,8 @@ void main() {
 
       expect(service.usesWheelchairProfile, isFalse);
       await service.getRoutes(start, end, []);
-      expect(hosts, everyElement('router.project-osrm.org'));
+      expect(hosts, isNot(contains('api.openrouteservice.org')));
+      expect(hosts, contains('routing.openstreetmap.de'));
     });
 
     test('a piedi usa foot-walking e non chiede zone da evitare', () async {
@@ -220,7 +224,10 @@ void main() {
       var calls = 0;
       final client = MockClient((request) async {
         calls++;
-        expect(request.url.host, 'router.project-osrm.org');
+        // Il server con il profilo pedonale: il server dimostrativo di
+        // OSRM ha solo l'auto. A piedi Valhalla non serve.
+        expect(request.url.host, 'routing.openstreetmap.de');
+        expect(request.url.path, startsWith('/routed-foot/route/v1/foot/'));
         return http.Response(jsonEncode(osrmResponse), 200);
       });
       final service = RoutingService(client: client, orsApiKey: '');

@@ -106,6 +106,8 @@ class RouteOptionsSheet extends StatelessWidget {
                 ),
               ),
             ),
+            if (selectedIndex < routes.length && routes[selectedIndex].usesCar)
+              CarParkingInfo(route: routes[selectedIndex]),
             if (selectedIndex < routes.length &&
                 routes[selectedIndex].warnings.isNotEmpty)
               RouteWarningsList(warnings: routes[selectedIndex].warnings),
@@ -310,10 +312,14 @@ class RouteCard extends StatelessWidget {
               children: [
                 Text(route.durationText, style: textTheme.headlineSmall),
                 const SizedBox(width: 8),
-                Text(
-                  route.distanceText,
-                  style: textTheme.bodyMedium?.copyWith(
-                    color: colors.textTertiary,
+                Flexible(
+                  child: Text(
+                    route.distanceText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: colors.textTertiary,
+                    ),
                   ),
                 ),
               ],
@@ -358,7 +364,93 @@ class RouteCard extends StatelessWidget {
                 ),
               ],
             ),
-            _TerrainLine(route: route),
+            if (route.usesCar)
+              _ParkingLine(route: route)
+            else
+              _TerrainLine(route: route),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// In auto: quanto resta da fare in sedia a rotelle dopo il parcheggio.
+class _ParkingLine extends StatelessWidget {
+  const _ParkingLine({required this.route});
+
+  final RouteOption route;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    final hasParking = route.parking != null;
+    final walk = route.walkDistance;
+    final text = hasParking
+        ? 'P disabili, poi ${walk >= 1000 ? '${(walk / 1000).toStringAsFixed(1)} km' : '${walk.round()} m'}'
+        : 'Nessun posto disabili vicino';
+    final color = hasParking ? colors.success : colors.warning;
+    return Row(
+      children: [
+        Icon(Icons.local_parking_rounded, color: color, size: 14),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: textTheme.bodySmall?.copyWith(color: color),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Sotto le schede, in auto: il parcheggio per disabili scelto o l'avviso
+/// che vicino alla destinazione non ce ne sono di segnati.
+class CarParkingInfo extends StatelessWidget {
+  const CarParkingInfo({super.key, required this.route});
+
+  final RouteOption route;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final parking = route.parking;
+    final String text;
+    final Color color;
+    if (parking == null) {
+      text =
+          'Su OpenStreetMap non risultano posti per disabili entro 500 m '
+          'dalla destinazione: il percorso arriva in auto fino a lì.';
+      color = colors.warning;
+    } else {
+      final minutes = (route.walkDuration / 60).round();
+      text =
+          '${parking.summary}. Da lì ${route.walkDistance.round()} m '
+          '(${minutes < 1 ? 1 : minutes} min) in sedia a rotelle fino '
+          'alla destinazione. Ricorda di esporre il contrassegno.';
+      color = colors.textSecondary;
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+      child: Semantics(
+        liveRegion: true,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.local_parking_rounded, size: 16, color: color),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                text,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: color),
+              ),
+            ),
           ],
         ),
       ),

@@ -44,11 +44,26 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
 - Calcolo dei percorsi in sedia a rotelle con il profilo di OpenRouteService,
   che evita gradini, pendenze e fondi sconnessi; gli ostacoli segnalati vengono
   passati come zone da evitare. Senza chiave OpenRouteService (o se il servizio
-  non risponde) l'app usa il profilo pedonale di OSRM e prova una deviazione
-  intorno al primo ostacolo. Ogni percorso riceve un punteggio di accessibilità
+  non risponde) l'app usa Valhalla sul server pubblico di FOSSGIS, con il
+  costo pedonale di tipo `wheelchair` (evita gradini e pendenze ripide, anche
+  qui con gli ostacoli come zone da evitare). Se anche Valhalla non risponde
+  usa il profilo pedonale di OSRM su `routing.openstreetmap.de` e prova una
+  deviazione intorno al primo ostacolo. Ogni percorso riceve un punteggio di accessibilità
   in base agli ostacoli lungo il tragitto. Con "A piedi" l'app cerca il
   percorso più veloce (profilo `foot-walking` o pedonale di OSRM) e conta
   gli ostacoli senza deviare.
+- Modalità "In auto", per chi guida o viene accompagnato: l'app cerca su
+  OpenStreetMap i parcheggi per disabili entro 500 m dalla destinazione,
+  calcola il tragitto in auto (OSRM) fino ai due più vicini e da lì il
+  percorso in sedia a rotelle fino all'ingresso. Sulla mappa il tratto in auto
+  è blu scuro; la scheda dice quale parcheggio, quanti posti e quanti metri
+  restano. In navigazione l'app dice "Parcheggia nel posto riservato…" e,
+  lasciata l'auto, ricalcola in sedia a rotelle. Senza parcheggi segnati vicino
+  lo dice e porta in auto fino alla destinazione.
+- Parcheggi per disabili sulla mappa: il pulsante blu "P" mostra gli stalli e
+  i parcheggi con posti riservati della zona inquadrata (da OpenStreetMap,
+  tramite Overpass); toccandone uno si vedono posti, tariffa e durata massima,
+  con "Indicazioni in auto".
 - Segnalazione condivisa degli ostacoli su Cloud Firestore (collezione
   `segnalazioni`): si tiene premuto sulla mappa oppure si usa il pulsante
   "Segnala un ostacolo qui". Toccando un ostacolo se ne vedono i dettagli, si
@@ -138,7 +153,13 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   etichette per pulsanti e segnaposti della mappa, testi con contrasto almeno
   4,5:1 e niente animazione della posizione se il sistema chiede di ridurre i
   movimenti.
-- Schede informative "Chi siamo", "Come funziona" e "Prossimi passi".
+- Schede informative "Chi siamo", "Come funziona", "Prossimi passi" e
+  "Privacy" (informativa sul trattamento dei dati).
+- "I tuoi dati" nel menu informazioni: "Copia i miei dati" copia negli
+  appunti un JSON con profilo, segnalazioni, conferme, voti e dati salvati sul
+  dispositivo; "Elimina account e dati" cancella le proprie segnalazioni con le
+  foto, ritira conferme e voti dati, cancella limiti, dati del dispositivo e
+  account.
 
 ## Struttura
 
@@ -212,8 +233,12 @@ richieste; superato quello, l'app torna da sola a OSRM.
 - le uniche modifiche ammesse sono "Confermo, c'è ancora" e il voto "Non c'è
   più": si aggiunge il proprio uid a `confirmedBy` o a `notThereBy`, una sola
   volta e non sulle proprie segnalazioni;
-- chi ha un account può rimuovere qualsiasi segnalazione ("L'ostacolo non c'è
-  più"), un ospite solo le proprie;
+- le proprie segnalazioni si rimuovono sempre, anche tutte insieme
+  ("Elimina account e dati"); chi ha un account può rimuovere anche quelle
+  degli altri ("L'ostacolo non c'è più"), con il limite di frequenza;
+- per eliminare i propri dati si può togliere il proprio uid da `confirmedBy`
+  e `notThereBy`, senza cambiare altro, e cancellare `limiti/{uid}` quando i
+  tempi minimi sono già passati;
 - il resto del database è chiuso.
 
 Prima di segnalare, l'app avvisa se a meno di 25 m c'è già una segnalazione
@@ -241,6 +266,18 @@ pubblicano a mano sul proprio progetto Firebase, solo quando cambiano:
 firebase deploy --only firestore:rules --project ID-DEL-TUO-PROGETTO
 ```
 
+### Contatto per la privacy
+
+L'informativa mostra il contatto del titolare passato in fase di build:
+
+```bash
+flutter run -d chrome --dart-define=PRIVACY_CONTACT=privacy@esempio.it
+```
+
+Per GitHub Pages aggiungilo come variabile `PRIVACY_CONTACT` (non segreta) in
+**Settings → Secrets and variables → Actions → Variables**. Senza, l'informativa
+rimanda a "Chi siamo".
+
 ### Firebase App Check (facoltativo)
 
 App Check fa accettare a Firestore solo le richieste che arrivano davvero
@@ -255,6 +292,13 @@ dall'app, bloccando script e bot.
    verificate, poi attiva l'**applicazione forzata** per Cloud Firestore.
 
 Senza la chiave l'app funziona come prima, senza App Check.
+
+## Dati, navigazione e flussi
+
+[Le risposte ai punti 21–25](docs/dati-navigazione-flussi.md) spiegano dove
+stanno account e segnalazioni e cosa serve per il GDPR, quali provider di
+navigazione conviene usare, come funzionano i parcheggi per disabili e se
+esistono dati sulle auto in movimento e sui flussi di persone.
 
 ## Nota sull'origine del codice
 

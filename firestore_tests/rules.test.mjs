@@ -1,6 +1,6 @@
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
 import { readFileSync } from 'node:fs';
-import { doc, setDoc, collection, getDocs, updateDoc, serverTimestamp, Timestamp, arrayUnion, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, collection, getDocs, updateDoc, deleteDoc, serverTimestamp, Timestamp, arrayUnion, arrayRemove, writeBatch } from 'firebase/firestore';
 
 const env = await initializeTestEnvironment({
   projectId: 'demo-freeway',
@@ -104,6 +104,21 @@ await check('foto sovrascritta rifiutata', assertFails(setDoc(doc(guest, 'foto/p
 await check('foto cancellata da sola rifiutata', assertFails(writeBatch(alice).delete(doc(alice, 'foto/p1')).commit()));
 await age('alice', 'lastRemovalAt', 11);
 await check('foto cancellata con la segnalazione', assertSucceeds((() => { const b = writeBatch(alice); b.delete(doc(alice, 'segnalazioni/p1')); b.delete(doc(alice, 'foto/p1')); b.set(doc(alice, 'limiti/alice'), { lastRemovalAt: serverTimestamp() }, { merge: true }); return b.commit(); })()));
+
+// --- eliminazione dei propri dati (art. 17 GDPR) ---
+await seed('e1', { lat: 1, lng: 1, type: 'x', timestamp: Timestamp.now(), userId: 'erin', confirmedBy: ['frank', 'erin2'], notThereBy: ['frank'] });
+await seed('e2', { lat: 1, lng: 1, type: 'x', timestamp: Timestamp.now(), userId: 'frank' });
+await seed('e3', { lat: 1, lng: 1, type: 'x', timestamp: Timestamp.now(), userId: 'frank' });
+const frank = ctx('frank', 'anonymous');
+await check('ospite cancella le proprie senza attendere', (async () => { await assertSucceeds(deleteDoc(doc(frank, 'segnalazioni/e2'))); await assertSucceeds(deleteDoc(doc(frank, 'segnalazioni/e3'))); })());
+await check('ritiro della propria conferma', assertSucceeds(updateDoc(doc(frank, 'segnalazioni/e1'), { confirmedBy: arrayRemove('frank') })));
+await check('ritiro del proprio voto', assertSucceeds(updateDoc(doc(frank, 'segnalazioni/e1'), { notThereBy: arrayRemove('frank') })));
+await check('ritiro della conferma di un altro rifiutato', assertFails(updateDoc(doc(frank, 'segnalazioni/e1'), { confirmedBy: arrayRemove('erin2') })));
+await check('ritiro insieme ad altre modifiche rifiutato', (async () => { await seed('e4', { lat: 1, lng: 1, type: 'x', timestamp: Timestamp.now(), userId: 'erin', confirmedBy: ['frank'] }); await assertFails(updateDoc(doc(frank, 'segnalazioni/e4'), { confirmedBy: arrayRemove('frank'), type: 'Altro' })); })());
+await check('ospite non cancella altrui nemmeno così', assertFails(deleteDoc(doc(frank, 'segnalazioni/e1'))));
+await check('limiti cancellati subito dopo una segnalazione rifiutati', (async () => { await add(alice, 'alice', 'e5').catch(() => {}); await age('alice', 'lastRemovalAt', 60); await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'limiti/alice'), { lastReportAt: Timestamp.now() }, { merge: true })); await assertFails(deleteDoc(doc(alice, 'limiti/alice'))); })());
+await check('limiti cancellati dopo i tempi minimi', (async () => { await age('alice', 'lastReportAt', 31); await age('alice', 'lastRemovalAt', 11); await assertSucceeds(deleteDoc(doc(alice, 'limiti/alice'))); })());
+await check('limiti di un altro utente non cancellabili', (async () => { await age('guest1', 'lastReportAt', 60); await age('guest1', 'lastRemovalAt', 60); await assertFails(deleteDoc(doc(alice, 'limiti/guest1'))); })());
 
 await check('altre collezioni chiuse', assertFails(setDoc(doc(alice, 'utenti/alice'), { a: 1 })));
 await env.cleanup();

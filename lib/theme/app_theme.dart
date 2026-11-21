@@ -13,6 +13,10 @@ class AppPalette {
   static const Color startGreen = Color(0xFF00A15C);
   static const Color userBlue = Color(0xFF2E7CF6);
   static const Color alternativeRoute = Color(0xFF98A2B3);
+
+  /// Tratto da fare in auto e parcheggi per disabili (blu dei cartelli).
+  static const Color driveRoute = Color(0xFF1F4FA8);
+  static const Color parkingBlue = Color(0xFF0B57D0);
   static const Color navigationPanel = Color(0xFF14171C);
   static const Color navigationButton = Color(0xFF1F242C);
   static const Color offRouteBanner = Color(0xFFFFC93C);

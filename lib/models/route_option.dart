@@ -1,5 +1,7 @@
 import 'package:latlong2/latlong.dart';
 
+import 'disabled_parking.dart';
+
 /// Singola manovra restituita da OSRM.
 ///
 /// [instruction] è codificata come `tipo|modificatore|nome via` e viene
@@ -124,6 +126,22 @@ class RouteOption {
   /// `true` se il servizio ha fornito pendenze e fondi stradali: senza questi
   /// dati (OSRM) l'assenza di avvisi non vuol dire che non ci siano difficoltà.
   bool hasTerrainData = false;
+
+  /// Servizio che ha calcolato il percorso: `openrouteservice`, `valhalla`
+  /// oppure `osrm`.
+  String provider = '';
+
+  /// In auto: il posto per disabili dove si lascia la macchina. Il tratto
+  /// in auto arriva fino al punto [driveEndIndex] di [points]; da lì si
+  /// prosegue in sedia a rotelle.
+  DisabledParking? parking;
+  int driveEndIndex = 0;
+
+  /// Metri e secondi del tratto in sedia a rotelle dopo il parcheggio.
+  double walkDistance = 0;
+  double walkDuration = 0;
+
+  bool get usesCar => driveEndIndex > 0;
 
   int get hardWarningCount => warnings.where((w) => w.isHard).length;
 
