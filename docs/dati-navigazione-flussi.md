@@ -18,7 +18,7 @@ resta da decidere.
 
 ### Dove sono oggi
 
-- **Account**: Firebase Authentication del progetto `freeway-1f7fe` (email e
+- **Account**: Firebase Authentication (email e
   password, Google, ospite anonimo).
 - **Segnalazioni e foto**: Cloud Firestore dello stesso progetto (collezioni
   `segnalazioni`, `foto`, `limiti`), con conferme, voti, "grazie" e risposte

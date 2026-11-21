@@ -1,9 +1,15 @@
-// Configurazione Firebase del progetto `freeway-1f7fe`.
+// Configurazione Firebase dell'app web.
 //
-// È la configurazione web pubblica, la stessa inclusa nella web app pubblicata.
-// Per aggiungere altre piattaforme rigenerare il file con `flutterfire configure`.
+// I valori si copiano dalla console Firebase del proprio progetto:
+// Impostazioni progetto → Generali → Le tue app → app web (firebaseConfig).
+// Non sono segreti: finiscono comunque nel JavaScript pubblicato.
+// Finché sono vuoti l'app non si collega a nessun progetto e lo dice.
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart' show kIsWeb;
+
+/// ID client OAuth per "Accedi con Google" sul web (Authentication → Metodo
+/// di accesso → Google → Configurazione SDK web). Vuoto finché non c'è.
+const String kGoogleWebClientId = '';
 
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
@@ -14,15 +20,16 @@ class DefaultFirebaseOptions {
     );
   }
 
+  /// `true` quando la configurazione del progetto è stata inserita.
+  static bool get isConfigured =>
+      web.apiKey.isNotEmpty && web.projectId.isNotEmpty;
+
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyDgz3x8BGO1pnB-S1C0n4DGSH8VmBSXu6Q',
-    appId: '1:182646190306:web:cfbc99a1627e54c9e66ebb',
-    messagingSenderId: '182646190306',
-    projectId: 'freeway-1f7fe',
-    authDomain: 'freeway-1f7fe.firebaseapp.com',
-    databaseURL:
-        'https://freeway-1f7fe-default-rtdb.europe-west1.firebasedatabase.app',
-    storageBucket: 'freeway-1f7fe.firebasestorage.app',
-    measurementId: 'G-VW1EEC8NYB',
+    apiKey: '',
+    appId: '',
+    messagingSenderId: '',
+    projectId: '',
+    authDomain: '',
+    storageBucket: '',
   );
 }

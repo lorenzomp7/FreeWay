@@ -3,30 +3,16 @@
 FreeWay usa Firebase per due cose: gli account (Authentication) e le
 segnalazioni (Cloud Firestore). Il sito resta su GitHub Pages.
 
-Oggi l'app punta al progetto `freeway-1f7fe`, creato dal primo team. Per
-pubblicare le regole e per il GDPR serve che il titolare controlli il
-progetto. Ci sono due strade.
-
-## 0. Hai già accesso a `freeway-1f7fe`?
-
-Apri <https://console.firebase.google.com> con ciascuno dei tuoi account
-Google. Se tra i progetti c'è `freeway-1f7fe`, hai accesso: salta alla
-sezione 3 (Firestore: controlla solo la regione) e poi alla 6.
-
-Se non c'è, chiedi a chi ha creato il progetto (il team 2024/25) di
-aggiungerti: **Impostazioni progetto (ingranaggio) → Utenti e autorizzazioni →
-Aggiungi membro**, ruolo **Proprietario**. Così le segnalazioni già fatte
-restano.
-
-Se nessuno ha più accesso, crea un progetto nuovo (sezioni 1–6). Le
-segnalazioni vecchie restano nel progetto vecchio.
+L'app non è collegata a nessun progetto Firebase finché in
+`lib/firebase_options.dart` non ci sono i dati del vostro: fino ad allora mostra
+"FREE WAY è in manutenzione". Questi passi creano il progetto da zero.
 
 ## 1. Account Google del progetto
 
 Usa un account Google dedicato al progetto (per esempio un nuovo Gmail del
 team), non quello personale. Poi aggiungi come Proprietario almeno un'altra
-persona del team (sezione 0): se una persona lascia il progetto, il database
-non si perde.
+persona del team (Impostazioni progetto → Utenti e autorizzazioni): se una
+persona lascia il progetto, il database non si perde.
 
 ## 2. Crea il progetto
 
@@ -54,6 +40,8 @@ non si perde.
    - **Anonimo** (è il "Continua come ospite").
 3. Scheda **Impostazioni → Domini autorizzati** → **Aggiungi dominio**:
    `lorenzomp7.github.io`. `localhost` c'è già.
+4. Nella stessa scheda, apri **Google → Configurazione SDK web** e copia l'**ID
+   client web** in `kGoogleWebClientId` (`lib/firebase_options.dart`).
 
 ## 5. Registra l'app web e mandami la configurazione
 
@@ -62,7 +50,7 @@ non si perde.
 2. Nome: `FreeWay web`. **Non** attivare Firebase Hosting.
 3. Compare un blocco `firebaseConfig = { apiKey: …, authDomain: …,
    projectId: …, storageBucket: …, messagingSenderId: …, appId: … }`.
-   Copialo e mandamelo: aggiorno `lib/firebase_options.dart`. Questi valori
+   Copialo in `lib/firebase_options.dart` (o mandamelo e lo inserisco io). Questi valori
    **non sono segreti**: sono già nel sito pubblicato. A proteggere i dati
    sono le regole di Firestore.
 
@@ -77,8 +65,8 @@ Una volta sola:
    - scheda **Secrets** → **New repository secret**, nome
      `FIREBASE_SERVICE_ACCOUNT`, valore: tutto il contenuto del file JSON;
    - scheda **Variables** → **New repository variable**, nome
-     `FIREBASE_PROJECT_ID`, valore: l'ID del progetto (per esempio
-     `freeway-1f7fe`).
+     `FIREBASE_PROJECT_ID`, valore: l'ID del progetto (`projectId` nella
+     configurazione della sezione 5).
 3. Cancella il file JSON dal computer: dà accesso amministrativo al progetto.
 
 Da quel momento, a ogni push su `main` il workflow "Regole Firestore" prova
