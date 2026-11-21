@@ -221,6 +221,24 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   segnalazione vale 3 punti, una conferma o una risposta 1. Toccando una
   segnalazione la mappa la mostra. Tutto si calcola dalle segnalazioni già
   lette: niente dati in più su Firestore.
+- Ringraziamenti a chi contribuisce, come l'email "Your week in review" di
+  Google Maps:
+  - dopo una segnalazione, una conferma o una risposta "si passa?" il
+    messaggio di grazie dice i punti guadagnati e quanti ne mancano al
+    livello dopo ("+1 punto. Ancora 6 punti per «Guida»."), oppure il nuovo
+    livello o il nuovo badge; "Vedi" apre "Le tue segnalazioni";
+  - 6 badge con l'avanzamento ("Fotoreporter": foto in 5 segnalazioni,
+    "Verificatore": 10 conferme o risposte, "Grazie di cuore": 5 grazie
+    ricevuti…) e "Il tuo prossimo badge è vicino!";
+  - "Aiuta ancora": un ostacolo entro 1 km, segnalato da altri, che nessuno
+    conferma da almeno 30 giorni, da verificare con un tocco;
+  - "La tua settimana": una volta a settimana, all'apertura, se nella
+    settimana prima (da lunedì a domenica) si è contribuito, l'app riassume
+    segnalazioni, foto, conferme, risposte e "non c'è più", la segnalazione
+    più recente, l'impatto (conferme e grazie ricevuti, ostacoli ancora
+    sulla mappa), il livello e il prossimo badge. Firestore non sa quando si
+    è confermato o risposto: l'ora di questi aiuti resta sul dispositivo,
+    per utente, insieme alla settimana già mostrata.
 - Bussola, come in Google Maps: il pallino della posizione ha un cono
   azzurro che indica dove guarda il telefono, e il pulsante con l'ago (sopra
   lo zoom) passa da "nord in alto" a "direzione in alto". In navigazione la

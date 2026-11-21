@@ -19,6 +19,7 @@ import '../models/route_option.dart';
 import '../models/route_preferences.dart';
 import '../models/travel_mode.dart';
 import '../services/along_route_service.dart';
+import '../services/contribution_log_service.dart';
 import '../services/entrance_report_service.dart';
 import '../services/geo_utils.dart';
 import '../services/geocoding_service.dart';
@@ -48,6 +49,7 @@ import '../services/voice_guidance.dart';
 import '../theme/app_theme.dart';
 import '../widgets/along_route_widgets.dart';
 import '../widgets/contributions_sheet.dart';
+import '../widgets/weekly_review_sheet.dart';
 import '../widgets/map_widgets.dart';
 import '../widgets/navigation_panel.dart';
 import '../widgets/navigation_prompts.dart';
@@ -98,6 +100,12 @@ class _MapScreenState extends State<MapScreen> {
   );
   final ArrivalQuestionPolicy _arrivalPolicy = ArrivalQuestionPolicy();
   final ThanksNotifier _thanksNotifier = ThanksNotifier();
+
+  /// Quando si è aiutato sulle segnalazioni altrui, per "La tua settimana".
+  final ContributionLogService _contributionLog = ContributionLogService();
+  bool _contributionLogLoaded = false;
+  bool _obstaclesLoaded = false;
+  bool _weeklyReviewChecked = false;
   final SpeechInput _speechInput = SpeechInput();
   final NearbyAccessibleService _nearbyService = NearbyAccessibleService();
   NearbySearch _nearby = const NearbySearch();
@@ -322,6 +330,13 @@ class _MapScreenState extends State<MapScreen> {
     _tripResume.load().then((trip) {
       if (mounted && trip != null) setState(() => _pendingTrip = trip);
     });
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId != null) {
+      _contributionLog.load(userId).then((_) {
+        _contributionLogLoaded = true;
+        _maybeShowWeeklyReview();
+      });
+    }
     _obstacleService.listen((obstacles) {
       // Gli ostacoli temporanei non confermati da tempo non compaiono né
       // sulla mappa né nel calcolo dei percorsi.
@@ -332,9 +347,11 @@ class _MapScreenState extends State<MapScreen> {
       setState(() {
         _obstacles = active;
         _allObstacles = obstacles;
+        _obstaclesLoaded = true;
       });
       _checkNewObstaclesOnRoute(active);
       _announceNewThanks(obstacles);
+      _maybeShowWeeklyReview();
     });
     _mapController.mapEventStream.listen((event) {
       if (!mounted) return;
@@ -381,7 +398,12 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  void _showSnack(String message, {Color? iconColor, required IconData icon}) {
+  void _showSnack(
+    String message, {
+    Color? iconColor,
+    required IconData icon,
+    SnackBarAction? action,
+  }) {
     final colors = AppColors.of(context);
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
@@ -390,7 +412,8 @@ class _MapScreenState extends State<MapScreen> {
         backgroundColor: Theme.of(context).brightness == Brightness.dark
             ? colors.surfaceElevated
             : AppPalette.snackBarLight,
-        duration: const Duration(seconds: 4),
+        duration: Duration(seconds: action == null ? 4 : 6),
+        action: action,
         content: Row(
           children: [
             Icon(icon, color: iconColor ?? Colors.white, size: 18),
@@ -1913,6 +1936,7 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
+    final before = _myContributions();
     bool photoSaved;
     try {
       photoSaved = await _obstacleService.add(
@@ -1941,19 +1965,16 @@ class _MapScreenState extends State<MapScreen> {
     }
     if (!mounted) return;
     if (!photoSaved) {
-      _showSnack(
+      _showThanks(
         'Ostacolo segnalato, ma la foto non è stata salvata. Grazie per il '
         'contributo!',
+        before,
         iconColor: AppColors.of(context).warning,
         icon: Icons.no_photography_outlined,
       );
       return;
     }
-    _showSnack(
-      'Ostacolo segnalato. Grazie per il contributo!',
-      iconColor: AppColors.of(context).success,
-      icon: Icons.check_circle_rounded,
-    );
+    _showThanks('Ostacolo segnalato. Grazie per il contributo!', before);
   }
 
   /// Segnala un ostacolo nella posizione dell'utente o, se non è nota, al
@@ -2050,20 +2071,120 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _confirmObstacle(Obstacle obstacle, String userId) async {
+    final before = _myContributions();
     try {
       await _obstacleService.confirm(obstacle.id, userId);
+      await _logHelp(userId, HelpKind.confirm, obstacle);
       if (!mounted) return;
-      _showSnack(
-        "Grazie! Hai confermato che l'ostacolo c'è ancora.",
-        iconColor: AppColors.of(context).success,
-        icon: Icons.check_circle_rounded,
-      );
+      _showThanks("Grazie! Hai confermato che l'ostacolo c'è ancora.", before);
     } catch (_) {
       if (!mounted) return;
       _showError(
         'Non è stato possibile registrare la conferma. Riprova.',
         Icons.error_outline_rounded,
       );
+    }
+  }
+
+  /// I propri contributi come li vede la scheda "Le tue segnalazioni".
+  Contributions? _myContributions() {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    return userId == null ? null : Contributions.of(_allObstacles, userId);
+  }
+
+  Future<void> _logHelp(String userId, HelpKind kind, Obstacle obstacle) =>
+      _contributionLog.add(
+        userId,
+        HelpEntry(kind, obstacle.id, DateTime.now()),
+      );
+
+  /// Ringrazia per un contributo dicendo i punti guadagnati e quanti ne
+  /// mancano al livello dopo, o il nuovo livello o badge, con "Vedi" per
+  /// aprire "Le tue segnalazioni". [before] sono i contributi di prima:
+  /// Firestore aggiorna subito le segnalazioni lette con la scrittura
+  /// appena fatta, quindi quelli di adesso la contano già.
+  void _showThanks(
+    String message,
+    Contributions? before, {
+    Color? iconColor,
+    IconData? icon,
+  }) {
+    final after = _myContributions();
+    final reward = before == null || after == null
+        ? null
+        : ContributionReward.between(before, after);
+    final extra = reward?.message ?? '';
+    _showSnack(
+      extra.isEmpty ? message : '$message $extra',
+      iconColor: iconColor ?? AppColors.of(context).success,
+      icon:
+          icon ??
+          (reward?.isMilestone ?? false
+              ? Icons.emoji_events_rounded
+              : Icons.check_circle_rounded),
+      action: extra.isEmpty
+          ? null
+          : SnackBarAction(
+              label: 'Vedi',
+              textColor: AppPalette.accent,
+              onPressed: _openContributions,
+            ),
+    );
+  }
+
+  /// Un ostacolo entro 1 km da te che nessuno conferma da 30 giorni.
+  VerifySuggestion? _verifySuggestion(String userId) {
+    final location = _userLocation;
+    if (location == null) return null;
+    return findVerifySuggestion(
+      _obstacles,
+      userId,
+      DateTime.now(),
+      (o) => haversineDistance(location, o.position),
+    );
+  }
+
+  /// All'apertura, una volta a settimana, "La tua settimana" con i
+  /// contributi della settimana prima, se ce ne sono stati.
+  Future<void> _maybeShowWeeklyReview() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (_weeklyReviewChecked ||
+        userId == null ||
+        !_obstaclesLoaded ||
+        !_contributionLogLoaded) {
+      return;
+    }
+    _weeklyReviewChecked = true;
+    final week = DateRange.previousWeek(DateTime.now());
+    final contributions = Contributions.of(_allObstacles, userId);
+    final review = WeeklyReview.of(
+      contributions,
+      _contributionLog.helps,
+      week,
+      userId,
+    );
+    if (review.isEmpty) return;
+    if (await _contributionLog.wasWeekShown(userId, week)) return;
+    if (!mounted || _isNavigating) return;
+    await _contributionLog.markWeekShown(userId, week);
+    if (!mounted) return;
+    final suggestion = _verifySuggestion(userId);
+    final action = await showWeeklyReviewSheet(
+      context,
+      review: review,
+      contributions: contributions,
+      suggestion: suggestion,
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case WeeklyReviewAction.contribute:
+        await _reportHere();
+      case WeeklyReviewAction.verify:
+        if (suggestion == null) return;
+        _mapController.move(suggestion.obstacle.position, 18);
+        await _openObstacle(suggestion.obstacle);
+      case WeeklyReviewAction.showAll:
+        await _openContributions();
     }
   }
 
@@ -2074,6 +2195,7 @@ class _MapScreenState extends State<MapScreen> {
     final picked = await showContributionsSheet(
       context,
       Contributions.of(_allObstacles, userId),
+      suggestion: _verifySuggestion(userId),
     );
     if (picked == null || !mounted) return;
     _mapController.move(picked.position, 18);
@@ -2143,6 +2265,9 @@ class _MapScreenState extends State<MapScreen> {
         hasPhoto: obstacle.hasPhoto,
       );
       _lastRemovalAt = DateTime.now();
+      if (!obstacle.isReportedBy(userId)) {
+        await _logHelp(userId, HelpKind.gone, obstacle);
+      }
       if (!mounted) return;
       _showSnack(
         'Ostacolo rimosso dalla mappa.',
@@ -2180,6 +2305,7 @@ class _MapScreenState extends State<MapScreen> {
     }
     try {
       await _obstacleService.voteNotThere(obstacle.id, userId);
+      await _logHelp(userId, HelpKind.gone, obstacle);
       if (!mounted) return;
       final hides =
           obstacle.notThereBy.length + 1 >= Obstacle.notThereVotesToHide;
@@ -2387,13 +2513,14 @@ class _MapScreenState extends State<MapScreen> {
     String userId,
     PassVote vote,
   ) async {
+    final before = _myContributions();
     try {
       await _obstacleService.votePass(obstacle.id, userId, vote);
+      await _logHelp(userId, HelpKind.pass, obstacle);
       if (!mounted) return;
-      _showSnack(
+      _showThanks(
         'Grazie! La tua risposta aiuta a scegliere i percorsi.',
-        iconColor: AppColors.of(context).success,
-        icon: Icons.check_circle_rounded,
+        before,
       );
     } catch (_) {
       if (!mounted) return;
