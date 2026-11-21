@@ -134,6 +134,7 @@ class PlaceAccessibilityService {
               as String?,
       entrances: entrances,
       disabledParkingMeters: parking,
+      openingHoursText: placeTags['opening_hours'] as String?,
     );
   }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/route_option.dart';
 import '../services/along_route_service.dart';
+import '../services/opening_hours.dart' show formatClock;
 import '../theme/app_theme.dart';
 
 /// Pannello in basso con i percorsi trovati e il pulsante "Avvia navigazione".
@@ -25,6 +26,8 @@ class RouteOptionsSheet extends StatelessWidget {
     this.onOpenPreferences,
     this.preferencesSummary,
     this.onShowSteps,
+    this.arrivalWarning,
+    this.now,
   });
 
   final List<RouteOption> routes;
@@ -63,6 +66,13 @@ class RouteOptionsSheet extends StatelessWidget {
 
   /// "Elenco indicazioni" del percorso scelto.
   final VoidCallback? onShowSteps;
+
+  /// "Potrebbe essere chiuso quando arrivi", secondo gli orari della
+  /// destinazione.
+  final String? arrivalWarning;
+
+  /// Ora di partenza per gli orari di arrivo; di solito adesso.
+  final DateTime? now;
 
   @override
   Widget build(BuildContext context) {
@@ -151,6 +161,7 @@ class RouteOptionsSheet extends StatelessWidget {
                   route: routes[index],
                   isSelected: index == selectedIndex,
                   onTap: () => onSelect(index),
+                  departure: now ?? DateTime.now(),
                 ),
               ),
             ),
@@ -176,6 +187,30 @@ class RouteOptionsSheet extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+              ),
+            if (arrivalWarning != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 2, 20, 2),
+                child: Semantics(
+                  liveRegion: true,
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.schedule_rounded,
+                        size: 16,
+                        color: colors.warning,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          arrivalWarning!,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colors.warning),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             if (selectedIndex < routes.length &&
@@ -352,17 +387,25 @@ class RouteCard extends StatelessWidget {
     required this.route,
     required this.isSelected,
     required this.onTap,
+    this.departure,
   });
 
   final RouteOption route;
   final bool isSelected;
   final VoidCallback onTap;
 
+  /// Con l'ora di partenza la scheda dice anche a che ora si arriva.
+  final DateTime? departure;
+
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final textTheme = Theme.of(context).textTheme;
     final badge = _obstacleBadge(context, route);
+    final start = departure;
+    final arrival = start == null
+        ? null
+        : formatClock(start.add(Duration(seconds: route.duration.round())));
 
     return GestureDetector(
       onTap: onTap,
@@ -385,14 +428,21 @@ class RouteCard extends StatelessWidget {
             Row(
               children: [
                 if (route.isRecommended)
-                  RecommendedChip(
-                    label: route.label.isNotEmpty ? route.label : 'Consigliato',
-                    color: colors.success,
-                    background: colors.successSoft,
-                    icon: Icons.verified_rounded,
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: RecommendedChip(
+                        label: route.label.isNotEmpty
+                            ? route.label
+                            : 'Consigliato',
+                        color: colors.success,
+                        background: colors.successSoft,
+                        icon: Icons.verified_rounded,
+                      ),
+                    ),
                   )
                 else
-                  Flexible(
+                  Expanded(
                     child: Text(
                       route.label.isNotEmpty
                           ? route.label
@@ -402,6 +452,16 @@ class RouteCard extends StatelessWidget {
                       style: textTheme.labelMedium,
                     ),
                   ),
+                if (arrival != null) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    'Arrivo $arrival',
+                    semanticsLabel: 'Arrivo alle $arrival',
+                    style: textTheme.labelMedium?.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                ],
               ],
             ),
             Row(
@@ -614,11 +674,16 @@ class RecommendedChip extends StatelessWidget {
         children: [
           Icon(icon, color: color, size: 12),
           const SizedBox(width: 4),
-          Text(
-            label,
-            style: Theme.of(
-              context,
-            ).textTheme.labelSmall?.copyWith(color: color, letterSpacing: 0.2),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: color,
+                letterSpacing: 0.2,
+              ),
+            ),
           ),
         ],
       ),

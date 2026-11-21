@@ -7,9 +7,12 @@ import 'info_sheet.dart';
 
 /// Barra superiore della mappa: logo, menu informazioni e logout.
 class TopBar extends StatelessWidget {
-  const TopBar({super.key, required this.onLogout});
+  const TopBar({super.key, required this.onLogout, this.onOpenContributions});
 
   final VoidCallback onLogout;
+
+  /// "Le tue segnalazioni"; senza, il pulsante non c'è.
+  final VoidCallback? onOpenContributions;
 
   @override
   Widget build(BuildContext context) {
@@ -62,6 +65,26 @@ class TopBar extends StatelessWidget {
               foreground: colors.textSecondary,
             ),
           ),
+          if (onOpenContributions != null) ...[
+            const SizedBox(width: 4),
+            Tooltip(
+              message: 'Le tue segnalazioni',
+              child: Semantics(
+                button: true,
+                label: 'Le tue segnalazioni',
+                excludeSemantics: true,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  onTap: onOpenContributions,
+                  child: CircleIconBadge(
+                    icon: Icons.emoji_events_outlined,
+                    background: colors.surfaceMuted,
+                    foreground: colors.textSecondary,
+                  ),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(width: 4),
           Tooltip(
             message: 'Esci',

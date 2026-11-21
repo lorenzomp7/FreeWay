@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/route_option.dart';
 import '../services/instruction_translator.dart';
 import '../services/navigation_service.dart';
+import '../services/opening_hours.dart' show formatClock;
 import '../theme/app_theme.dart';
 
 /// Pannello scuro con l'indicazione corrente durante la navigazione.
@@ -23,6 +24,8 @@ class NavigationPanel extends StatelessWidget {
     this.onShareTrip,
     this.isSharingTrip = false,
     this.isOffline = false,
+    this.remainingSeconds,
+    this.now,
   });
 
   final NavigationUpdate? update;
@@ -51,6 +54,12 @@ class NavigationPanel extends StatelessWidget {
 
   /// Il dispositivo è senza rete: la navigazione continua sul percorso.
   final bool isOffline;
+
+  /// Tempo che manca all'arrivo, per "Arrivo 10:42 · 12 min".
+  final double? remainingSeconds;
+
+  /// Adesso; per i test.
+  final DateTime? now;
 
   @override
   Widget build(BuildContext context) {
@@ -231,34 +240,37 @@ class NavigationPanel extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(
-                    width: 84,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 5,
-                        backgroundColor: Colors.white.withValues(alpha: 0.12),
-                        valueColor: const AlwaysStoppedAnimation(
-                          AppPalette.primaryLight,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   Text(
-                    '${(progress * 100).round()}%',
+                    _arrivalText(isItalian, arrived),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    semanticsLabel: _arrivalLabel(isItalian, arrived),
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.6),
+                      color: Colors.white.withValues(alpha: 0.72),
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 5,
+                      backgroundColor: Colors.white.withValues(alpha: 0.12),
+                      valueColor: const AlwaysStoppedAnimation(
+                        AppPalette.primaryLight,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
+            const SizedBox(width: 8),
             _NavIconButton(
               icon: isMuted
                   ? Icons.volume_off_rounded
@@ -349,6 +361,37 @@ class NavigationPanel extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+extension on NavigationPanel {
+  /// "Arrivo 10:42 · 12 min", come la riga in basso di Google Maps.
+  String _arrivalText(bool isItalian, bool arrived) {
+    final seconds = remainingSeconds;
+    final progress = '${((update?.progress ?? 0) * 100).round()}%';
+    if (arrived || seconds == null) return progress;
+    final at = formatClock(
+      (now ?? DateTime.now()).add(Duration(seconds: seconds.round())),
+    );
+    final minutes = (seconds / 60).ceil().clamp(1, 100000);
+    final left = minutes >= 60
+        ? '${minutes ~/ 60} h ${minutes % 60} min'
+        : '$minutes min';
+    return isItalian ? 'Arrivo $at · $left' : 'Arrive $at · $left';
+  }
+
+  String _arrivalLabel(bool isItalian, bool arrived) {
+    final seconds = remainingSeconds;
+    final progress = (((update?.progress ?? 0) * 100).round());
+    if (arrived || seconds == null) {
+      return isItalian ? 'Fatto il $progress%' : '$progress% done';
+    }
+    final at = formatClock(
+      (now ?? DateTime.now()).add(Duration(seconds: seconds.round())),
+    );
+    return isItalian
+        ? 'Arrivo previsto alle $at, fatto il $progress% del percorso'
+        : 'Arriving at $at, $progress% of the route done';
   }
 }
 

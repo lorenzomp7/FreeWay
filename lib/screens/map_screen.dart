@@ -11,6 +11,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/entrance_report.dart';
+import '../models/contributions.dart';
 import '../models/obstacle.dart';
 import '../models/place_accessibility.dart';
 import '../models/route_option.dart';
@@ -28,6 +29,7 @@ import '../services/obstacle_service.dart';
 import '../services/offline/connectivity.dart';
 import '../services/offline/offline_route_service.dart';
 import '../services/position_filter.dart';
+import '../services/opening_hours.dart';
 import '../services/place_accessibility_service.dart';
 import '../services/recent_places_service.dart';
 import '../services/saved_places_service.dart';
@@ -42,6 +44,7 @@ import '../services/tts_service.dart';
 import '../services/voice_guidance.dart';
 import '../theme/app_theme.dart';
 import '../widgets/along_route_widgets.dart';
+import '../widgets/contributions_sheet.dart';
 import '../widgets/map_widgets.dart';
 import '../widgets/navigation_panel.dart';
 import '../widgets/navigation_prompts.dart';
@@ -208,6 +211,10 @@ class _MapScreenState extends State<MapScreen> {
 
   List<Obstacle> _obstacles = [];
 
+  /// Tutte le segnalazioni lette, anche quelle nascoste: servono a "Le tue
+  /// segnalazioni" per dire perché una non si vede più.
+  List<Obstacle> _allObstacles = [];
+
   /// Ostacolo su cui si sta chiedendo "C'è ancora?" durante la navigazione.
   Obstacle? _verifyPrompt;
   Timer? _verifyTimer;
@@ -297,7 +304,10 @@ class _MapScreenState extends State<MapScreen> {
       // non esserci più.
       final active = obstacles.where((o) => !o.isHidden()).toList();
       if (!mounted) return;
-      setState(() => _obstacles = active);
+      setState(() {
+        _obstacles = active;
+        _allObstacles = obstacles;
+      });
       _checkNewObstaclesOnRoute(active);
       _announceNewThanks(obstacles);
     });
@@ -1196,8 +1206,20 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   /// Altezza stimata della scheda dei percorsi.
+  /// "Potrebbe essere chiuso quando arrivi", con gli orari della
+  /// destinazione presi da OpenStreetMap.
+  String? get _arrivalWarning {
+    if (_routes.isEmpty) return null;
+    final route = _routes[_selectedRouteIndex.clamp(0, _routes.length - 1)];
+    return arrivalOpeningWarning(
+      _placeAccessibility?.openingHours,
+      DateTime.now().add(Duration(seconds: route.duration.round())),
+    );
+  }
+
   double get _routeSheetHeight =>
       404 +
+      (_arrivalWarning == null ? 0 : 22) +
       (_routePrefsSummary == null ? 0 : 18) +
       (_routes.isNotEmpty &&
               _routes[_selectedRouteIndex.clamp(0, _routes.length - 1)]
@@ -1924,6 +1946,27 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  /// "Le tue segnalazioni": toccandone una la mappa la mostra.
+  Future<void> _openContributions() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    final picked = await showContributionsSheet(
+      context,
+      Contributions.of(_allObstacles, userId),
+    );
+    if (picked == null || !mounted) return;
+    _mapController.move(picked.position, 18);
+    if (_obstacles.any((o) => o.id == picked.id)) {
+      await _openObstacle(picked);
+    } else {
+      _showSnack(
+        'Questa segnalazione non è più sulla mappa: '
+        '${ReportStatus.of(picked, DateTime.now()).label.toLowerCase()}.',
+        icon: Icons.visibility_off_outlined,
+      );
+    }
+  }
+
   Future<void> _openObstacle(Obstacle obstacle) async {
     final userId = FirebaseAuth.instance.currentUser?.uid;
     final action = await showObstacleDetailsSheet(
@@ -2480,7 +2523,10 @@ class _MapScreenState extends State<MapScreen> {
               children: [
                 Row(
                   children: [
-                    TopBar(onLogout: () => FirebaseAuth.instance.signOut()),
+                    TopBar(
+                      onLogout: () => FirebaseAuth.instance.signOut(),
+                      onOpenContributions: _openContributions,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -2551,6 +2597,7 @@ class _MapScreenState extends State<MapScreen> {
             onShareTrip: _shareTrip,
             isSharingTrip: _tripShare.isSharing,
             isOffline: _isOffline,
+            remainingSeconds: _remaining(_navigationUpdate)?.$2,
           ),
         ),
       );
@@ -2767,6 +2814,7 @@ class _MapScreenState extends State<MapScreen> {
             onShowSteps: _showRouteSteps,
             offlineProgress: _offlineProgress,
             isSavedOffline: identical(_offlineSavedFor, _routePoints),
+            arrivalWarning: _arrivalWarning,
           ),
         ),
       );

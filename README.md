@@ -204,6 +204,23 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
 - "Elenco indicazioni" nella scheda dei percorsi, come "Steps" di Google
   Maps: tutte le svolte con le distanze prima di partire, lette una per una
   dai lettori di schermo ("Passo 2 di 5: …").
+- Orario di arrivo e orari di apertura, come in Google Maps: ogni percorso
+  dice a che ora si arriva ("Arrivo 10:42") e durante la navigazione il
+  pannello mostra "Arrivo 10:42 · 12 min". La scheda del luogo dice se è
+  aperto ("Aperto ora · chiude alle 19:00") leggendo il tag
+  `opening_hours` di OpenStreetMap, e la scheda dei percorsi avvisa
+  "Potrebbe essere chiuso quando arrivi" o "Chiude poco dopo il tuo
+  arrivo". Si capisce solo la forma più comune degli orari (giorni e fasce
+  orarie, `24/7`, `off`): quelli più complessi e i festivi non si
+  indovinano e l'app non dice niente.
+- "Le tue segnalazioni" (icona con la coppa in alto): le proprie
+  segnalazioni, anche quelle nascoste, con il motivo (non confermate da
+  tempo, o altre persone dicono che non ci sono più), le conferme, i
+  "grazie" e le risposte "si passa?" ricevute, e gli aiuti dati agli altri.
+  Un livello, come le "Guide locali" di Google Maps ma senza premi: una
+  segnalazione vale 3 punti, una conferma o una risposta 1. Toccando una
+  segnalazione la mappa la mostra. Tutto si calcola dalle segnalazioni già
+  lette: niente dati in più su Firestore.
 - "Segnala un ostacolo a voce" (pulsante col microfono, anche durante la
   navigazione): si dice il tipo di ostacolo ("gradino", "auto sul
   marciapiede", "cantiere"…) e l'app lo riconosce dalle parole chiave, in
