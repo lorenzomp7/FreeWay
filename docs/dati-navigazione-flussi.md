@@ -70,8 +70,8 @@ Alternative valutate:
 
 - **Informativa** ("Privacy" nel menu informazioni e nella schermata di
   accesso): titolare, dati trattati, base giuridica, servizi esterni, dati sul
-  dispositivo, diritti e reclamo al Garante. Il contatto si passa in fase di
-  build con `--dart-define=PRIVACY_CONTACT=...`.
+  dispositivo, diritti e reclamo al Garante. Titolare e contatto si scrivono in
+  `lib/models/info_page.dart`.
 - **"I tuoi dati"** (menu informazioni):
   - *Copia i miei dati*: un JSON con profilo, proprie segnalazioni, conferme,
     voti e "grazie" dati, risposte sugli ingressi, viaggi condivisi, limiti e
@@ -90,17 +90,22 @@ Alternative valutate:
   - `limiti/{uid}` si cancella solo quando i tempi minimi sono già passati,
     così cancellarlo non serve a saltare l'attesa tra due segnalazioni.
 
-Le regole nuove vanno pubblicate a mano:
-
-```bash
-firebase deploy --only firestore:rules --project progetto-rimosso
-```
+Le regole si pubblicano da sole a ogni push su `main` quando il repository ha
+il secret `FIREBASE_SERVICE_ACCOUNT` e la variabile `FIREBASE_PROJECT_ID`
+([come impostare il progetto Firebase](firebase-setup.md)).
 
 ### Cosa resta da fare (non è codice)
 
-1. **Titolare del trattamento.** Il team Enactus non è un ente giuridico:
-   decidere chi è il titolare (associazione, università, una persona) e
-   indicare un contatto (`PRIVACY_CONTACT`).
+1. **Titolare del trattamento.** Il team Enactus non è un ente giuridico.
+   Può esserlo una persona fisica, anche uno studente come privato (art. 4,
+   punto 7 GDPR: "la persona fisica o giuridica… che determina le finalità e
+   i mezzi"). Ne risponde personalmente: deve rispondere alle richieste
+   entro un mese e notificare le violazioni. Alternative: più persone del
+   team come contitolari (serve un accordo scritto, art. 26), un'associazione
+   (Enactus Italia, se disponibile, o una nuova associazione quando il
+   progetto cresce), l'università (solo se adotta formalmente il progetto).
+   Nome e contatto vanno in `kPrivacyController` e `kPrivacyContact`
+   (`lib/models/info_page.dart`); meglio un'email dedicata al progetto.
 2. **Accettare i termini di trattamento di Firebase** nelle impostazioni del
    progetto (Privacy) e inserire i contatti richiesti.
 3. **Registro dei trattamenti** (art. 30): una pagina con finalità, dati,

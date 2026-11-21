@@ -19,19 +19,20 @@ class InfoPage {
   final String footer;
 }
 
-/// Contatto per la privacy, passato in fase di build con
-/// `--dart-define=PRIVACY_CONTACT=...` (per esempio un'email del team).
-const String kPrivacyContact = String.fromEnvironment('PRIVACY_CONTACT');
-
+/// Titolare del trattamento e contatto mostrati nell'informativa.
+/// Il titolare può essere una persona fisica (nome e cognome) o un ente.
+/// Da compilare qui; restano vuoti finché non si decide.
+const String kPrivacyController = '';
+const String kPrivacyContact = '';
 /// Informativa sul trattamento dei dati (artt. 13 e 14 GDPR), in breve.
 const InfoPage privacyPage = InfoPage(
   title: 'Privacy',
   subtitle: 'Quali dati usa FREE WAY e come eliminarli',
   icon: Icons.privacy_tip_outlined,
   paragraphs: [
-    'Titolare del trattamento è il team FREE WAY di Enactus UniBs '
-        "(Università degli Studi di Brescia). Per domande o per esercitare i "
-        'tuoi diritti: '
+    'Titolare del trattamento: '
+        '${kPrivacyController == '' ? 'il team FREE WAY di Enactus UniBs (Università degli Studi di Brescia)' : '$kPrivacyController, per il progetto FREE WAY di Enactus UniBs'}. '
+        'Per domande o per esercitare i tuoi diritti: '
         '${kPrivacyContact == '' ? 'scrivi al team (vedi "Chi siamo")' : kPrivacyContact}.',
     'Account e segnalazioni sono salvati su Google Firebase (Authentication '
         'e Cloud Firestore), che li tratta per conto nostro secondo i '

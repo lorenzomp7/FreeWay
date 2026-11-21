@@ -1,5 +1,8 @@
-name: Test regole Firestore
-# Prova firestore.rules con l'emulatore di Firestore. Non pubblica nulla.
+name: Regole Firestore
+# Prova firestore.rules con l'emulatore di Firestore. Sui push a main, se le
+# prove passano e il repository ha il secret FIREBASE_SERVICE_ACCOUNT e la
+# variabile FIREBASE_PROJECT_ID, pubblica le regole su quel progetto
+# (vedi docs/firebase-setup.md). Senza, non pubblica nulla.
 on:
   push:
     branches: [main]
@@ -28,3 +31,43 @@ jobs:
           java-version: 21
       - run: npm ci
       - run: npm test
+
+  deploy-rules:
+    needs: rules-test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+    steps:
+      - name: Controlla la configurazione
+        id: check
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ] || [ -z "$FIREBASE_PROJECT_ID" ]; then
+            echo "::notice::Manca FIREBASE_SERVICE_ACCOUNT o FIREBASE_PROJECT_ID: regole non pubblicate."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.enabled == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.enabled == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: firestore_tests/package-lock.json
+      - if: steps.check.outputs.enabled == 'true'
+        run: npm ci --prefix firestore_tests
+      - name: Pubblica firestore.rules
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          credentials="$RUNNER_TEMP/firebase-key.json"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$credentials"
+          export GOOGLE_APPLICATION_CREDENTIALS="$credentials"
+          firestore_tests/node_modules/.bin/firebase deploy \
+            --only firestore:rules \
+            --project "$FIREBASE_PROJECT_ID" \
+            --non-interactive
+          rm -f "$credentials"
