@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/entrance_report.dart';
@@ -26,6 +27,8 @@ import '../services/navigation_service.dart';
 import '../services/obstacle_alerts.dart';
 import '../services/nearby_accessible_service.dart';
 import '../services/obstacle_service.dart';
+import '../services/compass/compass.dart';
+import '../services/heading.dart';
 import '../services/offline/connectivity.dart';
 import '../services/offline/offline_route_service.dart';
 import '../services/position_filter.dart';
@@ -122,6 +125,18 @@ class _MapScreenState extends State<MapScreen> {
   final Connectivity _connectivity = Connectivity();
   StreamSubscription<bool>? _connectivitySubscription;
   bool _isOffline = false;
+
+  /// Bussola: cono sul pallino e mappa orientata dove si guarda.
+  final Compass _compass = Compass();
+  StreamSubscription<double>? _compassSubscription;
+  final HeadingSmoother _headingSmoother = HeadingSmoother();
+  double? _deviceHeading;
+  DateTime _lastHeadingUpdate = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// "Direzione in alto" invece di "nord in alto"; resta sul dispositivo.
+  bool _headingUp = false;
+  double _mapRotation = 0;
+  static const String _headingUpKey = 'freeway.heading_up';
 
   /// Avanzamento del salvataggio (fatte, totali), `null` se fermo.
   (int, int)? _offlineProgress;
@@ -294,6 +309,16 @@ class _MapScreenState extends State<MapScreen> {
     });
     _isOffline = !_connectivity.isOnline;
     _connectivitySubscription = _connectivity.changes.listen(_onConnectivity);
+    if (_compass.isSupported) {
+      _compassSubscription = _compass.headings.listen(_onCompassHeading);
+    }
+    SharedPreferences.getInstance()
+        .then((prefs) {
+          if (mounted && prefs.getBool(_headingUpKey) == true) {
+            setState(() => _headingUp = true);
+          }
+        })
+        .catchError((_) {});
     _tripResume.load().then((trip) {
       if (mounted && trip != null) setState(() => _pendingTrip = trip);
     });
@@ -314,6 +339,7 @@ class _MapScreenState extends State<MapScreen> {
     _mapController.mapEventStream.listen((event) {
       if (!mounted) return;
       _center = event.camera.center;
+      _mapRotation = event.camera.rotation;
       _zoom = event.camera.zoom;
     });
   }
@@ -333,6 +359,7 @@ class _MapScreenState extends State<MapScreen> {
     if (_tripShare.isSharing) unawaited(_tripShare.stop());
     _tripShare.dispose();
     _connectivitySubscription?.cancel();
+    _compassSubscription?.cancel();
     _offlineRoute.dispose();
     _obstacleService.dispose();
     _geocodingService.dispose();
@@ -1299,6 +1326,96 @@ class _MapScreenState extends State<MapScreen> {
     _navigationService.start(route);
   }
 
+  // --- Bussola e mappa orientata ----------------------------------------
+
+  void _onCompassHeading(double raw) {
+    final heading = _headingSmoother.add(raw);
+    final now = DateTime.now();
+    final previous = _deviceHeading;
+    // Al massimo dieci aggiornamenti al secondo, e solo se cambia davvero.
+    if (previous != null &&
+        (now.difference(_lastHeadingUpdate) <
+                const Duration(milliseconds: 100) ||
+            angleDifference(previous, heading).abs() < 2)) {
+      return;
+    }
+    _lastHeadingUpdate = now;
+    if (!mounted) return;
+    setState(() => _deviceHeading = heading);
+    if (_headingUp && !_isNavigating) _applyMapRotation();
+  }
+
+  /// Direzione da tenere in alto: in navigazione quella del percorso (più
+  /// stabile della bussola, che risente di ferro e magneti), altrimenti
+  /// quella del telefono.
+  double? get _upHeading {
+    if (_isNavigating) {
+      final at =
+          _navigationUpdate?.snappedPosition ?? _navigationUpdate?.position;
+      final routeHeading = at == null ? null : routeBearingAt(_routePoints, at);
+      return routeHeading ?? _deviceHeading;
+    }
+    return _deviceHeading;
+  }
+
+  /// Direzione del cono sul pallino: la bussola o, senza, il verso del
+  /// percorso durante la navigazione.
+  double? get _coneHeading =>
+      _deviceHeading ?? (_isNavigating ? _upHeading : null);
+
+  void _applyMapRotation({LatLng? center, double? zoom}) {
+    final up = _headingUp ? _upHeading : null;
+    final target = up == null ? 0.0 : -up;
+    final turn = angleDifference(_mapRotation, target).abs() >= 3;
+    try {
+      if (center != null) {
+        _mapController.moveAndRotate(
+          center,
+          zoom ?? _mapController.camera.zoom,
+          turn ? target : _mapRotation,
+        );
+      } else if (turn) {
+        _mapController.rotate(target);
+      } else {
+        return;
+      }
+      _mapRotation = _mapController.camera.rotation;
+    } catch (_) {
+      // La mappa non è ancora pronta.
+    }
+  }
+
+  Future<void> _toggleHeadingUp() async {
+    final enable = !_headingUp;
+    // Se la bussola risponde già, il permesso c'è.
+    if (enable && !_isNavigating && _deviceHeading == null) {
+      final allowed = await _compass.requestPermission();
+      if (!mounted) return;
+      if (!allowed) {
+        _showSnack(
+          'Il browser non permette di leggere la bussola: la mappa resta '
+          'con il nord in alto.',
+          icon: Icons.explore_off_outlined,
+        );
+        return;
+      }
+      if (_deviceHeading == null) {
+        _showSnack(
+          'Gira un po\' il telefono: appena la bussola risponde la mappa si '
+          'orienta nella tua direzione.',
+          icon: Icons.explore_outlined,
+        );
+      }
+    }
+    setState(() => _headingUp = enable);
+    _applyMapRotation();
+    // La rotazione gira intorno al centro: il percorso va rimesso in vista.
+    if (_routes.isNotEmpty && !_isNavigating) _fitRoute();
+    SharedPreferences.getInstance()
+        .then((prefs) => prefs.setBool(_headingUpKey, enable))
+        .catchError((_) => false);
+  }
+
   void _onNavigationUpdate(NavigationUpdate update) {
     if (!mounted || !_isNavigating) return;
     final signalBack = _gpsSignalLost;
@@ -1318,9 +1435,10 @@ class _MapScreenState extends State<MapScreen> {
     });
     _restartGpsWatchdog();
     // Senza rete si resta allo zoom delle tile salvate per il percorso.
-    _mapController.move(
-      update.position,
-      _isOffline && _offlineRoute.hasSavedRoute
+    // Con "direzione in alto" la mappa gira nel verso del percorso.
+    _applyMapRotation(
+      center: update.position,
+      zoom: _isOffline && _offlineRoute.hasSavedRoute
           ? OfflineRouteService.offlineZoom
           : 17.5,
     );
@@ -1661,6 +1779,9 @@ class _MapScreenState extends State<MapScreen> {
       _closeDeviationPromptInState();
       _clearRouteAlert();
     });
+    // Senza navigazione la mappa segue la bussola o torna con il nord in
+    // alto.
+    _applyMapRotation();
     _fitRoute();
   }
 
@@ -2106,8 +2227,12 @@ class _MapScreenState extends State<MapScreen> {
     setState(() => _verifyPrompt = obstacle);
     _ttsService.speak(
       _voiceLanguage == 'it'
-          ? "C'è ancora questo ostacolo? ${obstacle.type}"
-          : 'Is this obstacle still there?',
+          ? (obstacle.isOutOfService
+                ? "È ancora fuori servizio? ${obstacle.type}"
+                : "C'è ancora questo ostacolo? ${obstacle.type}")
+          : (obstacle.isOutOfService
+                ? 'Is the lift or ramp still out of service?'
+                : 'Is this obstacle still there?'),
       _voiceLanguage,
     );
     // Senza risposta la domanda sparisce da sola.
@@ -2680,6 +2805,17 @@ class _MapScreenState extends State<MapScreen> {
         duration: const Duration(milliseconds: 240),
         curve: Curves.easeOutCubic,
         child: MapControls(
+          // Il pulsante della bussola compare quando serve: in navigazione,
+          // con la bussola che risponde o con la mappa già ruotata.
+          compass:
+              choosing == null &&
+                  (_isNavigating || _deviceHeading != null || _headingUp)
+              ? CompassButton(
+                  mapRotation: _mapRotation,
+                  headingUp: _headingUp,
+                  onPressed: _toggleHeadingUp,
+                )
+              : null,
           onZoomIn: _zoomIn,
           onZoomOut: _zoomOut,
           onLocate: () => _locateUser(showErrors: true),
@@ -2960,6 +3096,7 @@ class _MapScreenState extends State<MapScreen> {
       MarkerClusterLayerWidget(
         options: MarkerClusterLayerOptions(
           maxClusterRadius: 45,
+          rotate: true,
           size: const Size(40, 40),
           alignment: Alignment.center,
           padding: const EdgeInsets.all(50),
@@ -2969,6 +3106,7 @@ class _MapScreenState extends State<MapScreen> {
                   point: obstacle.position,
                   width: 40,
                   height: 40,
+                  rotate: true,
                   child: ObstacleMarker(
                     color: obstacle.color,
                     icon: obstacle.icon,
@@ -2985,6 +3123,8 @@ class _MapScreenState extends State<MapScreen> {
 
     layers.add(
       MarkerLayer(
+        // Con la mappa ruotata le icone restano dritte.
+        rotate: true,
         markers: [
           if (_startPoint != null && _choosingOnMapFor != true)
             Marker(
@@ -3054,9 +3194,11 @@ class _MapScreenState extends State<MapScreen> {
           if (_userLocation != null)
             Marker(
               point: _userLocation!,
-              width: 46,
-              height: 46,
-              child: const UserLocationDot(),
+              width: 72,
+              height: 72,
+              // Gira con la mappa: il cono punta così nella direzione vera.
+              rotate: false,
+              child: UserLocationDot(heading: _coneHeading),
             ),
         ],
       ),

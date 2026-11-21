@@ -28,6 +28,11 @@ void main() {
       'incrocio pericoloso, poca visibilità':
           'Incrocio o passaggio con scarsa visibilità',
       'parked car on the ramp': 'Auto parcheggiata su scivolo o marciapiede',
+      'l\'ascensore è rotto': 'Ascensore o rampa fuori servizio',
+      'ascensore fuori servizio': 'Ascensore o rampa fuori servizio',
+      'la rampa mobile è guasta': 'Ascensore o rampa fuori servizio',
+      'lift out of order': 'Ascensore o rampa fuori servizio',
+      'non c\'è l\'ascensore': 'Mancanza di rampa/ascensore',
       'stairs': 'Gradino che rende impossibile il passaggio',
     };
     cases.forEach((spoken, type) {

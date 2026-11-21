@@ -2,6 +2,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 
+/// Ascensore o rampa mobile che di solito c'è ma oggi non funziona, come
+/// gli avvisi "Elevator out of service" di Google Maps per le stazioni.
+const String kOutOfServiceType = 'Ascensore o rampa fuori servizio';
+
 /// Tipologie di ostacolo selezionabili, raggruppate per categoria.
 const Map<String, List<String>> obstacleTypesByCategory = {
   'Dislivello e pavimentazione': [
@@ -21,6 +25,7 @@ const Map<String, List<String>> obstacleTypesByCategory = {
     'Mancanza di segnaletica adeguata',
   ],
   'Ostacoli temporanei': [
+    kOutOfServiceType,
     'Auto parcheggiata su scivolo o marciapiede',
     'Cantieri con percorsi accessibili bloccati',
     'Rifiuti o ingombri che ostruiscono il passaggio',
@@ -220,11 +225,16 @@ class Obstacle {
   /// Un cantiere dura settimane.
   static const Duration worksLifetime = Duration(days: 30);
 
+  /// Un ascensore guasto di solito si ripara in un paio di giorni: se
+  /// nessuno conferma che è ancora fermo, l'avviso sparisce presto.
+  static const Duration outOfServiceLifetime = Duration(days: 2);
+
   /// Dopo quanto tempo senza conferme sparisce questo ostacolo, secondo il
   /// tipo; `null` per gli ostacoli permanenti. Ogni conferma fa ripartire
   /// il conteggio.
   Duration? get lifetime {
     if (!isTemporary) return null;
+    if (isOutOfService) return outOfServiceLifetime;
     if (_has('Auto') || _has('parcheggiata')) return parkedCarLifetime;
     if (_has('Cantieri')) return worksLifetime;
     if (_has('Rifiuti') || _has('ingombri')) return clutterLifetime;
@@ -233,6 +243,9 @@ class Obstacle {
 
   /// Auto in sosta, cantieri e ingombri: ostacoli destinati a sparire.
   bool get isTemporary => category == 'Ostacoli temporanei';
+
+  /// Ascensore o rampa fuori servizio.
+  bool get isOutOfService => type == kOutOfServiceType;
 
   /// Ultima volta che qualcuno ha segnalato o confermato l'ostacolo.
   DateTime? get lastSeenAt {

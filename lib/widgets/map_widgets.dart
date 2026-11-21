@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
@@ -71,7 +73,11 @@ class MapControls extends StatelessWidget {
     this.onReport,
     this.onVoiceReport,
     this.isListening = false,
+    this.compass,
   });
+
+  /// Pulsante della bussola, sopra lo zoom; `null` per nasconderlo.
+  final Widget? compass;
 
   final VoidCallback onZoomIn;
   final VoidCallback onZoomOut;
@@ -101,6 +107,7 @@ class MapControls extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
+        if (compass != null) ...[compass!, const SizedBox(height: 8)],
         Container(
           clipBehavior: Clip.antiAlias,
           decoration: decoration(),
@@ -463,7 +470,12 @@ class _PinTipPainter extends CustomPainter {
 
 /// Punto blu pulsante con la posizione dell'utente.
 class UserLocationDot extends StatefulWidget {
-  const UserLocationDot({super.key});
+  const UserLocationDot({super.key, this.heading});
+
+  /// Dove si guarda, in gradi dal nord: disegna il cono azzurro come in
+  /// Google Maps. Il segnaposto gira con la mappa, quindi il cono punta
+  /// sempre nella direzione giusta anche a mappa ruotata.
+  final double? heading;
 
   @override
   State<UserLocationDot> createState() => _UserLocationDotState();
@@ -497,8 +509,11 @@ class _UserLocationDotState extends State<UserLocationDot>
 
   @override
   Widget build(BuildContext context) {
+    final heading = widget.heading;
     return Semantics(
-      label: 'La tua posizione',
+      label: heading == null
+          ? 'La tua posizione'
+          : 'La tua posizione, guardi verso ${compassPointName(heading)}',
       excludeSemantics: true,
       child: AnimatedBuilder(
         animation: _controller,
@@ -508,6 +523,14 @@ class _UserLocationDotState extends State<UserLocationDot>
           return Stack(
             alignment: Alignment.center,
             children: [
+              if (heading != null)
+                Transform.rotate(
+                  angle: heading * math.pi / 180,
+                  child: const CustomPaint(
+                    size: Size(72, 72),
+                    painter: _HeadingConePainter(AppPalette.userBlue),
+                  ),
+                ),
               Container(
                 width: size,
                 height: size,
@@ -539,6 +562,144 @@ class _UserLocationDotState extends State<UserLocationDot>
       ),
     );
   }
+}
+
+/// Cono che parte dal centro e si apre verso l'alto (il nord prima della
+/// rotazione), sfumando verso l'esterno.
+class _HeadingConePainter extends CustomPainter {
+  const _HeadingConePainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = size.width / 2;
+    const half = 32 * math.pi / 180;
+    final path = Path()
+      ..moveTo(center.dx, center.dy)
+      ..arcTo(
+        Rect.fromCircle(center: center, radius: radius),
+        -math.pi / 2 - half,
+        2 * half,
+        false,
+      )
+      ..close();
+    final paint = Paint()
+      ..shader = RadialGradient(
+        colors: [color.withValues(alpha: 0.45), color.withValues(alpha: 0)],
+      ).createShader(Rect.fromCircle(center: center, radius: radius));
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_HeadingConePainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
+/// "nord", "nord-est"… per i lettori di schermo.
+String compassPointName(double heading) {
+  const names = [
+    'nord',
+    'nord-est',
+    'est',
+    'sud-est',
+    'sud',
+    'sud-ovest',
+    'ovest',
+    'nord-ovest',
+  ];
+  final index = (((heading % 360) + 360) % 360 / 45).round() % 8;
+  return names[index];
+}
+
+/// Pulsante della bussola: l'ago indica il nord della mappa. Toccandolo la
+/// mappa passa da "nord in alto" a "direzione in alto" e viceversa.
+class CompassButton extends StatelessWidget {
+  const CompassButton({
+    super.key,
+    required this.mapRotation,
+    required this.headingUp,
+    required this.onPressed,
+  });
+
+  /// Rotazione della mappa in gradi (quella di flutter_map).
+  final double mapRotation;
+  final bool headingUp;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final label = headingUp
+        ? 'Mappa orientata nella tua direzione. Tocca per tenere il nord in alto'
+        : 'Mappa con il nord in alto. Tocca per orientarla nella tua direzione';
+    return Semantics(
+      button: true,
+      toggled: headingUp,
+      label: label,
+      excludeSemantics: true,
+      onTap: onPressed,
+      child: Tooltip(
+        message: headingUp ? 'Nord in alto' : 'Orienta nella tua direzione',
+        child: Material(
+          color: colors.surface,
+          shape: CircleBorder(side: BorderSide(color: colors.border)),
+          elevation: 2,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onPressed,
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Transform.rotate(
+                angle: mapRotation * math.pi / 180,
+                child: CustomPaint(
+                  painter: _CompassNeedlePainter(
+                    north: AppPalette.primary,
+                    south: colors.textTertiary,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CompassNeedlePainter extends CustomPainter {
+  const _CompassNeedlePainter({required this.north, required this.south});
+
+  final Color north;
+  final Color south;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    const w = 6.0, h = 14.0;
+    canvas.drawPath(
+      Path()
+        ..moveTo(c.dx, c.dy - h)
+        ..lineTo(c.dx + w, c.dy)
+        ..lineTo(c.dx - w, c.dy)
+        ..close(),
+      Paint()..color = north,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(c.dx, c.dy + h)
+        ..lineTo(c.dx + w, c.dy)
+        ..lineTo(c.dx - w, c.dy)
+        ..close(),
+      Paint()..color = south,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_CompassNeedlePainter oldDelegate) =>
+      oldDelegate.north != north || oldDelegate.south != south;
 }
 
 /// Icona di un ostacolo sulla mappa.

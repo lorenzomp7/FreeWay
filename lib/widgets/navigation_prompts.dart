@@ -103,23 +103,24 @@ class ObstacleVerifyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final lift = obstacle.isOutOfService;
     return _PromptCard(
       icon: obstacle.icon,
       iconColor: obstacle.color,
-      title: "C'è ancora?",
+      title: lift ? 'È ancora fuori servizio?' : "C'è ancora?",
       message: '${obstacle.type}. La tua risposta aiuta chi passa dopo di te.',
       onClose: onSkip,
       actions: [
         FilledButton.icon(
           onPressed: onStillThere,
           icon: const Icon(Icons.check_rounded, size: 18),
-          label: const Text("C'è ancora"),
+          label: Text(lift ? 'Ancora fermo' : "C'è ancora"),
         ),
         if (canRemove)
           OutlinedButton.icon(
             onPressed: onGone,
             icon: const Icon(Icons.remove_done_rounded, size: 18),
-            label: const Text("Non c'è più"),
+            label: Text(lift ? 'Funziona di nuovo' : "Non c'è più"),
           ),
         TextButton(onPressed: onSkip, child: const Text('Non so')),
       ],

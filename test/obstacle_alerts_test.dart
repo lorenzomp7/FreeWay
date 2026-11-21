@@ -95,6 +95,27 @@ void main() {
       expect(answers, ['si', 'no', 'boh']);
     });
 
+    testWidgets('ascensore fuori servizio: domande adatte', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          ObstacleVerifyCard(
+            obstacle: Obstacle(
+              id: 'l',
+              position: const LatLng(45.54, 10.22),
+              type: kOutOfServiceType,
+            ),
+            canRemove: true,
+            onStillThere: () {},
+            onGone: () {},
+            onSkip: () {},
+          ),
+        ),
+      );
+      expect(find.text('È ancora fuori servizio?'), findsOneWidget);
+      expect(find.text('Ancora fermo'), findsOneWidget);
+      expect(find.text('Funziona di nuovo'), findsOneWidget);
+    });
+
     testWidgets(
       "un ospite non vede \"Non c'è più\" sulle segnalazioni altrui",
       (tester) async {

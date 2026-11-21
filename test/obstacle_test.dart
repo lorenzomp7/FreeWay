@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:freeway/models/obstacle.dart';
 import 'package:freeway/services/obstacle_service.dart';
@@ -130,6 +131,16 @@ void main() {
       final works = make('Cantieri con percorsi accessibili bloccati');
       expect(works.expiresAt, DateTime(2025, 3, 31));
       expect(works.isExpired(DateTime(2025, 3, 20)), isFalse);
+    });
+
+    test('un ascensore fuori servizio scade dopo 2 giorni', () {
+      final lift = make(kOutOfServiceType);
+      expect(lift.isTemporary, isTrue);
+      expect(lift.isOutOfService, isTrue);
+      expect(lift.category, 'Ostacoli temporanei');
+      expect(lift.lifetime, const Duration(days: 2));
+      expect(lift.expiresAt, reported.add(const Duration(days: 2)));
+      expect(lift.icon, Icons.elevator_outlined);
     });
 
     test('un temporaneo di tipo non noto scade dopo 14 giorni', () {

@@ -221,6 +221,19 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   segnalazione vale 3 punti, una conferma o una risposta 1. Toccando una
   segnalazione la mappa la mostra. Tutto si calcola dalle segnalazioni già
   lette: niente dati in più su Firestore.
+- Bussola, come in Google Maps: il pallino della posizione ha un cono
+  azzurro che indica dove guarda il telefono, e il pulsante con l'ago (sopra
+  lo zoom) passa da "nord in alto" a "direzione in alto". In navigazione la
+  mappa gira nel verso del percorso, più stabile della bussola; le icone
+  restano dritte. Nel browser si usa l'orientamento del dispositivo (su
+  iPhone Safari chiede il permesso al primo tocco); la scelta resta sul
+  dispositivo. Il pulsante compare solo quando la bussola risponde o
+  durante la navigazione.
+- "Ascensore o rampa fuori servizio" tra gli ostacoli temporanei: sparisce
+  dopo 2 giorni se nessuno conferma che è ancora fermo, e le domande
+  diventano "È ancora fuori servizio?" con "Ancora fermo" e "Funziona di
+  nuovo". A voce basta dire "l'ascensore è rotto"; "non c'è l'ascensore"
+  resta "Mancanza di rampa/ascensore". Le regole di Firestore non cambiano.
 - "Segnala un ostacolo a voce" (pulsante col microfono, anche durante la
   navigazione): si dice il tipo di ostacolo ("gradino", "auto sul
   marciapiede", "cantiere"…) e l'app lo riconosce dalle parole chiave, in

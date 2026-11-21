@@ -684,7 +684,9 @@ class ObstacleDetailsSheet extends StatelessWidget {
                     icon: const Icon(Icons.visibility_outlined, size: 19),
                     label: Text(
                       obstacle.canBeConfirmedBy(currentUserId)
-                          ? "Confermo, c'è ancora"
+                          ? (obstacle.isOutOfService
+                                ? 'Confermo, è ancora fermo'
+                                : "Confermo, c'è ancora")
                           : 'Hai già confermato questo ostacolo',
                     ),
                   ),
@@ -697,7 +699,11 @@ class ObstacleDetailsSheet extends StatelessWidget {
                     Icons.check_circle_outline_rounded,
                     size: 19,
                   ),
-                  label: const Text("L'ostacolo non c'è più"),
+                  label: Text(
+                    obstacle.isOutOfService
+                        ? 'Funziona di nuovo'
+                        : "L'ostacolo non c'è più",
+                  ),
                   style: FilledButton.styleFrom(
                     backgroundColor: colors.successSoft,
                     foregroundColor: colors.success,

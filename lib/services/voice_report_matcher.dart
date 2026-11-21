@@ -11,6 +11,22 @@ const Map<String, List<String>> _keywords = {
     'elevator',
     'lift',
   ],
+  // Dopo "Mancanza di rampa/ascensore": "c'è l'ascensore" resta quello,
+  // "l'ascensore è rotto" diventa questo.
+  kOutOfServiceType: [
+    'ascensor',
+    'rampa',
+    'elevator',
+    'lift',
+    'rott',
+    'guast',
+    'fuori',
+    'servizi',
+    'fermo',
+    'broken',
+    'order',
+    'service',
+  ],
   'Gradino che rende impossibile il passaggio': [
     'gradin',
     'scalin',
