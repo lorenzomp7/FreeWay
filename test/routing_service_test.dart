@@ -151,6 +151,30 @@ void main() {
       },
     );
 
+    test(
+      'in sedia a rotelle non evita un ostacolo che si dice superabile',
+      () async {
+        var calls = 0;
+        final client = MockClient((request) async {
+          calls++;
+          return http.Response(jsonEncode(straight), 200);
+        });
+        final service = RoutingService(client: client, orsApiKey: 'test-key');
+        final passable = Obstacle(
+          id: 'o1',
+          position: obstacle.position,
+          type: obstacle.type,
+          passYesBy: const ['a', 'b'],
+          passNoBy: const ['c'],
+        );
+
+        final routes = await service.getRoutes(start, end, [passable]);
+
+        expect(calls, 1);
+        expect(routes.single.obstacleCount, 0);
+      },
+    );
+
     test('senza ostacoli vicini fa una sola richiesta', () async {
       var calls = 0;
       final client = MockClient((request) async {

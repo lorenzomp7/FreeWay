@@ -38,6 +38,12 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
      da solo e si sceglie il mezzo: "Sedia a rotelle" o "A piedi". Ogni
      campo propone "La tua posizione", "Scegli sulla mappa" (sposti la mappa
      sotto il segnaposto e premi "Fatto") e le ricerche recenti.
+- Filtri di accessibilità nella ricerca: toccando la casella della
+  destinazione compaiono "Accessibili in sedia a rotelle", "Parcheggi
+  disabili" e "Bagni accessibili". Scelto un filtro, l'app cerca su
+  OpenStreetMap (tramite Overpass) i luoghi segnati così entro 800 m dal
+  centro della mappa e li elenca dai più vicini; toccandone uno si apre la
+  sua scheda come per gli altri risultati.
 - Una nuova ricerca può partire anche se la precedente è ancora in corso. Le
   ricerche già fatte restano in memoria. Nominatim restituisce l'indirizzo
   dei punti scelti sulla mappa.
@@ -68,11 +74,26 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   `segnalazioni`): si tiene premuto sulla mappa oppure si usa il pulsante
   "Segnala un ostacolo qui". Toccando un ostacolo se ne vedono i dettagli, si
   può confermare che c'è ancora oppure rimuoverlo. Gli ostacoli temporanei
-  (auto in sosta, cantieri, ingombri) spariscono da mappa e percorsi dopo 14
-  giorni senza conferme; i dati restano su Firestore.
+  spariscono da mappa e percorsi se nessuno conferma che ci sono ancora, dopo
+  un tempo che dipende dal tipo: 1 giorno per un'auto in sosta, 3 giorni per
+  rifiuti e ingombri, 30 giorni per un cantiere (14 per gli altri). Ogni
+  conferma fa ripartire il conteggio; i dati restano su Firestore.
 - Filtri per categoria e raggruppamento degli ostacoli vicini.
 - Navigazione passo-passo con istruzioni vocali in italiano o inglese, ricalcolo
   quando si esce dal percorso e schermo sempre acceso durante il tragitto.
+  La posizione si proietta sul tratto di percorso più vicino (non sul
+  vertice), così distanze e avanzamento si misurano lungo il tracciato. La
+  voce annuncia ogni manovra al massimo tre volte: "Prosegui per 300 metri"
+  dopo la manovra precedente, "Tra 100 metri, svolta a destra" e infine
+  "Svolta a destra", seguito da "poi…" se la manovra dopo arriva entro 40 m.
+  Si è fuori percorso solo con due posizioni di fila oltre 30–70 m dal
+  tracciato (la soglia cresce con l'incertezza del GPS; con più di ±60 m la
+  posizione non decide), e si ricalcola al massimo ogni 10 secondi. Un
+  ostacolo segnalato sul percorso viene annunciato a voce circa 45 secondi
+  prima alla velocità attuale (tra 35 e 80 m più avanti lungo il tracciato;
+  80 m se la velocità non è nota). Gli avvisi non si accavallano: un
+  ostacolo non si annuncia nello stesso momento di una manovra, e tra due
+  avvisi di ostacoli passano almeno 8 secondi.
 - All'arrivo l'app dice da che lato della strada è la destinazione ("la
   destinazione è sulla sinistra"), a schermo e a voce, come "X on your left"
   di Google Maps: il lato si calcola dalla direzione dell'ultimo tratto.
@@ -83,6 +104,13 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   "Segnale GPS perso" (anche a voce) e poi "Segnale GPS ritrovato". Se la
   posizione non si trova l'app distingue il permesso negato dal segnale
   assente e suggerisce di spostarsi all'aperto.
+- Filtro della posizione: si usa solo una posizione più recente
+  dell'ultima e, finché l'ultima è fresca, si scartano quelle molto meno
+  precise (per esempio una stima dalla rete dopo un buon fix GPS) e i salti
+  impossibili da raggiungere a 8 m/s tenendo conto dell'incertezza. Dopo
+  tre scarti di fila la posizione si accetta comunque. Fuori dalla
+  navigazione una stima dalla rete non sostituisce un fix GPS degli ultimi 2
+  minuti.
 - Avvisi sul percorso, come "This route has stairs" o "Steep hill" di Google
   Maps: con OpenRouteService l'app chiede pendenza, fondo stradale e tipo di
   via e segnala gradini, salite e discese oltre il 7%, pendenze del 4–6% e
@@ -112,6 +140,27 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   altrui vota, e quando almeno due persone hanno detto che l'ostacolo non c'è
   più (dopo l'ultima conferma) l'app smette di mostrarlo e di usarlo nei
   percorsi. Una conferma successiva lo fa ricomparire.
+- All'arrivo l'app chiede "Com'era l'ingresso?" (Accessibile, Con gradini,
+  Non l'ho trovato), anche a voce. La domanda si chiude da sola dopo 60
+  secondi e compare al massimo 2 volte al giorno e 5 alla settimana. Le
+  risposte vanno nella collezione `ingressi` di Firestore e la scheda del
+  luogo le riassume ("Ingresso secondo chi è arrivato qui: accessibile per 3
+  persone"), contando quelle entro 40 m e dell'ultimo anno.
+- Dopo un'uscita dal percorso e il ricalcolo l'app chiede "Hai cambiato
+  strada per un ostacolo?" (anche a voce): con "Sì, segnala" si apre la
+  segnalazione nel punto in cui si è lasciato il percorso. Si chiede una
+  volta per viaggio, solo a chi ha fatto accesso, e non se entro 40 m c'è
+  già un ostacolo segnalato; la domanda sparisce dopo 45 secondi.
+- "Si riesce a passare in sedia a rotelle?" (Sì, A fatica, No): si risponde
+  dalla scheda dell'ostacolo oppure in navigazione, subito dopo aver detto
+  "C'è ancora". La scheda riassume le risposte; quando almeno due persone
+  dicono "Sì" e sono più di quelle che dicono "A fatica" o "No", i percorsi
+  in sedia a rotelle non evitano più quell'ostacolo e non lo contano.
+- "Grazie a chi l'ha segnalato": dalla scheda di un ostacolo segnalato da
+  altri si può ringraziare chi l'ha segnalato, una volta. La scheda mostra
+  quante persone hanno ringraziato e chi ha segnalato, alla riapertura
+  dell'app, legge "N persone ti hanno ringraziato per le tue segnalazioni"
+  (il conteggio già visto resta sul dispositivo).
 - Se l'app si chiude durante la navigazione, alla riapertura (entro 3 ore)
   chiede "Stai ancora andando a…?" e con "Riprendi" ricalcola il percorso
   dalla posizione attuale con lo stesso mezzo.
@@ -129,9 +178,10 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   temperature vicine allo zero o caldo intenso la scheda dei percorsi lo dice
   (rampe scivolose, ghiaccio, fontanelle) e la navigazione lo ripete a voce
   alla partenza.
-- Impostazioni della voce in navigazione: voce sì o no, lingua, volume
-  (bassa, media, alta) e velocità (lenta, normale, veloce), con "Prova la
-  voce". Le scelte restano sul dispositivo. Toccando l'istruzione la si
+- Impostazioni della voce in navigazione: voce sì o no, lingua, annunci
+  (completi o brevi: solo la manovra quando è il momento, l'arrivo e gli
+  ostacoli), volume (bassa, media, alta) e velocità (lenta, normale,
+  veloce), con "Prova la voce". Le scelte restano sul dispositivo. Toccando l'istruzione la si
   riascolta.
 - Casa, Lavoro e luoghi salvati, come in Google Maps: nella scheda del luogo
   "Salva" lo memorizza come Casa, Lavoro o con un nome a scelta. Toccando la
@@ -143,6 +193,87 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   collezione `foto` di Firestore insieme alla segnalazione; si vede aprendo la
   scheda dell'ostacolo. La scheda ricorda di non inquadrare persone né
   targhe.
+- "Condividi il viaggio", come "Share trip progress" di Google Maps: durante
+  la navigazione l'app copia un link (`?viaggio=…`) da mandare a chi vuoi.
+  Chi lo apre vede sulla mappa dove sei, la destinazione e l'arrivo previsto,
+  anche senza account. La posizione si aggiorna al massimo ogni 10 secondi;
+  la condivisione finisce all'arrivo, con "Interrompi la condivisione" o dopo
+  4 ore, e non contiene nome né email.
+- "Salva per l'uso senza rete" nella scheda dei percorsi: salva nel browser
+  (Cache Storage) le tile di OpenStreetMap di un corridoio di 120 m intorno
+  al tragitto, agli zoom 15 e 16 e al massimo 160 tile, e le tiene una
+  settimana. I limiti servono a rispettare le regole d'uso delle tile di
+  OpenStreetMap, che vietano di scaricare grandi aree. Se la rete cade
+  durante la navigazione l'app lo dice (anche a voce), la mappa resta
+  visibile, la navigazione continua sul percorso e il ricalcolo riparte
+  quando torna la rete. L'app va aperta con la rete: il service worker
+  resta dismesso apposta, per non servire versioni vecchie.
+- "Opzioni del percorso" (icona con i cursori nella scheda dei percorsi),
+  come "Route options" di Google Maps ma per la sedia a rotelle: pendenza
+  massima (3, 6, 10 o 15%), altezza massima di cordoli e scalini (3, 6 o
+  10 cm) ed "Evita ciottoli, ghiaia e sterrato", passati al profilo
+  carrozzina di OpenRouteService (`profile_params.restrictions`). Se nessun
+  percorso li rispetta l'app mostra il migliore senza limiti e lo dice. Nello
+  stesso pannello la velocità personale (lenta, normale, veloce) corregge
+  tutti i tempi. Le scelte restano sul dispositivo.
+- "Elenco indicazioni" nella scheda dei percorsi, come "Steps" di Google
+  Maps: tutte le svolte con le distanze prima di partire, lette una per una
+  dai lettori di schermo ("Passo 2 di 5: …").
+- Orario di arrivo e orari di apertura, come in Google Maps: ogni percorso
+  dice a che ora si arriva ("Arrivo 10:42") e durante la navigazione il
+  pannello mostra "Arrivo 10:42 · 12 min". La scheda del luogo dice se è
+  aperto ("Aperto ora · chiude alle 19:00") leggendo il tag
+  `opening_hours` di OpenStreetMap, e la scheda dei percorsi avvisa
+  "Potrebbe essere chiuso quando arrivi" o "Chiude poco dopo il tuo
+  arrivo". Si capisce solo la forma più comune degli orari (giorni e fasce
+  orarie, `24/7`, `off`): quelli più complessi e i festivi non si
+  indovinano e l'app non dice niente.
+- "Le tue segnalazioni" (icona con la coppa in alto): le proprie
+  segnalazioni, anche quelle nascoste, con il motivo (non confermate da
+  tempo, o altre persone dicono che non ci sono più), le conferme, i
+  "grazie" e le risposte "si passa?" ricevute, e gli aiuti dati agli altri.
+  Un livello, come le "Guide locali" di Google Maps ma senza premi: una
+  segnalazione vale 3 punti, una conferma o una risposta 1. Toccando una
+  segnalazione la mappa la mostra. Tutto si calcola dalle segnalazioni già
+  lette: niente dati in più su Firestore.
+- Ringraziamenti a chi contribuisce, come l'email "Your week in review" di
+  Google Maps:
+  - dopo una segnalazione, una conferma o una risposta "si passa?" il
+    messaggio di grazie dice i punti guadagnati e quanti ne mancano al
+    livello dopo ("+1 punto. Ancora 6 punti per «Guida»."), oppure il nuovo
+    livello o il nuovo badge; "Vedi" apre "Le tue segnalazioni";
+  - 6 badge con l'avanzamento ("Fotoreporter": foto in 5 segnalazioni,
+    "Verificatore": 10 conferme o risposte, "Grazie di cuore": 5 grazie
+    ricevuti…) e "Il tuo prossimo badge è vicino!";
+  - "Aiuta ancora": un ostacolo entro 1 km, segnalato da altri, che nessuno
+    conferma da almeno 30 giorni, da verificare con un tocco;
+  - "La tua settimana": una volta a settimana, all'apertura, se nella
+    settimana prima (da lunedì a domenica) si è contribuito, l'app riassume
+    segnalazioni, foto, conferme, risposte e "non c'è più", la segnalazione
+    più recente, l'impatto (conferme e grazie ricevuti, ostacoli ancora
+    sulla mappa), il livello e il prossimo badge. Firestore non sa quando si
+    è confermato o risposto: l'ora di questi aiuti resta sul dispositivo,
+    per utente, insieme alla settimana già mostrata.
+- Bussola, come in Google Maps: il pallino della posizione ha un cono
+  azzurro che indica dove guarda il telefono, e il pulsante con l'ago (sopra
+  lo zoom) passa da "nord in alto" a "direzione in alto". In navigazione la
+  mappa gira nel verso del percorso, più stabile della bussola; le icone
+  restano dritte. Nel browser si usa l'orientamento del dispositivo (su
+  iPhone Safari chiede il permesso al primo tocco); la scelta resta sul
+  dispositivo. Il pulsante compare solo quando la bussola risponde o
+  durante la navigazione.
+- "Ascensore o rampa fuori servizio" tra gli ostacoli temporanei: sparisce
+  dopo 2 giorni se nessuno conferma che è ancora fermo, e le domande
+  diventano "È ancora fuori servizio?" con "Ancora fermo" e "Funziona di
+  nuovo". A voce basta dire "l'ascensore è rotto"; "non c'è l'ascensore"
+  resta "Mancanza di rampa/ascensore". Le regole di Firestore non cambiano.
+- "Segnala un ostacolo a voce" (pulsante col microfono, anche durante la
+  navigazione): si dice il tipo di ostacolo ("gradino", "auto sul
+  marciapiede", "cantiere"…) e l'app lo riconosce dalle parole chiave, in
+  italiano o in inglese, poi chiede conferma ("Segnalo «…» qui?") prima di
+  salvarlo nella posizione in cui si è parlato. Se non lo riconosce apre
+  l'elenco dei tipi. Usa il riconoscimento vocale del browser (Chrome, Edge,
+  Safari); dove non c'è il pulsante non compare.
 - Sotto la casella di ricerca, "Incolla l'indirizzo copiato" mette nel campo
   il testo degli appunti e lo cerca.
 - Se durante la navigazione qualcuno segnala un ostacolo sul tratto ancora da
@@ -158,8 +289,9 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
 - "I tuoi dati" nel menu informazioni: "Copia i miei dati" copia negli
   appunti un JSON con profilo, segnalazioni, conferme, voti e dati salvati sul
   dispositivo; "Elimina account e dati" cancella le proprie segnalazioni con le
-  foto, ritira conferme e voti dati, cancella limiti, dati del dispositivo e
-  account.
+  foto, ritira conferme, voti, "grazie" e risposte date, cancella le risposte
+  sugli ingressi, i viaggi condivisi, i limiti, i dati del dispositivo (anche
+  le mappe salvate senza rete) e l'account.
 
 ## Struttura
 
@@ -227,18 +359,33 @@ richieste; superato quello, l'app torna da sola a OSRM.
   (circa 500 KB), non si modifica e si cancella solo insieme alla
   segnalazione. Le foto stanno in Firestore e non in Firebase Storage, che
   ora richiede il piano a pagamento Blaze;
+- un viaggio condiviso (`viaggi/{id}`, con id lungo e casuale) si legge solo
+  conoscendone l'id e finché non scade, anche senza account; nessuno può
+  elencare i viaggi. Lo crea solo chi viaggia, a proprio nome e per al
+  massimo 4 ore; solo lui lo aggiorna (non più di una volta ogni 3 secondi)
+  o lo cancella, e la scadenza può solo avvicinarsi. Per cancellare da soli
+  i viaggi scaduti si può attivare in console una regola TTL di Firestore
+  sul campo `expiresAt` della collezione `viaggi`;
 - ognuno può fare al massimo una segnalazione ogni 30 secondi e una rimozione
   ogni 10 secondi (l'ora dell'ultima azione è nel documento `limiti/{uid}`,
   aggiornato nella stessa scrittura);
-- le uniche modifiche ammesse sono "Confermo, c'è ancora" e il voto "Non c'è
-  più": si aggiunge il proprio uid a `confirmedBy` o a `notThereBy`, una sola
-  volta e non sulle proprie segnalazioni;
-- le proprie segnalazioni si rimuovono sempre, anche tutte insieme
-  ("Elimina account e dati"); chi ha un account può rimuovere anche quelle
-  degli altri ("L'ostacolo non c'è più"), con il limite di frequenza;
-- per eliminare i propri dati si può togliere il proprio uid da `confirmedBy`
-  e `notThereBy`, senza cambiare altro, e cancellare `limiti/{uid}` quando i
+- le risposte "Com'era l'ingresso?" (`ingressi/{id}`) hanno solo `lat`,
+  `lng`, `answer` (`accessibile`, `gradini` o `non_trovato`), `timestamp` e
+  `userId`, si creano a proprio nome al massimo una ogni 60 secondi
+  (`lastEntranceAt` in `limiti/{uid}`), non si modificano e le cancella solo
+  chi le ha date;
+- le uniche modifiche ammesse sono "Confermo, c'è ancora", il voto "Non c'è
+  più", il "Grazie" e la risposta "Si riesce a passare?": si aggiunge il proprio uid a
+  `confirmedBy`, a `notThereBy`, a `thankedBy` (il "grazie", con
+  `lastThankAt`) o a una sola tra `passYesBy`, `passHardBy` e `passNoBy`
+  (con `lastPassVoteAt`), una sola volta e non sulle proprie segnalazioni;
+- per eliminare i propri dati ("Elimina account e dati") si può togliere il
+  proprio uid da ciascuno di questi elenchi, senza cambiare altro, elencare e
+  cancellare i propri viaggi condivisi e cancellare `limiti/{uid}` quando i
   tempi minimi sono già passati;
+- le proprie segnalazioni si rimuovono sempre, anche tutte insieme; chi ha un
+  account può rimuovere anche quelle degli altri ("L'ostacolo non c'è più"),
+  con il limite di frequenza;
 - il resto del database è chiuso.
 
 Prima di segnalare, l'app avvisa se a meno di 25 m c'è già una segnalazione

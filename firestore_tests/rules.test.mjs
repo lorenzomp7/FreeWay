@@ -1,6 +1,6 @@
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
 import { readFileSync } from 'node:fs';
-import { doc, setDoc, collection, getDocs, updateDoc, deleteDoc, serverTimestamp, Timestamp, arrayUnion, arrayRemove, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, collection, getDocs, updateDoc, serverTimestamp, Timestamp, arrayUnion, arrayRemove, writeBatch, query, where } from 'firebase/firestore';
 
 const env = await initializeTestEnvironment({
   projectId: 'demo-freeway',
@@ -65,6 +65,28 @@ await check('voto con ora del client rifiutato', assertFails(updateDoc(doc(guest
 await check('voto insieme ad altre modifiche rifiutato', assertFails(updateDoc(doc(guest, 'segnalazioni/a1'), { notThereBy: arrayUnion('guest1'), lastNotThereAt: serverTimestamp(), type: 'Altro' })));
 await check('non autenticato non vota', assertFails(notThere(anon, 'x')));
 
+// --- "Si riesce a passare in sedia a rotelle?" ---
+const pass = (db, uid, field = 'passYesBy', id = 'a1') => updateDoc(doc(db, 'segnalazioni/' + id), { [field]: arrayUnion(uid), lastPassVoteAt: serverTimestamp() });
+await check('ospite dice che si passa', assertSucceeds(pass(guest, 'guest1')));
+await check('altra risposta dello stesso utente rifiutata', assertFails(pass(guest, 'guest1', 'passNoBy')));
+await check('altro utente dice a fatica', assertSucceeds(pass(guest2, 'guest2', 'passHardBy')));
+await check('autrice non risponde sulla propria', assertFails(pass(alice, 'alice', 'passNoBy')));
+await check('risposta a nome di altri rifiutata', assertFails(pass(ctx('dan', 'password'), 'eve')));
+await check('campo di risposta inventato rifiutato', assertFails(pass(ctx('dan', 'password'), 'dan', 'passMaybeBy')));
+await check('risposta con ora del client rifiutata', assertFails(updateDoc(doc(ctx('dan', 'password'), 'segnalazioni/a1'), { passNoBy: arrayUnion('dan'), lastPassVoteAt: Timestamp.fromMillis(0) })));
+await check('due risposte insieme rifiutate', assertFails(updateDoc(doc(ctx('dan', 'password'), 'segnalazioni/a1'), { passNoBy: arrayUnion('dan'), passYesBy: arrayUnion('dan'), lastPassVoteAt: serverTimestamp() })));
+await check('risposta insieme ad altre modifiche rifiutata', assertFails(updateDoc(doc(ctx('dan', 'password'), 'segnalazioni/a1'), { passNoBy: arrayUnion('dan'), lastPassVoteAt: serverTimestamp(), type: 'Altro' })));
+await check('non autenticato non risponde', assertFails(pass(anon, 'x')));
+
+// --- "Grazie" a chi ha segnalato ---
+const thank = (db, uid, id = 'a1') => updateDoc(doc(db, 'segnalazioni/' + id), { thankedBy: arrayUnion(uid), lastThankAt: serverTimestamp() });
+await check('ospite ringrazia chi ha segnalato', assertSucceeds(thank(guest, 'guest1')));
+await check('secondo grazie dello stesso utente rifiutato', assertFails(thank(guest, 'guest1')));
+await check('autrice non ringrazia se stessa', assertFails(thank(alice, 'alice')));
+await check('grazie a nome di altri rifiutato', assertFails(thank(ctx('dan', 'password'), 'eve')));
+await check('grazie con ora del client rifiutato', assertFails(updateDoc(doc(guest2, 'segnalazioni/a1'), { thankedBy: arrayUnion('guest2'), lastThankAt: Timestamp.fromMillis(0) })));
+await check('grazie insieme ad altre modifiche rifiutato', assertFails(updateDoc(doc(guest2, 'segnalazioni/a1'), { thankedBy: arrayUnion('guest2'), lastThankAt: serverTimestamp(), type: 'Altro' })));
+
 // --- rimozione e limite di frequenza ---
 await check('ospite non cancella altrui', assertFails(remove(guest2, 'guest2', 'a1')));
 await check('ospite cancella la propria', assertSucceeds(remove(guest, 'guest1', 'g1')));
@@ -105,6 +127,48 @@ await check('foto cancellata da sola rifiutata', assertFails(writeBatch(alice).d
 await age('alice', 'lastRemovalAt', 11);
 await check('foto cancellata con la segnalazione', assertSucceeds((() => { const b = writeBatch(alice); b.delete(doc(alice, 'segnalazioni/p1')); b.delete(doc(alice, 'foto/p1')); b.set(doc(alice, 'limiti/alice'), { lastRemovalAt: serverTimestamp() }, { merge: true }); return b.commit(); })()));
 
+// --- viaggio condiviso ---
+const tripId = 'Tr1pAbCdEfGhIjKlMnOp';
+const inHours = h => Timestamp.fromMillis(Date.now() + h * 3600 * 1000);
+const trip = (uid, extra = {}) => ({ ownerId: uid, lat: 45.54, lng: 10.22, accuracy: 8, destLat: 45.55, destLng: 10.23, destName: 'Piazza Loggia', remainingMeters: 900, remainingSeconds: 720, arrived: false, updatedAt: serverTimestamp(), expiresAt: inHours(2), ...extra });
+const { getDoc, deleteDoc } = await import('firebase/firestore');
+await check('crea viaggio condiviso', assertSucceeds(setDoc(doc(guest, 'viaggi/' + tripId), trip('guest1'))));
+await check('chiunque col link legge il viaggio', assertSucceeds(getDoc(doc(anon, 'viaggi/' + tripId))));
+await check('nessuno elenca i viaggi', assertFails(getDocs(collection(anon, 'viaggi'))));
+await check('viaggio a nome di altri rifiutato', assertFails(setDoc(doc(guest, 'viaggi/Tr1pAltruiXXXXXXXXXX'), trip('alice'))));
+await check('viaggio oltre 4 ore rifiutato', assertFails(setDoc(doc(guest, 'viaggi/Tr1pLungoXXXXXXXXXXX'), trip('guest1', { expiresAt: inHours(5) }))));
+await check('id corto rifiutato', assertFails(setDoc(doc(guest, 'viaggi/corto'), trip('guest1'))));
+await check('campo extra nel viaggio rifiutato', assertFails(setDoc(doc(guest, 'viaggi/Tr1pExtraXXXXXXXXXXX'), trip('guest1', { email: 'x@y.z' }))));
+await check('aggiornamento troppo ravvicinato rifiutato', assertFails(updateDoc(doc(guest, 'viaggi/' + tripId), { lat: 45.541, updatedAt: serverTimestamp() })));
+await env.withSecurityRulesDisabled(c => updateDoc(doc(c.firestore(), 'viaggi/' + tripId), { updatedAt: Timestamp.fromMillis(Date.now() - 10000) }));
+await check('posizione aggiornata dopo 10 s', assertSucceeds(updateDoc(doc(guest, 'viaggi/' + tripId), { lat: 45.541, updatedAt: serverTimestamp() })));
+await env.withSecurityRulesDisabled(c => updateDoc(doc(c.firestore(), 'viaggi/' + tripId), { updatedAt: Timestamp.fromMillis(Date.now() - 10000) }));
+await check('altri non aggiornano il viaggio', assertFails(updateDoc(doc(alice, 'viaggi/' + tripId), { lat: 1, updatedAt: serverTimestamp() })));
+await check('destinazione non modificabile', assertFails(updateDoc(doc(guest, 'viaggi/' + tripId), { destName: 'Altro', updatedAt: serverTimestamp() })));
+await check('scadenza non allungabile', assertFails(updateDoc(doc(guest, 'viaggi/' + tripId), { expiresAt: inHours(3), updatedAt: serverTimestamp() })));
+await check('altri non cancellano il viaggio', assertFails(deleteDoc(doc(alice, 'viaggi/' + tripId))));
+await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'viaggi/Tr1pScadutoXXXXXXXXX'), { ...trip('guest1'), updatedAt: Timestamp.now(), expiresAt: Timestamp.fromMillis(Date.now() - 3600 * 1000) }));
+await check('viaggio scaduto non leggibile col link', assertFails(getDoc(doc(anon, 'viaggi/Tr1pScadutoXXXXXXXXX'))));
+await check('chi condivide interrompe', assertSucceeds(deleteDoc(doc(guest, 'viaggi/' + tripId))));
+
+// --- "Com'era l'ingresso?" ---
+const entrance = (uid, extra = {}) => ({ lat: 45.54, lng: 10.22, answer: 'accessibile', timestamp: serverTimestamp(), userId: uid, ...extra });
+const addEntrance = (db, uid, id, data) => { const b = writeBatch(db); b.set(doc(db, 'ingressi/' + id), data ?? entrance(uid)); b.set(doc(db, 'limiti/' + uid), { lastEntranceAt: serverTimestamp() }, { merge: true }); return b.commit(); };
+await check('ospite risponde sull\'ingresso', assertSucceeds(addEntrance(guest, 'guest1', 'i1')));
+await check('ospite legge le risposte', assertSucceeds(getDocs(collection(guest2, 'ingressi'))));
+await check('non autenticato non legge le risposte', assertFails(getDocs(collection(anon, 'ingressi'))));
+await check('seconda risposta subito dopo rifiutata', assertFails(addEntrance(guest, 'guest1', 'i2')));
+await age('guest1', 'lastEntranceAt', 61);
+await check('risposta dopo 61 s accettata', assertSucceeds(addEntrance(guest, 'guest1', 'i2', entrance('guest1', { answer: 'gradini' }))));
+const badEntrance = async (name, data) => { await age('alice', 'lastEntranceAt', 120); await check(name, assertFails(addEntrance(alice, 'alice', 'ibad', data))); };
+await badEntrance('risposta sconosciuta rifiutata', entrance('alice', { answer: 'forse' }));
+await badEntrance('risposta a nome di altri rifiutata', entrance('bob'));
+await badEntrance('risposta con campo extra rifiutata', entrance('alice', { note: 'x' }));
+await badEntrance('risposta con ora del client rifiutata', entrance('alice', { timestamp: Timestamp.fromMillis(0) }));
+await check('risposta senza aggiornare i limiti rifiutata', (async () => { await age('alice', 'lastEntranceAt', 120); await assertFails(setDoc(doc(alice, 'ingressi/i3'), entrance('alice'))); })());
+await check('risposta non modificabile', assertFails(updateDoc(doc(guest, 'ingressi/i1'), { answer: 'gradini' })));
+await check('risposta altrui non cancellabile', assertFails(writeBatch(guest2).delete(doc(guest2, 'ingressi/i1')).commit()));
+
 // --- eliminazione dei propri dati (art. 17 GDPR) ---
 await seed('e1', { lat: 1, lng: 1, type: 'x', timestamp: Timestamp.now(), userId: 'erin', confirmedBy: ['frank', 'erin2'], notThereBy: ['frank'] });
 await seed('e2', { lat: 1, lng: 1, type: 'x', timestamp: Timestamp.now(), userId: 'frank' });
@@ -116,8 +180,14 @@ await check('ritiro del proprio voto', assertSucceeds(updateDoc(doc(frank, 'segn
 await check('ritiro della conferma di un altro rifiutato', assertFails(updateDoc(doc(frank, 'segnalazioni/e1'), { confirmedBy: arrayRemove('erin2') })));
 await check('ritiro insieme ad altre modifiche rifiutato', (async () => { await seed('e4', { lat: 1, lng: 1, type: 'x', timestamp: Timestamp.now(), userId: 'erin', confirmedBy: ['frank'] }); await assertFails(updateDoc(doc(frank, 'segnalazioni/e4'), { confirmedBy: arrayRemove('frank'), type: 'Altro' })); })());
 await check('ospite non cancella altrui nemmeno così', assertFails(deleteDoc(doc(frank, 'segnalazioni/e1'))));
+await seed('e6', { lat: 1, lng: 1, type: 'x', timestamp: Timestamp.now(), userId: 'erin', thankedBy: ['frank'], passNoBy: ['frank', 'x'] });
+await check('ritiro del proprio grazie', assertSucceeds(updateDoc(doc(frank, 'segnalazioni/e6'), { thankedBy: arrayRemove('frank') })));
+await check('ritiro della propria risposta sul passaggio', assertSucceeds(updateDoc(doc(frank, 'segnalazioni/e6'), { passNoBy: arrayRemove('frank') })));
+await check('chi ha risposto sull\'ingresso cancella la risposta', assertSucceeds(deleteDoc(doc(guest, 'ingressi/i1'))));
+await check('chi condivide elenca i propri viaggi', (async () => { await setDoc(doc(guest, 'viaggi/Tr1pMioXXXXXXXXXXXXX'), trip('guest1')); await assertSucceeds(getDocs(query(collection(guest, 'viaggi'), where('ownerId', '==', 'guest1')))); })());
+await check('nessuno elenca i viaggi degli altri', assertFails(getDocs(query(collection(alice, 'viaggi'), where('ownerId', '==', 'guest1')))));
 await check('limiti cancellati subito dopo una segnalazione rifiutati', (async () => { await add(alice, 'alice', 'e5').catch(() => {}); await age('alice', 'lastRemovalAt', 60); await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'limiti/alice'), { lastReportAt: Timestamp.now() }, { merge: true })); await assertFails(deleteDoc(doc(alice, 'limiti/alice'))); })());
-await check('limiti cancellati dopo i tempi minimi', (async () => { await age('alice', 'lastReportAt', 31); await age('alice', 'lastRemovalAt', 11); await assertSucceeds(deleteDoc(doc(alice, 'limiti/alice'))); })());
+await check('limiti cancellati dopo i tempi minimi', (async () => { await age('alice', 'lastReportAt', 31); await age('alice', 'lastRemovalAt', 11); await age('alice', 'lastEntranceAt', 61); await assertSucceeds(deleteDoc(doc(alice, 'limiti/alice'))); })());
 await check('limiti di un altro utente non cancellabili', (async () => { await age('guest1', 'lastReportAt', 60); await age('guest1', 'lastRemovalAt', 60); await assertFails(deleteDoc(doc(alice, 'limiti/guest1'))); })());
 
 await check('altre collezioni chiuse', assertFails(setDoc(doc(alice, 'utenti/alice'), { a: 1 })));

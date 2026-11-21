@@ -18,8 +18,7 @@ RouteOption carRoute({DisabledParking? parking}) {
     ..parking = parking
     ..walkDistance = 80
     ..walkDuration = 70
-    ..isRecommended = true
-    ..label = 'Consigliato';
+    ..label = 'Altro parcheggio';
 }
 
 void main() {

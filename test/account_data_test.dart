@@ -18,8 +18,13 @@ void main() {
           'timestamp': Timestamp.fromMillisecondsSinceEpoch(0),
         },
       ],
-      confirmedIds: ['r2'],
-      notThereIds: const [],
+      votes: {
+        'confirmedBy': ['r2'],
+        'thankedBy': ['r3'],
+      },
+      entrances: [
+        {'id': 'i1', 'answer': 'gradini'},
+      ],
       limits: {'lastReportAt': Timestamp.fromMillisecondsSinceEpoch(0)},
       device: {
         'freeway.saved_places': '[{"name":"Casa"}]',
@@ -29,7 +34,9 @@ void main() {
     final data = jsonDecode(json) as Map<String, dynamic>;
     expect(data['account']['uid'], 'u1');
     expect(data['segnalazioni'][0]['timestamp'], '1970-01-01T00:00:00.000Z');
-    expect(data['conferme'], ['r2']);
+    expect(data['votiSulleSegnalazioniAltrui']['confirmedBy'], ['r2']);
+    expect(data['votiSulleSegnalazioniAltrui']['thankedBy'], ['r3']);
+    expect(data['risposteSugliIngressi'][0]['answer'], 'gradini');
     expect(data['limiti']['lastReportAt'], '1970-01-01T00:00:00.000Z');
     // I valori salvati come JSON tornano strutturati.
     expect(
@@ -37,6 +44,17 @@ void main() {
       'Casa',
     );
     expect(data['suQuestoDispositivo']['freeway.voice_speed'], 'normal');
+  });
+
+  test('si ritirano tutti i campi con il proprio uid', () {
+    expect(AccountDataService.voteFields, [
+      'confirmedBy',
+      'notThereBy',
+      'thankedBy',
+      'passYesBy',
+      'passHardBy',
+      'passNoBy',
+    ]);
   });
 
   test("l'informativa è tra le schede e spiega diritti e servizi", () {

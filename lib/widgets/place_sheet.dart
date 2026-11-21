@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../models/entrance_report.dart';
 import '../models/place_accessibility.dart';
 import '../services/geocoding_service.dart' show formatDistance;
+import '../services/opening_hours.dart';
 import '../theme/app_theme.dart';
 
 /// Scheda in basso del luogo trovato, come quella di Google Maps: nome,
@@ -15,6 +17,7 @@ class PlaceSheet extends StatelessWidget {
     required this.nearbyObstacles,
     this.accessibility,
     this.isLoadingAccessibility = false,
+    this.entranceSummary = const EntranceSummary(),
     required this.onDirections,
     required this.onStart,
     required this.onShare,
@@ -35,6 +38,9 @@ class PlaceSheet extends StatelessWidget {
   /// Accessibilità da OpenStreetMap; `null` se non disponibile.
   final PlaceAccessibility? accessibility;
   final bool isLoadingAccessibility;
+
+  /// Risposte "Com'era l'ingresso?" di chi è già arrivato qui.
+  final EntranceSummary entranceSummary;
   final VoidCallback onDirections;
   final VoidCallback onStart;
   final VoidCallback onShare;
@@ -158,6 +164,31 @@ class PlaceSheet extends StatelessWidget {
                           )
                         : AccessibilityFacts(info: accessibility!),
                   ),
+                if (!entranceSummary.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8, right: 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.door_front_door_outlined,
+                          size: 18,
+                          color:
+                              entranceSummary.accessible >=
+                                  entranceSummary.steps
+                              ? colors.success
+                              : colors.warning,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            entranceSummary.label,
+                            style: textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 const SizedBox(height: 12),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
@@ -267,15 +298,22 @@ class ChooseOnMapBar extends StatelessWidget {
 /// Le voci di accessibilità del luogo, come "Accessible entrance",
 /// "Accessible restroom" e "Accessible parking" di Google Maps.
 class AccessibilityFacts extends StatelessWidget {
-  const AccessibilityFacts({super.key, required this.info});
+  const AccessibilityFacts({super.key, required this.info, this.now});
 
   final PlaceAccessibility info;
 
+  /// Momento per "Aperto ora"; per i test (di solito adesso).
+  final DateTime? now;
+
   /// Righe che la scheda mostrerà, per spostare i pulsanti della mappa.
-  static int rowCount(PlaceAccessibility? info) {
+  static int rowCount(PlaceAccessibility? info, {DateTime? now}) {
     if (info == null) return 0;
-    if (!info.hasData) return 1;
-    var rows = 1; // ingresso del luogo
+    final hours =
+        openingNowText(info.openingHours, now ?? DateTime.now()) == null
+        ? 0
+        : 1;
+    if (!info.hasData) return 1 + hours;
+    var rows = 1 + hours; // ingresso del luogo
     if (info.entrances.isNotEmpty) rows++;
     if (info.toilets != null) rows++;
     if (info.disabledParkingMeters != null) rows++;
@@ -305,15 +343,33 @@ class AccessibilityFacts extends StatelessWidget {
       ),
     );
 
+    final opening = openingNowText(info.openingHours, now ?? DateTime.now());
+    final Widget? hoursRow = opening == null
+        ? null
+        : row(
+            Icons.schedule_rounded,
+            opening.startsWith('Chiuso')
+                ? colors.danger
+                : opening.contains('chiude')
+                ? colors.textSecondary
+                : colors.success,
+            '$opening (orari OpenStreetMap)',
+          );
+
     if (!info.hasData) {
-      return row(
+      final missing = row(
         Icons.accessible_rounded,
         colors.textTertiary,
         'Accessibilità non indicata su OpenStreetMap',
       );
+      if (hoursRow == null) return missing;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [hoursRow, missing],
+      );
     }
 
-    final rows = <Widget>[];
+    final rows = <Widget>[?hoursRow];
     switch (info.wheelchair) {
       case 'yes':
         rows.add(

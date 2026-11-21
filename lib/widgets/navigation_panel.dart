@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/route_option.dart';
 import '../services/instruction_translator.dart';
 import '../services/navigation_service.dart';
+import '../services/opening_hours.dart' show formatClock;
 import '../theme/app_theme.dart';
 
 /// Pannello scuro con l'indicazione corrente durante la navigazione.
@@ -20,6 +21,11 @@ class NavigationPanel extends StatelessWidget {
     required this.onLanguageChanged,
     this.onOpenVoiceSettings,
     this.onRepeat,
+    this.onShareTrip,
+    this.isSharingTrip = false,
+    this.isOffline = false,
+    this.remainingSeconds,
+    this.now,
   });
 
   final NavigationUpdate? update;
@@ -41,6 +47,19 @@ class NavigationPanel extends StatelessWidget {
 
   /// Toccando l'istruzione la voce la ripete.
   final VoidCallback? onRepeat;
+
+  /// "Condividi il viaggio"; senza, il pulsante non c'è.
+  final VoidCallback? onShareTrip;
+  final bool isSharingTrip;
+
+  /// Il dispositivo è senza rete: la navigazione continua sul percorso.
+  final bool isOffline;
+
+  /// Tempo che manca all'arrivo, per "Arrivo 10:42 · 12 min".
+  final double? remainingSeconds;
+
+  /// Adesso; per i test.
+  final DateTime? now;
 
   @override
   Widget build(BuildContext context) {
@@ -79,6 +98,29 @@ class NavigationPanel extends StatelessWidget {
     if (gpsWarning != null) {
       children.add(
         _Banner(text: gpsWarning, icon: Icons.gps_not_fixed_rounded),
+      );
+    }
+    if (isOffline && !arrived) {
+      children.add(
+        _Banner(
+          text: isItalian
+              ? 'Senza rete: segui la linea, ricalcolo quando torna il segnale'
+              : 'Offline: follow the line, rerouting when back online',
+          icon: Icons.cloud_off_rounded,
+        ),
+      );
+    }
+    if (isSharingTrip) {
+      children.add(
+        _Banner(
+          text: isItalian
+              ? 'Stai condividendo la posizione con chi ha il link'
+              : 'Sharing your location with anyone who has the link',
+          icon: Icons.share_location_rounded,
+          background: AppPalette.shareBanner,
+          foreground: AppPalette.shareText,
+          onTap: onShareTrip,
+        ),
       );
     }
     if (!gpsFailed && update?.isOffRoute == true) {
@@ -198,34 +240,37 @@ class NavigationPanel extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(
-                    width: 84,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 5,
-                        backgroundColor: Colors.white.withValues(alpha: 0.12),
-                        valueColor: const AlwaysStoppedAnimation(
-                          AppPalette.primaryLight,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   Text(
-                    '${(progress * 100).round()}%',
+                    _arrivalText(isItalian, arrived),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    semanticsLabel: _arrivalLabel(isItalian, arrived),
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.6),
+                      color: Colors.white.withValues(alpha: 0.72),
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 5,
+                      backgroundColor: Colors.white.withValues(alpha: 0.12),
+                      valueColor: const AlwaysStoppedAnimation(
+                        AppPalette.primaryLight,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
+            const SizedBox(width: 8),
             _NavIconButton(
               icon: isMuted
                   ? Icons.volume_off_rounded
@@ -237,6 +282,21 @@ class NavigationPanel extends StatelessWidget {
               isMuted: isMuted,
             ),
             const SizedBox(width: 6),
+            if (onShareTrip != null) ...[
+              _NavIconButton(
+                icon: isSharingTrip
+                    ? Icons.share_location_rounded
+                    : Icons.person_pin_circle_outlined,
+                tooltip: isSharingTrip
+                    ? (isItalian
+                          ? 'Condivisione del viaggio attiva'
+                          : 'Trip sharing on')
+                    : (isItalian ? 'Condividi il viaggio' : 'Share trip'),
+                onTap: onShareTrip!,
+                isMuted: false,
+              ),
+              const SizedBox(width: 6),
+            ],
             if (onOpenVoiceSettings != null)
               _NavIconButton(
                 icon: Icons.record_voice_over_rounded,
@@ -304,40 +364,91 @@ class NavigationPanel extends StatelessWidget {
   }
 }
 
+extension on NavigationPanel {
+  /// "Arrivo 10:42 · 12 min", come la riga in basso di Google Maps.
+  String _arrivalText(bool isItalian, bool arrived) {
+    final seconds = remainingSeconds;
+    final progress = '${((update?.progress ?? 0) * 100).round()}%';
+    if (arrived || seconds == null) return progress;
+    final at = formatClock(
+      (now ?? DateTime.now()).add(Duration(seconds: seconds.round())),
+    );
+    final minutes = (seconds / 60).ceil().clamp(1, 100000);
+    final left = minutes >= 60
+        ? '${minutes ~/ 60} h ${minutes % 60} min'
+        : '$minutes min';
+    return isItalian ? 'Arrivo $at · $left' : 'Arrive $at · $left';
+  }
+
+  String _arrivalLabel(bool isItalian, bool arrived) {
+    final seconds = remainingSeconds;
+    final progress = (((update?.progress ?? 0) * 100).round());
+    if (arrived || seconds == null) {
+      return isItalian ? 'Fatto il $progress%' : '$progress% done';
+    }
+    final at = formatClock(
+      (now ?? DateTime.now()).add(Duration(seconds: seconds.round())),
+    );
+    return isItalian
+        ? 'Arrivo previsto alle $at, fatto il $progress% del percorso'
+        : 'Arriving at $at, $progress% of the route done';
+  }
+}
+
 /// Sopra questa incertezza (in metri) la posizione è segnalata come poco
 /// precisa durante la navigazione.
 const double kWeakAccuracyMeters = 40;
 
 /// Striscia di avviso in cima al pannello (GPS perso o poco preciso).
 class _Banner extends StatelessWidget {
-  const _Banner({required this.text, required this.icon});
+  const _Banner({
+    required this.text,
+    required this.icon,
+    this.background = AppPalette.offRouteBanner,
+    this.foreground = AppPalette.offRouteText,
+    this.onTap,
+  });
 
   final String text;
   final IconData icon;
+  final Color background;
+  final Color foreground;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       liveRegion: true,
-      child: Container(
-        width: double.infinity,
-        color: AppPalette.offRouteBanner,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        child: Row(
-          children: [
-            Icon(icon, size: 15, color: AppPalette.offRouteText),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                text,
-                style: const TextStyle(
-                  color: AppPalette.offRouteText,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+      button: onTap != null,
+      child: Material(
+        color: background,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Row(
+              children: [
+                Icon(icon, size: 15, color: foreground),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
-              ),
+                if (onTap != null)
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 16,
+                    color: foreground,
+                  ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );

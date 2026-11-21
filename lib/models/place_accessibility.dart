@@ -1,5 +1,7 @@
 import 'package:latlong2/latlong.dart';
 
+import '../services/opening_hours.dart';
+
 /// Un ingresso di un edificio segnato su OpenStreetMap (`entrance=*`).
 class PlaceEntrance {
   const PlaceEntrance({
@@ -32,6 +34,7 @@ class PlaceAccessibility {
     this.description,
     this.entrances = const [],
     this.disabledParkingMeters,
+    this.openingHoursText,
   });
 
   /// Tag `wheelchair` del luogo: `yes`, `limited`, `no` o `null`.
@@ -47,6 +50,12 @@ class PlaceAccessibility {
   /// Distanza del parcheggio per disabili più vicino, se ce n'è uno entro
   /// 150 m.
   final double? disabledParkingMeters;
+
+  /// Tag `opening_hours` del luogo, così com'è su OpenStreetMap.
+  final String? openingHoursText;
+
+  /// Orari capiti, o `null` se mancano o sono troppo complessi.
+  OpeningHours? get openingHours => OpeningHours.parse(openingHoursText);
 
   bool get hasData =>
       wheelchair != null ||

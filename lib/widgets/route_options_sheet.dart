@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/route_option.dart';
 import '../services/along_route_service.dart';
+import '../services/opening_hours.dart' show formatClock;
 import '../theme/app_theme.dart';
 
 /// Pannello in basso con i percorsi trovati e il pulsante "Avvia navigazione".
@@ -19,6 +20,14 @@ class RouteOptionsSheet extends StatelessWidget {
     this.stops = const [],
     this.onRemoveStop,
     this.weatherWarning,
+    this.onSaveOffline,
+    this.offlineProgress,
+    this.isSavedOffline = false,
+    this.onOpenPreferences,
+    this.preferencesSummary,
+    this.onShowSteps,
+    this.arrivalWarning,
+    this.now,
   });
 
   final List<RouteOption> routes;
@@ -41,6 +50,29 @@ class RouteOptionsSheet extends StatelessWidget {
 
   /// Avviso meteo sul percorso (pioggia, neve, ghiaccio, caldo).
   final String? weatherWarning;
+
+  /// "Salva per l'uso senza rete", come "Download offline map".
+  final VoidCallback? onSaveOffline;
+
+  /// Avanzamento del salvataggio (fatte, totali), `null` se fermo.
+  final (int, int)? offlineProgress;
+  final bool isSavedOffline;
+
+  /// "Opzioni del percorso" (pendenza, cordoli, fondo, velocità).
+  final VoidCallback? onOpenPreferences;
+
+  /// Riassunto delle opzioni diverse da quelle predefinite, o `null`.
+  final String? preferencesSummary;
+
+  /// "Elenco indicazioni" del percorso scelto.
+  final VoidCallback? onShowSteps;
+
+  /// "Potrebbe essere chiuso quando arrivi", secondo gli orari della
+  /// destinazione.
+  final String? arrivalWarning;
+
+  /// Ora di partenza per gli orari di arrivo; di solito adesso.
+  final DateTime? now;
 
   @override
   Widget build(BuildContext context) {
@@ -74,11 +106,37 @@ class RouteOptionsSheet extends StatelessWidget {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleMedium,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        if (preferencesSummary != null)
+                          Text(
+                            preferencesSummary!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: colors.textSecondary),
+                          ),
+                      ],
                     ),
                   ),
+                  if (onOpenPreferences != null) ...[
+                    IconButton(
+                      tooltip: 'Opzioni del percorso',
+                      icon: const Icon(Icons.tune_rounded, size: 20),
+                      onPressed: onOpenPreferences,
+                      style: IconButton.styleFrom(
+                        backgroundColor: colors.surfaceMuted,
+                        foregroundColor: colors.textSecondary,
+                        fixedSize: const Size(34, 34),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
                   IconButton(
                     tooltip: 'Chiudi',
                     icon: const Icon(Icons.close_rounded, size: 20),
@@ -103,11 +161,60 @@ class RouteOptionsSheet extends StatelessWidget {
                   route: routes[index],
                   isSelected: index == selectedIndex,
                   onTap: () => onSelect(index),
+                  departure: now ?? DateTime.now(),
                 ),
               ),
             ),
             if (selectedIndex < routes.length && routes[selectedIndex].usesCar)
               CarParkingInfo(route: routes[selectedIndex]),
+            if (selectedIndex < routes.length &&
+                routes[selectedIndex].ignoresPreferences)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 2, 20, 2),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 16,
+                      color: colors.warning,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Nessun percorso rispetta tutte le tue opzioni: '
+                        'questo non ne tiene conto.',
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodySmall?.copyWith(color: colors.warning),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (arrivalWarning != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 2, 20, 2),
+                child: Semantics(
+                  liveRegion: true,
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.schedule_rounded,
+                        size: 16,
+                        color: colors.warning,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          arrivalWarning!,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colors.warning),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             if (selectedIndex < routes.length &&
                 routes[selectedIndex].warnings.isNotEmpty)
               RouteWarningsList(warnings: routes[selectedIndex].warnings),
@@ -202,6 +309,34 @@ class RouteOptionsSheet extends StatelessWidget {
                   ),
                 ),
               ),
+            if (onSaveOffline != null || onShowSteps != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      if (onShowSteps != null)
+                        ActionChip(
+                          avatar: const Icon(
+                            Icons.format_list_numbered_rounded,
+                            size: 18,
+                          ),
+                          label: const Text('Elenco indicazioni'),
+                          onPressed: onShowSteps,
+                        ),
+                      if (onSaveOffline != null)
+                        OfflineRouteChip(
+                          progress: offlineProgress,
+                          isSaved: isSavedOffline,
+                          onPressed: onSaveOffline!,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
               child: SizedBox(
@@ -254,17 +389,25 @@ class RouteCard extends StatelessWidget {
     required this.route,
     required this.isSelected,
     required this.onTap,
+    this.departure,
   });
 
   final RouteOption route;
   final bool isSelected;
   final VoidCallback onTap;
 
+  /// Con l'ora di partenza la scheda dice anche a che ora si arriva.
+  final DateTime? departure;
+
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final textTheme = Theme.of(context).textTheme;
     final badge = _obstacleBadge(context, route);
+    final start = departure;
+    final arrival = start == null
+        ? null
+        : formatClock(start.add(Duration(seconds: route.duration.round())));
 
     return GestureDetector(
       onTap: onTap,
@@ -287,14 +430,21 @@ class RouteCard extends StatelessWidget {
             Row(
               children: [
                 if (route.isRecommended)
-                  RecommendedChip(
-                    label: route.label.isNotEmpty ? route.label : 'Consigliato',
-                    color: colors.success,
-                    background: colors.successSoft,
-                    icon: Icons.verified_rounded,
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: RecommendedChip(
+                        label: route.label.isNotEmpty
+                            ? route.label
+                            : 'Consigliato',
+                        color: colors.success,
+                        background: colors.successSoft,
+                        icon: Icons.verified_rounded,
+                      ),
+                    ),
                   )
                 else
-                  Flexible(
+                  Expanded(
                     child: Text(
                       route.label.isNotEmpty
                           ? route.label
@@ -304,6 +454,16 @@ class RouteCard extends StatelessWidget {
                       style: textTheme.labelMedium,
                     ),
                   ),
+                if (arrival != null) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    'Arrivo $arrival',
+                    semanticsLabel: 'Arrivo alle $arrival',
+                    style: textTheme.labelMedium?.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                ],
               ],
             ),
             Row(
@@ -606,11 +766,16 @@ class RecommendedChip extends StatelessWidget {
         children: [
           Icon(icon, color: color, size: 12),
           const SizedBox(width: 4),
-          Text(
-            label,
-            style: Theme.of(
-              context,
-            ).textTheme.labelSmall?.copyWith(color: color, letterSpacing: 0.2),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: color,
+                letterSpacing: 0.2,
+              ),
+            ),
           ),
         ],
       ),
@@ -664,6 +829,58 @@ class AlongRouteChip extends StatelessWidget {
           ? 'Nessun risultato su OpenStreetMap lungo il percorso'
           : 'Mostrati sulla mappa',
       onPressed: isLoading ? null : onPressed,
+    );
+  }
+}
+
+/// "Salva per l'uso senza rete": salva la mappa del tragitto.
+class OfflineRouteChip extends StatelessWidget {
+  const OfflineRouteChip({
+    super.key,
+    required this.progress,
+    required this.isSaved,
+    required this.onPressed,
+  });
+
+  final (int, int)? progress;
+  final bool isSaved;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final saving = progress;
+    if (saving != null) {
+      final (done, total) = saving;
+      return ActionChip(
+        avatar: const SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        label: Text(
+          total == 0 ? 'Salvo la mappa…' : 'Salvo la mappa… $done/$total',
+        ),
+        onPressed: null,
+      );
+    }
+    if (isSaved) {
+      return ActionChip(
+        avatar: Icon(
+          Icons.offline_pin_rounded,
+          size: 18,
+          color: colors.success,
+        ),
+        label: const Text('Mappa salvata per l\'uso senza rete'),
+        tooltip: 'Salva di nuovo',
+        onPressed: onPressed,
+      );
+    }
+    return ActionChip(
+      avatar: const Icon(Icons.download_for_offline_outlined, size: 18),
+      label: const Text('Salva per l\'uso senza rete'),
+      tooltip: 'Salva la mappa del tragitto, nel caso la rete cada',
+      onPressed: onPressed,
     );
   }
 }

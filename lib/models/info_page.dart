@@ -41,16 +41,24 @@ const InfoPage privacyPage = InfoPage(
     "Account: email (o profilo Google) e un codice anonimo per l'ospite. "
         "Servono a far funzionare l'app (art. 6.1.b GDPR).",
     'Segnalazioni: posizione e tipo dell’ostacolo, ora, il tuo codice '
-        'utente, la foto se la aggiungi, conferme e voti "Non c\'è più". '
-        'Sono visibili a chi usa l’app. Non fotografare persone né targhe.',
-    'La tua posizione GPS e il mezzo scelto (sedia a rotelle, a piedi, in '
-        'auto) non vengono salvati sui nostri server. Le coordinate dei '
+        'utente, la foto se la aggiungi, conferme, voti "Non c\'è più", '
+        '"Grazie" e risposte "Si riesce a passare?". Sono visibili a chi usa '
+        'l’app. Non fotografare persone né targhe.',
+    'Risposte "Com\'era l\'ingresso?": posizione, risposta, ora e codice '
+        'utente.',
+    'Viaggio condiviso: solo se lo attivi, la tua posizione e la '
+        'destinazione vengono salvate per al massimo 4 ore e le vede chi '
+        'riceve il link.',
+    'Fuori dal viaggio condiviso, la tua posizione GPS e il mezzo scelto '
+        '(sedia a rotelle, a piedi, in auto) non vengono salvati sui nostri '
+        'server. Le coordinate dei '
         'punti cercati e dei percorsi vengono inviate ai servizi di mappa: '
         'OpenStreetMap, Photon (Komoot), Nominatim, Overpass, '
         'OpenRouteService, Valhalla e OSRM (FOSSGIS), Open-Meteo; senza GPS '
         'la posizione è stimata dall’indirizzo IP (ipwho.is, ipapi.co).',
-    'Sul dispositivo restano ricerche recenti, luoghi salvati, impostazioni '
-        'della voce e il viaggio in corso (per 3 ore).',
+    'Sul dispositivo restano ricerche recenti, luoghi salvati, opzioni del '
+        'percorso, impostazioni della voce, il viaggio in corso (per 3 ore), '
+        'il conteggio del tuo contributo e le mappe salvate senza rete.',
     'Hai diritto di accedere ai tuoi dati, averne una copia, correggerli e '
         'cancellarli, e di reclamare al Garante per la protezione dei dati '
         'personali. Dal menu "I tuoi dati" puoi copiarli o eliminare account '

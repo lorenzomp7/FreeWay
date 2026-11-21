@@ -30,6 +30,19 @@ enum VoiceSpeed {
   double get rate => kIsWeb ? webRate : mobileRate;
 }
 
+/// Quanto parla la voce durante la navigazione.
+enum VoiceGuidanceMode {
+  /// Tutti gli annunci: "Prosegui per…", "Tra 100 metri…" e la manovra.
+  full('Completa'),
+
+  /// Solo la manovra quando è il momento, l'arrivo e gli avvisi.
+  brief('Breve');
+
+  const VoiceGuidanceMode(this.label);
+
+  final String label;
+}
+
 /// Istruzioni vocali durante la navigazione.
 class TtsService {
   TtsService({Future<SharedPreferences> Function()? preferences})
@@ -40,11 +53,13 @@ class TtsService {
   bool muted = false;
   VoiceVolume volume = VoiceVolume.high;
   VoiceSpeed speed = VoiceSpeed.normal;
+  VoiceGuidanceMode guidance = VoiceGuidanceMode.full;
   String? _lastSpoken;
   String _lastLanguage = 'it';
 
   static const String _volumeKey = 'freeway.voice_volume';
   static const String _speedKey = 'freeway.voice_speed';
+  static const String _guidanceKey = 'freeway.voice_guidance';
 
   /// Legge volume e velocità scelti l'ultima volta.
   Future<void> loadSettings() async {
@@ -58,6 +73,10 @@ class TtsService {
         (v) => v.name == prefs.getString(_speedKey),
         orElse: () => VoiceSpeed.normal,
       );
+      guidance = VoiceGuidanceMode.values.firstWhere(
+        (v) => v.name == prefs.getString(_guidanceKey),
+        orElse: () => VoiceGuidanceMode.full,
+      );
     } catch (_) {
       // Senza archivio restano i valori predefiniti.
     }
@@ -68,6 +87,7 @@ class TtsService {
       final prefs = await _preferences();
       await prefs.setString(_volumeKey, volume.name);
       await prefs.setString(_speedKey, speed.name);
+      await prefs.setString(_guidanceKey, guidance.name);
     } catch (_) {
       // Le impostazioni valgono comunque fino alla chiusura.
     }

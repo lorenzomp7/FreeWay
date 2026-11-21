@@ -134,6 +134,22 @@ class ObstacleService {
     });
   }
 
+  /// [userId] ringrazia chi ha segnalato l'ostacolo.
+  Future<void> thank(String id, String userId) async {
+    await _collection.doc(id).update({
+      'thankedBy': FieldValue.arrayUnion([userId]),
+      'lastThankAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Registra se secondo [userId] in sedia a rotelle si passa.
+  Future<void> votePass(String id, String userId, PassVote vote) async {
+    await _collection.doc(id).update({
+      vote.field: FieldValue.arrayUnion([userId]),
+      'lastPassVoteAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   /// Rimuove una segnalazione aggiornando `limiti/{uid}`; con regole più
   /// vecchie che non conoscono `limiti` ripiega sulla sola rimozione.
   Future<void> remove(String id, String userId, {bool hasPhoto = false}) async {

@@ -21,13 +21,18 @@ resta da decidere.
 - **Account**: Firebase Authentication del progetto `progetto-rimosso` (email e
   password, Google, ospite anonimo).
 - **Segnalazioni e foto**: Cloud Firestore dello stesso progetto (collezioni
-  `segnalazioni`, `foto`, `limiti`).
-- **Sul dispositivo**: ricerche recenti, luoghi salvati, impostazioni della
-  voce e il viaggio in corso (`shared_preferences`).
+  `segnalazioni`, `foto`, `limiti`), con conferme, voti, "grazie" e risposte
+  "Si riesce a passare?" (elenchi di uid dentro la segnalazione).
+- **Risposte "Com'era l'ingresso?"**: collezione `ingressi`.
+- **Viaggi condivisi**: collezione `viaggi`, con posizione e destinazione, solo
+  quando l'utente condivide il viaggio (al massimo 4 ore).
+- **Sul dispositivo**: ricerche recenti, luoghi salvati, opzioni del percorso,
+  impostazioni della voce, viaggio in corso, contributo personale
+  (`shared_preferences`) e mappe salvate senza rete (Cache Storage).
 - **Sito**: GitHub Pages.
 
-La posizione GPS, il mezzo scelto e i percorsi **non** vengono salvati sui
-server di FreeWay.
+Fuori dal viaggio condiviso, la posizione GPS, il mezzo scelto e i percorsi
+**non** vengono salvati sui server di FreeWay.
 
 ### Raccomandazione: restare su Firebase, ma in UE
 
@@ -68,16 +73,20 @@ Alternative valutate:
   dispositivo, diritti e reclamo al Garante. Il contatto si passa in fase di
   build con `--dart-define=PRIVACY_CONTACT=...`.
 - **"I tuoi dati"** (menu informazioni):
-  - *Copia i miei dati*: un JSON con profilo, proprie segnalazioni, conferme e
-    voti, limiti e dati del dispositivo (artt. 15 e 20, accesso e
-    portabilità).
+  - *Copia i miei dati*: un JSON con profilo, proprie segnalazioni, conferme,
+    voti e "grazie" dati, risposte sugli ingressi, viaggi condivisi, limiti e
+    dati del dispositivo (artt. 15 e 20, accesso e portabilità).
   - *Elimina account e dati*: cancella le proprie segnalazioni con le foto,
-    ritira il proprio uid da conferme e voti, cancella i limiti, i dati del
-    dispositivo e l'account (art. 17). Se Firebase chiede un accesso recente,
+    ritira il proprio uid da conferme, voti, "grazie" e risposte sul
+    passaggio, cancella risposte sugli ingressi, viaggi condivisi, limiti,
+    dati del dispositivo (anche le mappe senza rete) e l'account (art. 17). Se Firebase chiede un accesso recente,
     l'app lo dice: si esce, si rientra e si ripete.
-- **Regole di Firestore** (con 9 nuovi test, 59 in tutto):
+- **Regole di Firestore** (con 14 nuovi test, 107 in tutto):
   - le proprie segnalazioni si cancellano sempre, anche tutte insieme;
-  - ognuno può ritirare il proprio uid da `confirmedBy` e `notThereBy`;
+  - ognuno può ritirare il proprio uid da `confirmedBy`, `notThereBy`,
+    `thankedBy`, `passYesBy`, `passHardBy` e `passNoBy`;
+  - le proprie risposte sugli ingressi si cancellano, e i propri viaggi
+    condivisi si possono elencare (per cancellarli);
   - `limiti/{uid}` si cancella solo quando i tempi minimi sono già passati,
     così cancellarlo non serve a saltare l'attesa tra due segnalazioni.
 
@@ -101,9 +110,10 @@ firebase deploy --only firestore:rules --project progetto-rimosso
 5. **Dati sulla salute (art. 9).** Sapere che una persona usa la sedia a
    rotelle è un dato sanitario. Oggi il mezzo resta solo sul dispositivo: non
    va mai salvato sul server senza consenso esplicito.
-6. **Uid visibile nelle segnalazioni.** Chi ha fatto accesso legge `userId`,
-   `confirmedBy` e `notThereBy`, quindi può collegare tra loro le
-   segnalazioni della stessa persona. Miglioramento possibile: salvare
+6. **Uid visibile nelle segnalazioni.** Chi ha fatto accesso legge `userId`
+   e gli elenchi di uid (conferme, voti, "grazie"), e anche `userId` delle
+   risposte sugli ingressi: può collegare tra loro le azioni della stessa
+   persona. Miglioramento possibile: salvare
    l'autore in un documento separato leggibile solo da lui, oppure un hash.
 7. **Conservazione.** Definire per quanto restano le segnalazioni. Per gli
    ostacoli temporanei si può aggiungere un campo `expireAt` e una
@@ -194,6 +204,10 @@ Fatto, con i dati di OpenStreetMap letti tramite Overpass (stalli
 
 Se vicino alla destinazione OpenStreetMap non segna parcheggi, l'app lo dice e
 porta in auto fino alla destinazione.
+
+Da sapere: gli avvisi vocali e il controllo "fuori percorso" usano le distanze
+pensate per chi va a piedi (avviso a 100 m, manovra a 20 m). Per il tratto in
+auto andrebbero allungate in base alla velocità.
 
 **Limite:** la copertura dipende da OpenStreetMap, che in molte zone ha pochi
 stalli segnati. Miglioramenti possibili:

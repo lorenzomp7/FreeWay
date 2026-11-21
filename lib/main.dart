@@ -8,6 +8,7 @@ import 'package:flutter/semantics.dart';
 import 'firebase_options.dart';
 import 'screens/login_screen.dart';
 import 'screens/map_screen.dart';
+import 'screens/trip_viewer_screen.dart';
 import 'theme/app_theme.dart';
 import 'widgets/common.dart';
 
@@ -50,7 +51,21 @@ class FreeWayApp extends StatelessWidget {
       theme: buildAppTheme(AppColors.light, Brightness.light),
       darkTheme: buildAppTheme(AppColors.dark, Brightness.dark),
       themeMode: ThemeMode.system,
-      home: const AuthGate(),
+      home: _home(),
+    );
+  }
+
+  /// Con `?viaggio=id` si apre il viaggio condiviso, senza accesso.
+  Widget _home() {
+    final tripId = Uri.base.queryParameters['viaggio'];
+    if (tripId == null || tripId.isEmpty) return const AuthGate();
+    return Builder(
+      builder: (context) => TripViewerScreen(
+        tripId: tripId,
+        onOpenApp: () => Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(builder: (_) => const AuthGate()),
+        ),
+      ),
     );
   }
 }

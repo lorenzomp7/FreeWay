@@ -22,6 +22,10 @@ class AppPalette {
   static const Color offRouteBanner = Color(0xFFFFC93C);
   static const Color offRouteText = Color(0xFF3D2C00);
 
+  /// Striscia "Stai condividendo la posizione" (contrasto 9:1).
+  static const Color shareBanner = Color(0xFFCDE6FF);
+  static const Color shareText = Color(0xFF0B2A47);
+
   static const LinearGradient brandGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,

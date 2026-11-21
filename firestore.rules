@@ -118,6 +118,49 @@ service cloud.firestore {
         && before.hasAll(after);
     }
 
+    // "Grazie" a chi ha segnalato: si aggiunge il proprio uid, una volta, a
+    // una segnalazione fatta da qualcun altro.
+    function validThank() {
+      let before = resource.data.get('thankedBy', []);
+      let after = request.resource.data.thankedBy;
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['thankedBy', 'lastThankAt'])
+        && request.resource.data.lastThankAt == request.time
+        && resource.data.get('userId', '') != request.auth.uid
+        && !(request.auth.uid in before)
+        && after is list
+        && after.size() == before.size() + 1
+        && after.size() <= 1000
+        && after.hasAll(before)
+        && request.auth.uid in after;
+    }
+
+    // "Si riesce a passare in sedia a rotelle?": si aggiunge il proprio uid a
+    // una sola delle tre liste (passYesBy, passHardBy, passNoBy), una volta,
+    // su una segnalazione altrui.
+    function validPassVoteOn(field) {
+      let before = resource.data.get(field, []);
+      let after = request.resource.data.get(field, []);
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly([field, 'lastPassVoteAt'])
+        && after is list
+        && after.size() == before.size() + 1
+        && after.size() <= 1000
+        && after.hasAll(before)
+        && request.auth.uid in after;
+    }
+
+    function validPassVote() {
+      return request.resource.data.get('lastPassVoteAt', null) == request.time
+        && resource.data.get('userId', '') != request.auth.uid
+        && !(request.auth.uid in resource.data.get('passYesBy', []))
+        && !(request.auth.uid in resource.data.get('passHardBy', []))
+        && !(request.auth.uid in resource.data.get('passNoBy', []))
+        && (validPassVoteOn('passYesBy')
+          || validPassVoteOn('passHardBy')
+          || validPassVoteOn('passNoBy'));
+    }
+
     match /segnalazioni/{reportId} {
       // Le segnalazioni sono visibili a tutti gli utenti dell'app (ospiti inclusi).
       allow read: if signedIn();
@@ -129,10 +172,15 @@ service cloud.firestore {
         && stampsNow('lastReportAt');
 
       // Le uniche modifiche ammesse sono la conferma che l'ostacolo c'è
-      // ancora, il voto "non c'è più" e il ritiro del proprio uid quando si
+      // ancora, il voto "non c'è più", la risposta "si riesce a passare?",
+      // il "grazie" a chi ha segnalato e il ritiro del proprio uid quando si
       // eliminano i propri dati.
-      allow update: if signedIn() && (validConfirmation() || validNotThere()
-        || withdrawsOwnVote('confirmedBy') || withdrawsOwnVote('notThereBy'));
+      allow update: if signedIn()
+        && (validConfirmation() || validNotThere() || validPassVote()
+          || validThank()
+          || withdrawsOwnVote('confirmedBy') || withdrawsOwnVote('notThereBy')
+          || withdrawsOwnVote('thankedBy') || withdrawsOwnVote('passYesBy')
+          || withdrawsOwnVote('passHardBy') || withdrawsOwnVote('passNoBy'));
 
       // Le proprie segnalazioni si cancellano sempre, anche tutte insieme
       // ("Elimina account e dati"). "L'ostacolo non c'è più" su quelle degli
@@ -164,13 +212,88 @@ service cloud.firestore {
       allow delete: if signedIn() && !existsAfter(reportPath(reportId));
     }
 
+    // Viaggio condiviso in tempo reale ("Condividi il viaggio"). L'id del
+    // documento, lungo e casuale, è il link: chi lo riceve legge solo quel
+    // documento, anche senza account, finché non scade.
+    function validTrip(data) {
+      return data.keys().hasOnly(['ownerId', 'lat', 'lng', 'accuracy',
+          'destLat', 'destLng', 'destName', 'remainingMeters',
+          'remainingSeconds', 'arrived', 'updatedAt', 'expiresAt'])
+        && data.keys().hasAll(['ownerId', 'lat', 'lng', 'destLat', 'destLng',
+          'destName', 'arrived', 'updatedAt', 'expiresAt'])
+        && data.lat is number && data.lat >= -90 && data.lat <= 90
+        && data.lng is number && data.lng >= -180 && data.lng <= 180
+        && data.destLat is number && data.destLat >= -90 && data.destLat <= 90
+        && data.destLng is number && data.destLng >= -180 && data.destLng <= 180
+        && data.destName is string && data.destName.size() <= 100
+        && data.get('accuracy', 0) is number
+        && data.get('remainingMeters', 0) is number
+        && data.get('remainingSeconds', 0) is number
+        && data.arrived is bool
+        && data.updatedAt == request.time
+        && data.expiresAt is timestamp;
+    }
+
+    match /viaggi/{tripId} {
+      // Lettura del singolo documento con il link, finché non scade.
+      allow get: if resource.data.expiresAt > request.time
+        || (signedIn() && resource.data.ownerId == request.auth.uid);
+      // Nessun elenco, tranne i propri viaggi (per eliminarli con i dati).
+      allow list: if signedIn() && resource.data.ownerId == request.auth.uid;
+
+      // Al massimo 4 ore, solo a proprio nome.
+      allow create: if signedIn()
+        && tripId.size() >= 20
+        && validTrip(request.resource.data)
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.arrived == false
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(4, 'h');
+
+      // Solo chi condivide aggiorna la posizione, non più di una volta ogni
+      // 3 secondi; la scadenza può solo avvicinarsi.
+      allow update: if signedIn()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.destLat == resource.data.destLat
+        && request.resource.data.destLng == resource.data.destLng
+        && request.resource.data.destName == resource.data.destName
+        && validTrip(request.resource.data)
+        && request.time >= resource.data.updatedAt + duration.value(3, 's')
+        && request.resource.data.expiresAt <= resource.data.expiresAt;
+
+      // "Interrompi" cancella il documento.
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    // "Com'era l'ingresso?": risposta di chi è arrivato a una destinazione.
+    // Si crea solo a proprio nome, con l'ora del server, e al massimo una
+    // ogni 60 secondi; non si modifica, e la cancella solo chi l'ha data
+    // ("Elimina account e dati").
+    match /ingressi/{answerId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['lat', 'lng', 'answer', 'timestamp', 'userId'])
+        && request.resource.data.keys().hasAll(['lat', 'lng', 'answer', 'timestamp', 'userId'])
+        && request.resource.data.lat is number
+        && request.resource.data.lat >= -90 && request.resource.data.lat <= 90
+        && request.resource.data.lng is number
+        && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
+        && request.resource.data.answer in ['accessibile', 'gradini', 'non_trovato']
+        && request.resource.data.timestamp == request.time
+        && request.resource.data.userId == request.auth.uid
+        && stampsNow('lastEntranceAt');
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
+    }
+
     match /limiti/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
       allow create, update: if signedIn()
         && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['lastReportAt', 'lastRemovalAt'])
+        && request.resource.data.keys().hasOnly(['lastReportAt', 'lastRemovalAt', 'lastEntranceAt'])
         && validStamp('lastReportAt', 30)
-        && validStamp('lastRemovalAt', 10);
+        && validStamp('lastRemovalAt', 10)
+        && validStamp('lastEntranceAt', 60);
       // Si cancellano con l'account, ma non per saltare l'attesa: solo
       // quando i tempi minimi sono già passati.
       allow delete: if signedIn()
@@ -178,7 +301,9 @@ service cloud.firestore {
         && resource.data.get('lastReportAt', request.time - duration.value(1, 'h'))
           + duration.value(30, 's') <= request.time
         && resource.data.get('lastRemovalAt', request.time - duration.value(1, 'h'))
-          + duration.value(10, 's') <= request.time;
+          + duration.value(10, 's') <= request.time
+        && resource.data.get('lastEntranceAt', request.time - duration.value(1, 'h'))
+          + duration.value(60, 's') <= request.time;
     }
 
     // Tutto il resto del database è chiuso.

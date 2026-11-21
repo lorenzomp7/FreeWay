@@ -1,47 +1,68 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_tile_provider.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/disabled_parking.dart';
+import '../models/entrance_report.dart';
+import '../models/contributions.dart';
 import '../models/obstacle.dart';
 import '../models/place_accessibility.dart';
 import '../models/route_option.dart';
+import '../models/route_preferences.dart';
 import '../models/travel_mode.dart';
 import '../services/along_route_service.dart';
 import '../services/disabled_parking_service.dart';
+import '../services/contribution_log_service.dart';
+import '../services/entrance_report_service.dart';
 import '../services/geo_utils.dart';
 import '../services/geocoding_service.dart';
-import '../services/instruction_translator.dart';
 import '../services/location_service.dart';
 import '../services/navigation_service.dart';
 import '../services/obstacle_alerts.dart';
+import '../services/nearby_accessible_service.dart';
 import '../services/obstacle_service.dart';
+import '../services/compass/compass.dart';
+import '../services/heading.dart';
+import '../services/offline/connectivity.dart';
+import '../services/offline/offline_route_service.dart';
+import '../services/position_filter.dart';
+import '../services/opening_hours.dart';
 import '../services/place_accessibility_service.dart';
 import '../services/recent_places_service.dart';
 import '../services/saved_places_service.dart';
 import '../services/routing_service.dart';
 import '../services/trip_resume_service.dart';
+import '../services/trip_share_service.dart';
 import '../services/weather_service.dart';
+import '../services/speech_input.dart';
+import '../services/thanks_notifier.dart';
+import '../services/voice_report_matcher.dart';
 import '../services/tts_service.dart';
+import '../services/voice_guidance.dart';
 import '../theme/app_theme.dart';
 import '../widgets/along_route_widgets.dart';
+import '../widgets/contributions_sheet.dart';
+import '../widgets/weekly_review_sheet.dart';
 import '../widgets/map_widgets.dart';
 import '../widgets/navigation_panel.dart';
 import '../widgets/navigation_prompts.dart';
 import '../widgets/obstacle_sheets.dart';
 import '../widgets/place_sheet.dart';
+import '../widgets/route_details_sheets.dart';
 import '../widgets/route_options_sheet.dart';
 import '../widgets/saved_places_widgets.dart';
 import '../widgets/search_panel.dart';
 import '../widgets/top_bar.dart';
+import '../widgets/trip_share_widgets.dart';
 import '../widgets/voice_settings_sheet.dart';
 
 /// Schermata principale: mappa, ricerca percorso, ostacoli e navigazione.
@@ -91,8 +112,65 @@ class _MapScreenState extends State<MapScreen> {
   final ObstacleService _obstacleService = ObstacleService(
     FirebaseFirestore.instance,
   );
+  final EntranceReportService _entranceService = EntranceReportService(
+    FirebaseFirestore.instance,
+  );
+  final ArrivalQuestionPolicy _arrivalPolicy = ArrivalQuestionPolicy();
+  final ThanksNotifier _thanksNotifier = ThanksNotifier();
+
+  /// Quando si è aiutato sulle segnalazioni altrui, per "La tua settimana".
+  final ContributionLogService _contributionLog = ContributionLogService();
+  bool _contributionLogLoaded = false;
+  bool _obstaclesLoaded = false;
+  bool _weeklyReviewChecked = false;
+  final SpeechInput _speechInput = SpeechInput();
+  final NearbyAccessibleService _nearbyService = NearbyAccessibleService();
+  NearbySearch _nearby = const NearbySearch();
+  int _nearbyRequest = 0;
+  bool _isListening = false;
+
+  /// Segnalazione detta a voce in attesa di conferma: punto, frase capita e
+  /// tipo riconosciuto.
+  ({LatLng point, String heard, String type})? _voiceReport;
+
+  /// Una posizione stimata dalla rete non sostituisce un buon fix GPS
+  /// ottenuto da poco.
+  final PositionFilter _userFix = PositionFilter(
+    staleAfter: const Duration(minutes: 2),
+    maxSpeed: 50,
+  );
   final NavigationService _navigationService = NavigationService();
   final TtsService _ttsService = TtsService();
+  final TripShareService _tripShare = TripShareService(
+    FirebaseFirestore.instance,
+  );
+
+  /// "Salva per l'uso senza rete" e stato della rete.
+  final OfflineRouteService _offlineRoute = OfflineRouteService();
+  final Connectivity _connectivity = Connectivity();
+  StreamSubscription<bool>? _connectivitySubscription;
+  bool _isOffline = false;
+
+  /// Bussola: cono sul pallino e mappa orientata dove si guarda.
+  final Compass _compass = Compass();
+  StreamSubscription<double>? _compassSubscription;
+  final HeadingSmoother _headingSmoother = HeadingSmoother();
+  double? _deviceHeading;
+  DateTime _lastHeadingUpdate = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// "Direzione in alto" invece di "nord in alto"; resta sul dispositivo.
+  bool _headingUp = false;
+  double _mapRotation = 0;
+  static const String _headingUpKey = 'freeway.heading_up';
+
+  /// Avanzamento del salvataggio (fatte, totali), `null` se fermo.
+  (int, int)? _offlineProgress;
+
+  /// Il percorso le cui tile sono state salvate.
+  List<LatLng>? _offlineSavedFor;
+
+  /// "Opzioni del percorso": pendenza, cordoli, fondo e velocità.
+  RoutePreferences _routePrefs = RoutePreferences.defaults;
 
   double _zoom = 13;
   LatLng _center = const LatLng(45.4642, 9.19); // Milano
@@ -115,6 +193,12 @@ class _MapScreenState extends State<MapScreen> {
 
   bool _isCalculating = false;
   bool _isRecalculating = false;
+  DateTime? _lastRecalculation;
+  final VoiceGuidance _voiceGuidance = VoiceGuidance();
+
+  /// Ostacoli di cui si è già avvisato in questa navigazione.
+  final Set<String> _announcedObstacleIds = {};
+  DateTime? _lastObstacleWarningAt;
   bool _isLocatingStart = false;
   bool _isLocatingEnd = false;
   bool _isLocatingUser = false;
@@ -167,9 +251,35 @@ class _MapScreenState extends State<MapScreen> {
 
   List<Obstacle> _obstacles = [];
 
+  /// Tutte le segnalazioni lette, anche quelle nascoste: servono a "Le tue
+  /// segnalazioni" per dire perché una non si vede più.
+  List<Obstacle> _allObstacles = [];
+
   /// Ostacolo su cui si sta chiedendo "C'è ancora?" durante la navigazione.
   Obstacle? _verifyPrompt;
   Timer? _verifyTimer;
+
+  /// Ostacolo su cui si chiede "Si riesce a passare in sedia a rotelle?".
+  Obstacle? _passPrompt;
+
+  /// Destinazione su cui chiedere "Com'era l'ingresso?", mentre la domanda
+  /// è aperta.
+  LatLng? _arrivalPrompt;
+  Timer? _arrivalTimer;
+  bool _arrivalHandled = false;
+
+  /// Ultimo punto del tracciato su cui si era prima di uscirne.
+  LatLng? _lastOnRoutePoint;
+
+  /// Punto in cui si è lasciato il percorso, mentre è aperta la domanda
+  /// "Hai cambiato strada per un ostacolo?" (una volta per viaggio).
+  LatLng? _deviationPrompt;
+  Timer? _deviationTimer;
+  bool _deviationAsked = false;
+
+  /// Risposte sull'ingresso vicino al luogo aperto nella scheda.
+  EntranceSummary _entranceSummary = const EntranceSummary();
+  int _entranceRequest = 0;
 
   /// Ostacoli già chiesti in questa navigazione: si chiede una volta sola.
   final Set<String> _askedObstacleIds = {};
@@ -216,9 +326,34 @@ class _MapScreenState extends State<MapScreen> {
       if (mounted) setState(() => _saved = saved);
     });
     _ttsService.loadSettings();
+    RoutePreferences.load().then((prefs) {
+      if (mounted) setState(() => _routePrefs = prefs);
+    });
+    _offlineRoute.load().then((_) {
+      if (mounted) setState(() {});
+    });
+    _isOffline = !_connectivity.isOnline;
+    _connectivitySubscription = _connectivity.changes.listen(_onConnectivity);
+    if (_compass.isSupported) {
+      _compassSubscription = _compass.headings.listen(_onCompassHeading);
+    }
+    SharedPreferences.getInstance()
+        .then((prefs) {
+          if (mounted && prefs.getBool(_headingUpKey) == true) {
+            setState(() => _headingUp = true);
+          }
+        })
+        .catchError((_) {});
     _tripResume.load().then((trip) {
       if (mounted && trip != null) setState(() => _pendingTrip = trip);
     });
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId != null) {
+      _contributionLog.load(userId).then((_) {
+        _contributionLogLoaded = true;
+        _maybeShowWeeklyReview();
+      });
+    }
     _obstacleService.listen((obstacles) {
       // Gli ostacoli temporanei non confermati da tempo non compaiono né
       // sulla mappa né nel calcolo dei percorsi.
@@ -226,12 +361,19 @@ class _MapScreenState extends State<MapScreen> {
       // non esserci più.
       final active = obstacles.where((o) => !o.isHidden()).toList();
       if (!mounted) return;
-      setState(() => _obstacles = active);
+      setState(() {
+        _obstacles = active;
+        _allObstacles = obstacles;
+        _obstaclesLoaded = true;
+      });
       _checkNewObstaclesOnRoute(active);
+      _announceNewThanks(obstacles);
+      _maybeShowWeeklyReview();
     });
     _mapController.mapEventStream.listen((event) {
       if (!mounted) return;
       _center = event.camera.center;
+      _mapRotation = event.camera.rotation;
       _zoom = event.camera.zoom;
     });
   }
@@ -243,8 +385,16 @@ class _MapScreenState extends State<MapScreen> {
     _ttsService.reset();
     _navigationSubscription?.cancel();
     _verifyTimer?.cancel();
+    _arrivalTimer?.cancel();
+    _deviationTimer?.cancel();
+    _speechInput.cancel();
     _gpsWatchdog?.cancel();
     _navigationService.dispose();
+    if (_tripShare.isSharing) unawaited(_tripShare.stop());
+    _tripShare.dispose();
+    _connectivitySubscription?.cancel();
+    _compassSubscription?.cancel();
+    _offlineRoute.dispose();
     _obstacleService.dispose();
     _geocodingService.dispose();
     _accessibilityService.dispose();
@@ -267,7 +417,12 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  void _showSnack(String message, {Color? iconColor, required IconData icon}) {
+  void _showSnack(
+    String message, {
+    Color? iconColor,
+    required IconData icon,
+    SnackBarAction? action,
+  }) {
     final colors = AppColors.of(context);
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
@@ -276,7 +431,8 @@ class _MapScreenState extends State<MapScreen> {
         backgroundColor: Theme.of(context).brightness == Brightness.dark
             ? colors.surfaceElevated
             : AppPalette.snackBarLight,
-        duration: const Duration(seconds: 4),
+        duration: Duration(seconds: action == null ? 4 : 6),
+        action: action,
         content: Row(
           children: [
             Icon(icon, color: iconColor ?? Colors.white, size: 18),
@@ -652,6 +808,7 @@ class _MapScreenState extends State<MapScreen> {
   void _loadAccessibility(Map<String, dynamic> place, LatLng point) {
     final request = ++_accessibilityRequest;
     final supported = PlaceAccessibilityService.supports(place);
+    _loadEntranceSummary(point);
     setState(() {
       _destinationPlacePoint = point;
       _placeAccessibility = null;
@@ -667,6 +824,16 @@ class _MapScreenState extends State<MapScreen> {
         if (_stage == SearchPhase.directions) moved = _applyEntrance();
       });
       if (moved && _startPoint != null && !_isNavigating) _calculateRoute();
+    });
+  }
+
+  /// Le risposte "Com'era l'ingresso?" di chi è già arrivato a [point].
+  void _loadEntranceSummary(LatLng point) {
+    final request = ++_entranceRequest;
+    _entranceSummary = const EntranceSummary();
+    _entranceService.near(point).then((summary) {
+      if (!mounted || request != _entranceRequest) return;
+      setState(() => _entranceSummary = summary);
     });
   }
 
@@ -915,6 +1082,13 @@ class _MapScreenState extends State<MapScreen> {
       });
       _fitRoute();
       unawaited(_loadWeather(start));
+      if (routes.isNotEmpty && routes.first.ignoresPreferences) {
+        _showSnack(
+          'Nessun percorso rispetta tutte le tue opzioni: ti mostro il '
+          'migliore senza limiti. Controlla le difficoltà nella scheda.',
+          icon: Icons.warning_amber_rounded,
+        );
+      }
       if (startNavigation) _startNavigation();
     } catch (_) {
       if (!mounted ||
@@ -948,6 +1122,7 @@ class _MapScreenState extends State<MapScreen> {
         _obstacles,
         mode: mode,
         via: [for (final stop in _stops) stop.position],
+        preferences: _routePrefs,
       );
     }
     if (duringNavigation) {
@@ -957,6 +1132,7 @@ class _MapScreenState extends State<MapScreen> {
           to,
           _obstacles,
           mode: TravelMode.wheelchair,
+          preferences: _routePrefs,
         );
       }
       final current = _routes.isEmpty
@@ -968,6 +1144,7 @@ class _MapScreenState extends State<MapScreen> {
           to,
           _obstacles,
           parkings: [current],
+          preferences: _routePrefs,
         );
       }
     }
@@ -978,6 +1155,7 @@ class _MapScreenState extends State<MapScreen> {
       to,
       _obstacles,
       parkings: parkings,
+      preferences: _routePrefs,
     );
   }
 
@@ -1118,6 +1296,56 @@ class _MapScreenState extends State<MapScreen> {
     _openDirections();
   }
 
+  /// "Opzioni del percorso" nella scheda dei percorsi.
+  Future<void> _openRoutePreferences() async {
+    final chosen = await showRoutePreferencesSheet(
+      context,
+      _routePrefs,
+      showWheelchairOptions: _travelMode == TravelMode.wheelchair,
+    );
+    if (chosen == null || !mounted) return;
+    final before = _routePrefs;
+    setState(() => _routePrefs = chosen);
+    unawaited(chosen.save());
+    if (_routes.isEmpty) return;
+    if (!chosen.sameRestrictions(before) &&
+        _travelMode == TravelMode.wheelchair) {
+      // Pendenza, cordoli o fondo diversi: serve un nuovo percorso.
+      await _calculateRoute();
+    } else if (chosen.pace != before.pace) {
+      // Cambia solo la velocità: si correggono i tempi.
+      final ratio = chosen.pace.factor / before.pace.factor;
+      setState(() {
+        _routes = [for (final r in _routes) r.withPace(ratio)];
+        _routePoints = _routes[_selectedRouteIndex].points;
+      });
+    }
+  }
+
+  /// "Elenco indicazioni" del percorso scelto.
+  void _showRouteSteps() {
+    if (_routes.isEmpty) return;
+    showRouteStepsSheet(
+      context,
+      _routes[_selectedRouteIndex],
+      language: _voiceLanguage,
+    );
+  }
+
+  /// Riassunto delle opzioni scelte, se diverse da quelle predefinite.
+  String? get _routePrefsSummary {
+    final prefs = _routePrefs;
+    if (_travelMode != TravelMode.wheelchair) {
+      return prefs.pace == TravelPace.normal
+          ? null
+          : 'Velocità ${prefs.pace.label.toLowerCase()}';
+    }
+    if (prefs.hasDefaultRestrictions && prefs.pace == TravelPace.normal) {
+      return null;
+    }
+    return 'Opzioni: ${prefs.summary}';
+  }
+
   void _selectRoute(int index) {
     if (index < 0 || index >= _routes.length) return;
     setState(() {
@@ -1217,13 +1445,43 @@ class _MapScreenState extends State<MapScreen> {
     final points = List<LatLng>.of(_routePoints);
     if (_startPoint != null) points.add(_startPoint!);
     if (_endPoint != null) points.add(_endPoint!);
+    // In basso c'è la scheda dei percorsi: il tragitto va nello spazio
+    // libero sopra, senza superare metà schermo sui telefoni piccoli.
+    final height = MediaQuery.sizeOf(context).height;
+    final bottom = math.min(_routeSheetHeight + 110, height * 0.62);
+    final top = math.min(200.0, height * 0.25);
     _mapController.fitCamera(
       CameraFit.bounds(
         bounds: LatLngBounds.fromPoints(points),
-        padding: const EdgeInsets.fromLTRB(48, 150, 48, 360),
+        padding: EdgeInsets.fromLTRB(48, top, 48, bottom),
       ),
     );
   }
+
+  /// Altezza stimata della scheda dei percorsi.
+  /// "Potrebbe essere chiuso quando arrivi", con gli orari della
+  /// destinazione presi da OpenStreetMap.
+  String? get _arrivalWarning {
+    if (_routes.isEmpty) return null;
+    final route = _routes[_selectedRouteIndex.clamp(0, _routes.length - 1)];
+    return arrivalOpeningWarning(
+      _placeAccessibility?.openingHours,
+      DateTime.now().add(Duration(seconds: route.duration.round())),
+    );
+  }
+
+  double get _routeSheetHeight =>
+      404 +
+      (_arrivalWarning == null ? 0 : 22) +
+      (_routePrefsSummary == null ? 0 : 18) +
+      (_routes.isNotEmpty &&
+              _routes[_selectedRouteIndex.clamp(0, _routes.length - 1)]
+                  .ignoresPreferences
+          ? 22
+          : 0) +
+      32.0 * _selectedRouteWarningCount +
+      (_stops.isEmpty ? 0 : 44) +
+      (_weatherWarning == null ? 0 : 36);
 
   // --- Navigazione ---------------------------------------------------------
 
@@ -1243,6 +1501,12 @@ class _MapScreenState extends State<MapScreen> {
       _navigationFirstStep = route.steps.first;
       _navigationGpsFailed = false;
       _askedObstacleIds.clear();
+      _announcedObstacleIds.clear();
+      _arrivalHandled = false;
+      _closeArrivalPromptInState();
+      _lastOnRoutePoint = null;
+      _deviationAsked = false;
+      _closeDeviationPromptInState();
       _knownObstacleIds
         ..clear()
         ..addAll(_obstacles.map((o) => o.id));
@@ -1280,7 +1544,103 @@ class _MapScreenState extends State<MapScreen> {
         setState(() => _navigationGpsFailed = true);
       },
     );
+    _followRoute(route);
+  }
+
+  /// Segue [route] da capo: ricomincia anche gli annunci vocali.
+  void _followRoute(RouteOption route) {
+    _voiceGuidance.reset();
     _navigationService.start(route);
+  }
+
+  // --- Bussola e mappa orientata ----------------------------------------
+
+  void _onCompassHeading(double raw) {
+    final heading = _headingSmoother.add(raw);
+    final now = DateTime.now();
+    final previous = _deviceHeading;
+    // Al massimo dieci aggiornamenti al secondo, e solo se cambia davvero.
+    if (previous != null &&
+        (now.difference(_lastHeadingUpdate) <
+                const Duration(milliseconds: 100) ||
+            angleDifference(previous, heading).abs() < 2)) {
+      return;
+    }
+    _lastHeadingUpdate = now;
+    if (!mounted) return;
+    setState(() => _deviceHeading = heading);
+    if (_headingUp && !_isNavigating) _applyMapRotation();
+  }
+
+  /// Direzione da tenere in alto: in navigazione quella del percorso (più
+  /// stabile della bussola, che risente di ferro e magneti), altrimenti
+  /// quella del telefono.
+  double? get _upHeading {
+    if (_isNavigating) {
+      final at =
+          _navigationUpdate?.snappedPosition ?? _navigationUpdate?.position;
+      final routeHeading = at == null ? null : routeBearingAt(_routePoints, at);
+      return routeHeading ?? _deviceHeading;
+    }
+    return _deviceHeading;
+  }
+
+  /// Direzione del cono sul pallino: la bussola o, senza, il verso del
+  /// percorso durante la navigazione.
+  double? get _coneHeading =>
+      _deviceHeading ?? (_isNavigating ? _upHeading : null);
+
+  void _applyMapRotation({LatLng? center, double? zoom}) {
+    final up = _headingUp ? _upHeading : null;
+    final target = up == null ? 0.0 : -up;
+    final turn = angleDifference(_mapRotation, target).abs() >= 3;
+    try {
+      if (center != null) {
+        _mapController.moveAndRotate(
+          center,
+          zoom ?? _mapController.camera.zoom,
+          turn ? target : _mapRotation,
+        );
+      } else if (turn) {
+        _mapController.rotate(target);
+      } else {
+        return;
+      }
+      _mapRotation = _mapController.camera.rotation;
+    } catch (_) {
+      // La mappa non è ancora pronta.
+    }
+  }
+
+  Future<void> _toggleHeadingUp() async {
+    final enable = !_headingUp;
+    // Se la bussola risponde già, il permesso c'è.
+    if (enable && !_isNavigating && _deviceHeading == null) {
+      final allowed = await _compass.requestPermission();
+      if (!mounted) return;
+      if (!allowed) {
+        _showSnack(
+          'Il browser non permette di leggere la bussola: la mappa resta '
+          'con il nord in alto.',
+          icon: Icons.explore_off_outlined,
+        );
+        return;
+      }
+      if (_deviceHeading == null) {
+        _showSnack(
+          'Gira un po\' il telefono: appena la bussola risponde la mappa si '
+          'orienta nella tua direzione.',
+          icon: Icons.explore_outlined,
+        );
+      }
+    }
+    setState(() => _headingUp = enable);
+    _applyMapRotation();
+    // La rotazione gira intorno al centro: il percorso va rimesso in vista.
+    if (_routes.isNotEmpty && !_isNavigating) _fitRoute();
+    SharedPreferences.getInstance()
+        .then((prefs) => prefs.setBool(_headingUpKey, enable))
+        .catchError((_) => false);
   }
 
   void _onNavigationUpdate(NavigationUpdate update) {
@@ -1291,6 +1651,9 @@ class _MapScreenState extends State<MapScreen> {
       _navigationUpdate = update;
       _userLocation = update.position;
       _userAccuracy = update.accuracy > 0 ? update.accuracy : null;
+      _userFix.remember(
+        PositionFix(update.position, update.accuracy, DateTime.now()),
+      );
       _gpsSignalLost = false;
       // Arrivati al parcheggio si prosegue in sedia a rotelle.
       final parking = _routes.isEmpty
@@ -1306,7 +1669,14 @@ class _MapScreenState extends State<MapScreen> {
           .toList();
     });
     _restartGpsWatchdog();
-    _mapController.move(update.position, 17.5);
+    // Senza rete si resta allo zoom delle tile salvate per il percorso.
+    // Con "direzione in alto" la mappa gira nel verso del percorso.
+    _applyMapRotation(
+      center: update.position,
+      zoom: _isOffline && _offlineRoute.hasSavedRoute
+          ? OfflineRouteService.offlineZoom
+          : 17.5,
+    );
     if (signalBack) {
       _ttsService.speak(
         _voiceLanguage == 'it' ? 'Segnale GPS ritrovato' : 'GPS signal found',
@@ -1314,28 +1684,89 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    final instruction = InstructionTranslator(
+    // Gli annunci arrivano a tappe (prosegui, tra 100 metri, ora): prima
+    // l'istruzione si ripeteva a ogni aggiornamento del GPS.
+    final speech = _voiceGuidance.next(
+      update,
       _voiceLanguage,
-    ).translate(update.currentStep.instruction);
-    final distance = update.distanceToNextStep >= 1000
-        ? '${(update.distanceToNextStep / 1000).toStringAsFixed(1)} chilometri'
-        : '${update.distanceToNextStep.round()} metri';
-    final String speech;
+      brief: _ttsService.guidance == VoiceGuidanceMode.brief,
+    );
+    if (speech != null) _ttsService.speak(speech, _voiceLanguage);
     if (update.hasArrived) {
-      // Dice anche il lato: "la destinazione è sulla sinistra".
-      speech = instruction;
       unawaited(_tripResume.clear());
-    } else {
-      speech = _voiceLanguage == 'it'
-          ? 'Tra $distance, $instruction'
-          : 'In $distance, $instruction';
+      _maybeAskAboutEntrance();
     }
-    _ttsService.speak(speech, _voiceLanguage);
+    // Un avviso alla volta: se è appena stata detta una manovra, l'ostacolo
+    // si annuncia al prossimo aggiornamento.
+    if (speech == null) _maybeWarnObstacleAhead(update);
     _maybeAskAboutObstacle(update.position);
-
-    if (update.isOffRoute && !_isRecalculating && _endPoint != null) {
-      _recalculate(update.position);
+    if (_tripShare.isSharing) {
+      if (update.hasArrived) {
+        _tripShare.arrived(update.position);
+        unawaited(_tripShare.finishAfterArrival());
+        setState(() {});
+      } else {
+        final remaining = _remaining(update);
+        _tripShare.update(
+          position: update.position,
+          accuracy: update.accuracy,
+          remainingMeters: remaining?.$1,
+          remainingSeconds: remaining?.$2,
+        );
+      }
     }
+
+    if (!update.isOffRoute && update.snappedPosition != null) {
+      _lastOnRoutePoint = update.snappedPosition;
+    }
+    // Senza rete il ricalcolo non può riuscire: si segue la linea e si
+    // ricalcola quando la rete torna.
+    if (update.isOffRoute &&
+        !_isRecalculating &&
+        !_isOffline &&
+        _endPoint != null) {
+      final last = _lastRecalculation;
+      // Un ricalcolo ogni 10 secondi al massimo: il servizio dei percorsi
+      // ha un limite di richieste e il GPS può restare impreciso a lungo.
+      if (last == null ||
+          DateTime.now().difference(last) >= const Duration(seconds: 10)) {
+        _lastRecalculation = DateTime.now();
+        _recalculate(update.position, leftAt: _lastOnRoutePoint);
+      }
+    }
+  }
+
+  /// Avvisa a voce di un ostacolo segnalato sul percorso prima di
+  /// arrivarci (circa 45 secondi prima, tra 35 e 80 m lungo il tracciato),
+  /// una volta per ostacolo.
+  void _maybeWarnObstacleAhead(NavigationUpdate update) {
+    final tracker = _navigationService.tracker;
+    if (tracker == null || update.hasArrived || update.isOffRoute) return;
+    final along = tracker.totalLength - update.remainingDistance;
+    // Tra due avvisi di ostacoli passano almeno 8 secondi.
+    final last = _lastObstacleWarningAt;
+    if (last != null &&
+        DateTime.now().difference(last) < const Duration(seconds: 8)) {
+      return;
+    }
+    final ahead = obstacleAheadToAnnounce(
+      tracker,
+      along,
+      _obstacles,
+      _announcedObstacleIds,
+      FirebaseAuth.instance.currentUser?.uid,
+      maxAhead: aheadWarningDistance(update.speed),
+    );
+    if (ahead == null) return;
+    _announcedObstacleIds.add(ahead.obstacle.id);
+    _lastObstacleWarningAt = DateTime.now();
+    final spoken = VoiceGuidance.spokenDistance(ahead.distance, _voiceLanguage);
+    _ttsService.speak(
+      _voiceLanguage == 'it'
+          ? 'Attenzione, tra $spoken ostacolo segnalato: ${ahead.obstacle.type}'
+          : 'Caution, reported obstacle in $spoken',
+      _voiceLanguage,
+    );
   }
 
   /// Come "GPS signal lost" di Google Maps: se la posizione non arriva da
@@ -1364,7 +1795,9 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  Future<void> _recalculate(LatLng from) async {
+  /// Ricalcola il percorso da [from]. Con [leftAt], il punto in cui si è
+  /// lasciato il percorso, chiede poi se la deviazione era per un ostacolo.
+  Future<void> _recalculate(LatLng from, {LatLng? leftAt}) async {
     _isRecalculating = true;
     try {
       final routes = await _getRoutes(
@@ -1382,7 +1815,8 @@ class _MapScreenState extends State<MapScreen> {
           _selectedRouteIndex = 0;
           _routePoints = routes.first.points;
         });
-        _navigationService.start(routes.first);
+        _followRoute(routes.first);
+        if (leftAt != null) _maybeAskAboutDeviation(leftAt);
       }
     } catch (_) {
       // Si riprova al prossimo aggiornamento di posizione.
@@ -1397,8 +1831,169 @@ class _MapScreenState extends State<MapScreen> {
     unawaited(WakelockPlus.toggle(enable: enable).catchError((Object _) {}));
   }
 
+  /// La rete è caduta o tornata.
+  void _onConnectivity(bool online) {
+    if (!mounted || _isOffline == !online) return;
+    setState(() => _isOffline = !online);
+    if (!_isNavigating) {
+      _showSnack(
+        online
+            ? 'Connessione tornata.'
+            : 'Sei senza rete: ricerche e nuovi percorsi non sono disponibili.',
+        icon: online ? Icons.wifi_rounded : Icons.cloud_off_rounded,
+      );
+      return;
+    }
+    _ttsService.speak(
+      online
+          ? (_voiceLanguage == 'it' ? 'Connessione tornata' : 'Back online')
+          : (_voiceLanguage == 'it'
+                ? 'Sei senza rete. Continua a seguire il percorso.'
+                : 'You are offline. Keep following the route.'),
+      _voiceLanguage,
+    );
+    final update = _navigationUpdate;
+    if (online &&
+        update != null &&
+        update.isOffRoute &&
+        !_isRecalculating &&
+        _endPoint != null) {
+      _recalculate(update.position);
+    }
+  }
+
+  /// "Salva per l'uso senza rete" nella scheda dei percorsi.
+  Future<void> _saveRouteOffline() async {
+    final points = _routePoints;
+    if (points.isEmpty || _offlineProgress != null) return;
+    setState(() => _offlineProgress = (0, 0));
+    final result = await _offlineRoute.saveRoute(
+      points,
+      onProgress: (done, total) {
+        if (mounted) setState(() => _offlineProgress = (done, total));
+      },
+    );
+    if (!mounted) return;
+    setState(() {
+      _offlineProgress = null;
+      if (result == OfflineSaveResult.saved ||
+          result == OfflineSaveResult.partial) {
+        _offlineSavedFor = points;
+      }
+    });
+    final colors = AppColors.of(context);
+    switch (result) {
+      case OfflineSaveResult.saved:
+        _showSnack(
+          'Mappa del percorso salvata: se la rete cade resta visibile, e la '
+          'navigazione continua.',
+          iconColor: colors.success,
+          icon: Icons.offline_pin_rounded,
+        );
+      case OfflineSaveResult.partial:
+        _showSnack(
+          'Mappa salvata in parte: senza rete potrebbe mancare qualche zona.',
+          icon: Icons.offline_pin_outlined,
+        );
+      case OfflineSaveResult.tooLong:
+        _showError(
+          'Percorso troppo lungo da salvare: si salvano al massimo pochi '
+          'chilometri.',
+          Icons.info_outline_rounded,
+        );
+      case OfflineSaveResult.failed:
+        _showError(
+          'Non è stato possibile salvare la mappa. Controlla la connessione.',
+          Icons.error_outline_rounded,
+        );
+    }
+  }
+
+  /// Metri e secondi che mancano all'arrivo, stimati dall'avanzamento.
+  (double, double)? _remaining(NavigationUpdate? update) {
+    if (_routes.isEmpty) return null;
+    final route = _routes[_selectedRouteIndex.clamp(0, _routes.length - 1)];
+    final left = 1 - (update?.progress ?? 0).clamp(0.0, 1.0);
+    return (route.distance * left, route.duration * left);
+  }
+
+  /// "Condividi il viaggio" durante la navigazione, come "Share trip
+  /// progress" di Google Maps.
+  Future<void> _shareTrip() async {
+    if (_tripShare.isSharing) {
+      final action = await showShareTripOptions(context);
+      if (!mounted || action == null) return;
+      if (action == ShareTripAction.copyLink) {
+        await _copyTripLink(_tripShare.activeId!);
+      } else {
+        await _tripShare.stop();
+        if (!mounted) return;
+        setState(() {});
+        _showSnack(
+          'Condivisione interrotta: il link non mostra più la tua posizione.',
+          icon: Icons.location_off_outlined,
+        );
+      }
+      return;
+    }
+    final destination = _endPoint;
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (destination == null || userId == null) return;
+    final name = _endController.text.isEmpty
+        ? 'destinazione'
+        : _endController.text;
+    if (!await showShareTripConsent(context, name) || !mounted) return;
+    final position =
+        _navigationUpdate?.position ?? _userLocation ?? _startPoint;
+    if (position == null) {
+      _showError(
+        'Serve la tua posizione per condividere il viaggio.',
+        Icons.location_disabled_rounded,
+      );
+      return;
+    }
+    final remaining = _remaining(_navigationUpdate);
+    try {
+      final id = await _tripShare.start(
+        userId: userId,
+        position: position,
+        accuracy: _userAccuracy ?? 0,
+        destination: destination,
+        destinationName: name,
+        remainingMeters: remaining?.$1,
+        remainingSeconds: remaining?.$2,
+      );
+      if (!mounted) return;
+      setState(() {});
+      await _copyTripLink(id);
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile condividere il viaggio. Riprova.',
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
+  Future<void> _copyTripLink(String id) async {
+    final link = TripShareService.linkFor(id, Uri.base).toString();
+    try {
+      await Clipboard.setData(ClipboardData(text: link));
+      if (!mounted) return;
+      _showSnack(
+        'Link copiato: invialo a chi vuoi, per esempio su WhatsApp.',
+        iconColor: AppColors.of(context).success,
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack('Link del viaggio: $link', icon: Icons.link_rounded);
+    }
+  }
+
   void _stopNavigation() {
     _keepScreenOn(false);
+    if (_tripShare.isSharing) unawaited(_tripShare.stop());
     unawaited(_tripResume.clear());
     _gpsWatchdog?.cancel();
     _gpsSignalLost = false;
@@ -1413,8 +2008,13 @@ class _MapScreenState extends State<MapScreen> {
       _navigationUpdate = null;
       _navigationFirstStep = null;
       _verifyPrompt = null;
+      _passPrompt = null;
+      _closeDeviationPromptInState();
       _clearRouteAlert();
     });
+    // Senza navigazione la mappa segue la bussola o torna con il nord in
+    // alto.
+    _applyMapRotation();
     _fitRoute();
   }
 
@@ -1426,6 +2026,15 @@ class _MapScreenState extends State<MapScreen> {
     if (!mounted) return;
     setState(() => _isLocatingUser = false);
     final position = result.position;
+    if (position != null &&
+        !_userFix.accept(
+          PositionFix(position, result.accuracy ?? 0, DateTime.now()),
+        )) {
+      // Resta la posizione precedente, più precisa e ancora recente.
+      final kept = _userLocation;
+      if (kept != null) _mapController.move(kept, 16);
+      return;
+    }
     if (position != null) {
       setState(() {
         _userLocation = _center = position;
@@ -1504,7 +2113,9 @@ class _MapScreenState extends State<MapScreen> {
     return left > Duration.zero ? left.inSeconds + 1 : null;
   }
 
-  Future<void> _reportObstacle(LatLng point) async {
+  /// Segnala un ostacolo in [point]. Con [preset] (per esempio un tipo
+  /// detto a voce) non si apre la scheda per sceglierlo.
+  Future<void> _reportObstacle(LatLng point, {ReportDraft? preset}) async {
     final wait = _secondsToWait(_lastReportAt, _reportInterval);
     if (wait != null) {
       _showError(
@@ -1513,7 +2124,7 @@ class _MapScreenState extends State<MapScreen> {
       );
       return;
     }
-    final draft = await showReportObstacleSheet(context);
+    final draft = preset ?? await showReportObstacleSheet(context);
     if (draft == null || !mounted) return;
     final type = draft.type;
     final userId = FirebaseAuth.instance.currentUser?.uid;
@@ -1535,6 +2146,7 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
+    final before = _myContributions();
     bool photoSaved;
     try {
       photoSaved = await _obstacleService.add(
@@ -1563,19 +2175,16 @@ class _MapScreenState extends State<MapScreen> {
     }
     if (!mounted) return;
     if (!photoSaved) {
-      _showSnack(
+      _showThanks(
         'Ostacolo segnalato, ma la foto non è stata salvata. Grazie per il '
         'contributo!',
+        before,
         iconColor: AppColors.of(context).warning,
         icon: Icons.no_photography_outlined,
       );
       return;
     }
-    _showSnack(
-      'Ostacolo segnalato. Grazie per il contributo!',
-      iconColor: AppColors.of(context).success,
-      icon: Icons.check_circle_rounded,
-    );
+    _showThanks('Ostacolo segnalato. Grazie per il contributo!', before);
   }
 
   /// Segnala un ostacolo nella posizione dell'utente o, se non è nota, al
@@ -1594,20 +2203,219 @@ class _MapScreenState extends State<MapScreen> {
     await _reportObstacle(point);
   }
 
+  /// Filtri di accessibilità della ricerca: cerca su OpenStreetMap nella
+  /// zona inquadrata dalla mappa. Con `null` il filtro si toglie.
+  Future<void> _searchNearby(NearbyFilter? filter) async {
+    final request = ++_nearbyRequest;
+    if (filter == null) {
+      setState(() => _nearby = const NearbySearch());
+      return;
+    }
+    setState(() => _nearby = NearbySearch(filter: filter, isLoading: true));
+    final results = await _nearbyService.search(
+      filter,
+      _mapController.camera.center,
+    );
+    if (!mounted || request != _nearbyRequest) return;
+    setState(() => _nearby = NearbySearch(filter: filter, results: results));
+  }
+
+  /// "Segnala a voce": si dice il tipo di ostacolo ("gradino", "auto sul
+  /// marciapiede") e l'app chiede conferma prima di salvarlo nella
+  /// posizione in cui ci si trovava quando si è parlato.
+  Future<void> _reportByVoice() async {
+    if (_isListening) {
+      _speechInput.cancel();
+      return;
+    }
+    if (FirebaseAuth.instance.currentUser == null) return;
+    final point = _userLocation ?? _mapController.camera.center;
+    _ttsService.stop();
+    setState(() {
+      _isListening = true;
+      _voiceReport = null;
+    });
+    _showSnack(
+      _voiceLanguage == 'it'
+          ? 'Ti ascolto: di\' il tipo di ostacolo, per esempio «gradino» o '
+                '«auto sul marciapiede».'
+          : 'Listening: say the obstacle, for example "step" or "parked car".',
+      iconColor: AppColors.of(context).info,
+      icon: Icons.mic_rounded,
+    );
+    final heard = await _speechInput.listen(_voiceLanguage);
+    if (!mounted) return;
+    setState(() => _isListening = false);
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    for (final text in heard) {
+      final type = matchObstacleType(text);
+      if (type != null) {
+        setState(() => _voiceReport = (point: point, heard: text, type: type));
+        return;
+      }
+    }
+    if (heard.isEmpty) {
+      _showError(
+        'Non ho sentito nulla. Controlla che il microfono sia consentito e '
+        'riprova.',
+        Icons.mic_off_rounded,
+      );
+      return;
+    }
+    _showError(
+      'Non ho riconosciuto il tipo di ostacolo in «${heard.first}». '
+      "Sceglilo dall'elenco.",
+      Icons.help_outline_rounded,
+    );
+    await _reportObstacle(point);
+  }
+
+  Future<void> _confirmVoiceReport({required bool fromList}) async {
+    final report = _voiceReport;
+    setState(() => _voiceReport = null);
+    if (report == null) return;
+    await _reportObstacle(
+      report.point,
+      preset: fromList ? null : ReportDraft(report.type),
+    );
+  }
+
   Future<void> _confirmObstacle(Obstacle obstacle, String userId) async {
+    final before = _myContributions();
     try {
       await _obstacleService.confirm(obstacle.id, userId);
+      await _logHelp(userId, HelpKind.confirm, obstacle);
       if (!mounted) return;
-      _showSnack(
-        "Grazie! Hai confermato che l'ostacolo c'è ancora.",
-        iconColor: AppColors.of(context).success,
-        icon: Icons.check_circle_rounded,
-      );
+      _showThanks("Grazie! Hai confermato che l'ostacolo c'è ancora.", before);
     } catch (_) {
       if (!mounted) return;
       _showError(
         'Non è stato possibile registrare la conferma. Riprova.',
         Icons.error_outline_rounded,
+      );
+    }
+  }
+
+  /// I propri contributi come li vede la scheda "Le tue segnalazioni".
+  Contributions? _myContributions() {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    return userId == null ? null : Contributions.of(_allObstacles, userId);
+  }
+
+  Future<void> _logHelp(String userId, HelpKind kind, Obstacle obstacle) =>
+      _contributionLog.add(
+        userId,
+        HelpEntry(kind, obstacle.id, DateTime.now()),
+      );
+
+  /// Ringrazia per un contributo dicendo i punti guadagnati e quanti ne
+  /// mancano al livello dopo, o il nuovo livello o badge, con "Vedi" per
+  /// aprire "Le tue segnalazioni". [before] sono i contributi di prima:
+  /// Firestore aggiorna subito le segnalazioni lette con la scrittura
+  /// appena fatta, quindi quelli di adesso la contano già.
+  void _showThanks(
+    String message,
+    Contributions? before, {
+    Color? iconColor,
+    IconData? icon,
+  }) {
+    final after = _myContributions();
+    final reward = before == null || after == null
+        ? null
+        : ContributionReward.between(before, after);
+    final extra = reward?.message ?? '';
+    _showSnack(
+      extra.isEmpty ? message : '$message $extra',
+      iconColor: iconColor ?? AppColors.of(context).success,
+      icon:
+          icon ??
+          (reward?.isMilestone ?? false
+              ? Icons.emoji_events_rounded
+              : Icons.check_circle_rounded),
+      action: extra.isEmpty
+          ? null
+          : SnackBarAction(
+              label: 'Vedi',
+              textColor: AppPalette.accent,
+              onPressed: _openContributions,
+            ),
+    );
+  }
+
+  /// Un ostacolo entro 1 km da te che nessuno conferma da 30 giorni.
+  VerifySuggestion? _verifySuggestion(String userId) {
+    final location = _userLocation;
+    if (location == null) return null;
+    return findVerifySuggestion(
+      _obstacles,
+      userId,
+      DateTime.now(),
+      (o) => haversineDistance(location, o.position),
+    );
+  }
+
+  /// All'apertura, una volta a settimana, "La tua settimana" con i
+  /// contributi della settimana prima, se ce ne sono stati.
+  Future<void> _maybeShowWeeklyReview() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (_weeklyReviewChecked ||
+        userId == null ||
+        !_obstaclesLoaded ||
+        !_contributionLogLoaded) {
+      return;
+    }
+    _weeklyReviewChecked = true;
+    final week = DateRange.previousWeek(DateTime.now());
+    final contributions = Contributions.of(_allObstacles, userId);
+    final review = WeeklyReview.of(
+      contributions,
+      _contributionLog.helps,
+      week,
+      userId,
+    );
+    if (review.isEmpty) return;
+    if (await _contributionLog.wasWeekShown(userId, week)) return;
+    if (!mounted || _isNavigating) return;
+    await _contributionLog.markWeekShown(userId, week);
+    if (!mounted) return;
+    final suggestion = _verifySuggestion(userId);
+    final action = await showWeeklyReviewSheet(
+      context,
+      review: review,
+      contributions: contributions,
+      suggestion: suggestion,
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case WeeklyReviewAction.contribute:
+        await _reportHere();
+      case WeeklyReviewAction.verify:
+        if (suggestion == null) return;
+        _mapController.move(suggestion.obstacle.position, 18);
+        await _openObstacle(suggestion.obstacle);
+      case WeeklyReviewAction.showAll:
+        await _openContributions();
+    }
+  }
+
+  /// "Le tue segnalazioni": toccandone una la mappa la mostra.
+  Future<void> _openContributions() async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    final picked = await showContributionsSheet(
+      context,
+      Contributions.of(_allObstacles, userId),
+      suggestion: _verifySuggestion(userId),
+    );
+    if (picked == null || !mounted) return;
+    _mapController.move(picked.position, 18);
+    if (_obstacles.any((o) => o.id == picked.id)) {
+      await _openObstacle(picked);
+    } else {
+      _showSnack(
+        'Questa segnalazione non è più sulla mappa: '
+        '${ReportStatus.of(picked, DateTime.now()).label.toLowerCase()}.',
+        icon: Icons.visibility_off_outlined,
       );
     }
   }
@@ -1623,6 +2431,15 @@ class _MapScreenState extends State<MapScreen> {
     if (action == null || !mounted) return;
     if (action == ObstacleAction.confirm) {
       if (userId != null) await _confirmObstacle(obstacle, userId);
+      return;
+    }
+    if (action == ObstacleAction.thank) {
+      if (userId != null) await _thankReporter(obstacle, userId);
+      return;
+    }
+    final vote = action.passVote;
+    if (vote != null) {
+      if (userId != null) await _votePass(obstacle, userId, vote);
       return;
     }
     if (userId == null) return;
@@ -1658,6 +2475,9 @@ class _MapScreenState extends State<MapScreen> {
         hasPhoto: obstacle.hasPhoto,
       );
       _lastRemovalAt = DateTime.now();
+      if (!obstacle.isReportedBy(userId)) {
+        await _logHelp(userId, HelpKind.gone, obstacle);
+      }
       if (!mounted) return;
       _showSnack(
         'Ostacolo rimosso dalla mappa.',
@@ -1695,6 +2515,7 @@ class _MapScreenState extends State<MapScreen> {
     }
     try {
       await _obstacleService.voteNotThere(obstacle.id, userId);
+      await _logHelp(userId, HelpKind.gone, obstacle);
       if (!mounted) return;
       final hides =
           obstacle.notThereBy.length + 1 >= Obstacle.notThereVotesToHide;
@@ -1742,13 +2563,182 @@ class _MapScreenState extends State<MapScreen> {
     setState(() => _verifyPrompt = obstacle);
     _ttsService.speak(
       _voiceLanguage == 'it'
-          ? "C'è ancora questo ostacolo? ${obstacle.type}"
-          : 'Is this obstacle still there?',
+          ? (obstacle.isOutOfService
+                ? "È ancora fuori servizio? ${obstacle.type}"
+                : "C'è ancora questo ostacolo? ${obstacle.type}")
+          : (obstacle.isOutOfService
+                ? 'Is the lift or ramp still out of service?'
+                : 'Is this obstacle still there?'),
       _voiceLanguage,
     );
     // Senza risposta la domanda sparisce da sola.
     _verifyTimer?.cancel();
     _verifyTimer = Timer(const Duration(seconds: 45), _closeVerifyPrompt);
+  }
+
+  /// All'arrivo chiede com'era l'ingresso, una volta per viaggio e non
+  /// più di qualche volta al giorno (vedi [ArrivalQuestionPolicy]).
+  Future<void> _maybeAskAboutEntrance() async {
+    if (_arrivalHandled) return;
+    _arrivalHandled = true;
+    final destination = _endPoint;
+    if (destination == null || FirebaseAuth.instance.currentUser == null) {
+      return;
+    }
+    if (!await _arrivalPolicy.tryAsk() || !mounted) return;
+    setState(() => _arrivalPrompt = destination);
+    // Prima si lascia finire l'annuncio dell'arrivo.
+    Timer(const Duration(seconds: 4), () {
+      if (!mounted || _arrivalPrompt == null || _voiceLanguage != 'it') return;
+      _ttsService.speak("Com'era l'ingresso?", _voiceLanguage);
+    });
+    _arrivalTimer?.cancel();
+    _arrivalTimer = Timer(const Duration(seconds: 60), _closeArrivalPrompt);
+  }
+
+  /// Dopo un ricalcolo per uscita dal percorso chiede se si è cambiata
+  /// strada per un ostacolo, una volta per viaggio e solo se lì vicino non
+  /// c'è già una segnalazione.
+  void _maybeAskAboutDeviation(LatLng leftAt) {
+    if (_deviationAsked ||
+        FirebaseAuth.instance.currentUser == null ||
+        !shouldAskAboutDeviation(leftAt, _obstacles)) {
+      return;
+    }
+    _deviationAsked = true;
+    setState(() => _deviationPrompt = leftAt);
+    _ttsService.speak(
+      _voiceLanguage == 'it'
+          ? 'Hai cambiato strada per un ostacolo?'
+          : 'Did you change route because of an obstacle?',
+      _voiceLanguage,
+    );
+    _deviationTimer?.cancel();
+    _deviationTimer = Timer(const Duration(seconds: 45), _closeDeviationPrompt);
+  }
+
+  /// Da chiamare dentro setState.
+  void _closeDeviationPromptInState() {
+    _deviationTimer?.cancel();
+    _deviationPrompt = null;
+  }
+
+  void _closeDeviationPrompt() {
+    if (mounted && _deviationPrompt != null) {
+      setState(_closeDeviationPromptInState);
+    }
+  }
+
+  Future<void> _reportDeviation() async {
+    final point = _deviationPrompt;
+    _closeDeviationPrompt();
+    if (point != null) await _reportObstacle(point);
+  }
+
+  /// Da chiamare dentro setState.
+  void _closeArrivalPromptInState() {
+    _arrivalTimer?.cancel();
+    _arrivalPrompt = null;
+  }
+
+  void _closeArrivalPrompt() {
+    if (mounted && _arrivalPrompt != null) {
+      setState(_closeArrivalPromptInState);
+    }
+  }
+
+  Future<void> _answerArrivalPrompt(EntranceAnswer answer) async {
+    final destination = _arrivalPrompt;
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    _closeArrivalPrompt();
+    if (destination == null || userId == null) return;
+    try {
+      await _entranceService.add(destination, answer, userId);
+      if (!mounted) return;
+      _showSnack(
+        "Grazie! La tua risposta aiuta chi andrà lì dopo di te.",
+        iconColor: AppColors.of(context).success,
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile salvare la risposta. Riprova più tardi.',
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
+  void _closePassPrompt() {
+    if (mounted && _passPrompt != null) setState(() => _passPrompt = null);
+  }
+
+  Future<void> _answerPassPrompt(PassVote vote) async {
+    final obstacle = _passPrompt;
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    _closePassPrompt();
+    if (obstacle != null && userId != null) {
+      await _votePass(obstacle, userId, vote);
+    }
+  }
+
+  Future<void> _thankReporter(Obstacle obstacle, String userId) async {
+    try {
+      await _obstacleService.thank(obstacle.id, userId);
+      if (!mounted) return;
+      _showSnack(
+        'Grazie inviato a chi ha segnalato questo ostacolo.',
+        iconColor: AppColors.of(context).success,
+        icon: Icons.favorite_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile inviare il grazie. Riprova.',
+        Icons.error_outline_rounded,
+      );
+    }
+  }
+
+  /// Se le proprie segnalazioni hanno ricevuto nuovi grazie, lo dice.
+  Future<void> _announceNewThanks(List<Obstacle> obstacles) async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    final fresh = await _thanksNotifier.newThanks(
+      userId,
+      thanksReceived(obstacles, userId),
+    );
+    if (fresh == 0 || !mounted) return;
+    _showSnack(
+      fresh == 1
+          ? 'Una persona ti ha ringraziato per una tua segnalazione.'
+          : '$fresh persone ti hanno ringraziato per le tue segnalazioni.',
+      iconColor: AppColors.of(context).success,
+      icon: Icons.favorite_rounded,
+    );
+  }
+
+  Future<void> _votePass(
+    Obstacle obstacle,
+    String userId,
+    PassVote vote,
+  ) async {
+    final before = _myContributions();
+    try {
+      await _obstacleService.votePass(obstacle.id, userId, vote);
+      await _logHelp(userId, HelpKind.pass, obstacle);
+      if (!mounted) return;
+      _showThanks(
+        'Grazie! La tua risposta aiuta a scegliere i percorsi.',
+        before,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile salvare la risposta. Riprova.',
+        Icons.error_outline_rounded,
+      );
+    }
   }
 
   void _closeVerifyPrompt() {
@@ -1763,6 +2753,12 @@ class _MapScreenState extends State<MapScreen> {
     if (obstacle == null || userId == null) return;
     if (stillThere) {
       await _confirmObstacle(obstacle, userId);
+      // Poi una domanda di dettaglio, se non ha già risposto.
+      if (mounted && _isNavigating && obstacle.canVotePassBy(userId)) {
+        setState(() => _passPrompt = obstacle);
+        _verifyTimer?.cancel();
+        _verifyTimer = Timer(const Duration(seconds: 45), _closePassPrompt);
+      }
     } else {
       await _removeObstacle(obstacle, userId);
     }
@@ -1844,7 +2840,7 @@ class _MapScreenState extends State<MapScreen> {
       _routePoints = routes.first.points;
       _clearRouteAlert();
     });
-    _navigationService.start(routes.first);
+    _followRoute(routes.first);
     _ttsService.speak(
       _voiceLanguage == 'it' ? 'Nuovo percorso' : 'New route',
       _voiceLanguage,
@@ -1890,10 +2886,7 @@ class _MapScreenState extends State<MapScreen> {
         : choosing != null
         ? 96
         : hasRoutes
-        ? 360 +
-              32.0 * _selectedRouteWarningCount +
-              (_stops.isEmpty ? 0 : 44) +
-              (_weatherWarning == null ? 0 : 36)
+        ? _routeSheetHeight
         : showPlaceSheet
         ? 196 +
               22.0 *
@@ -1948,6 +2941,8 @@ class _MapScreenState extends State<MapScreen> {
               onUseMyLocation: _useMyLocation,
               onChooseOnMap: _chooseOnMap,
               onPaste: _pasteAddress,
+              nearby: _nearby,
+              onNearbyFilter: _searchNearby,
               onClear: _clearPoint,
               onSwap: _swapPoints,
               onCalculate: _calculateRoute,
@@ -1988,7 +2983,10 @@ class _MapScreenState extends State<MapScreen> {
               children: [
                 Row(
                   children: [
-                    TopBar(onLogout: () => FirebaseAuth.instance.signOut()),
+                    TopBar(
+                      onLogout: () => FirebaseAuth.instance.signOut(),
+                      onOpenContributions: _openContributions,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -2056,15 +3054,35 @@ class _MapScreenState extends State<MapScreen> {
               onMutedChanged: (_) => setState(() {}),
             ),
             onRepeat: _ttsService.repeat,
+            onShareTrip: _shareTrip,
+            isSharingTrip: _tripShare.isSharing,
+            isOffline: _isOffline,
+            remainingSeconds: _remaining(_navigationUpdate)?.$2,
           ),
         ),
       );
     }
 
-    if (_isNavigating) {
-      final alertObstacle = _routeAlertObstacle;
-      final verify = _verifyPrompt;
-      final Widget? prompt = alertObstacle != null
+    if (_isNavigating || _arrivalPrompt != null || _voiceReport != null) {
+      final alertObstacle = _isNavigating ? _routeAlertObstacle : null;
+      final voiceReport = _voiceReport;
+      final verify = _isNavigating ? _verifyPrompt : null;
+      final deviation = _isNavigating ? _deviationPrompt : null;
+      final pass = _isNavigating ? _passPrompt : null;
+      final Widget? prompt = voiceReport != null
+          ? VoiceReportCard(
+              heard: voiceReport.heard,
+              type: voiceReport.type,
+              onConfirm: () => _confirmVoiceReport(fromList: false),
+              onChooseFromList: () => _confirmVoiceReport(fromList: true),
+              onCancel: () => setState(() => _voiceReport = null),
+            )
+          : _arrivalPrompt != null
+          ? ArrivalEntranceCard(
+              onAnswer: _answerArrivalPrompt,
+              onSkip: _closeArrivalPrompt,
+            )
+          : alertObstacle != null
           ? RouteAlertCard(
               obstacle: alertObstacle,
               isSearching: _routeAlertSearching,
@@ -2081,6 +3099,17 @@ class _MapScreenState extends State<MapScreen> {
               onStillThere: () => _answerVerifyPrompt(stillThere: true),
               onGone: () => _answerVerifyPrompt(stillThere: false),
               onSkip: _closeVerifyPrompt,
+            )
+          : pass != null
+          ? PassabilityCard(
+              obstacle: pass,
+              onVote: _answerPassPrompt,
+              onSkip: _closePassPrompt,
+            )
+          : deviation != null
+          ? DeviationObstacleCard(
+              onReport: _reportDeviation,
+              onDismiss: _closeDeviationPrompt,
             )
           : null;
       if (prompt != null) {
@@ -2111,6 +3140,17 @@ class _MapScreenState extends State<MapScreen> {
         duration: const Duration(milliseconds: 240),
         curve: Curves.easeOutCubic,
         child: MapControls(
+          // Il pulsante della bussola compare quando serve: in navigazione,
+          // con la bussola che risponde o con la mappa già ruotata.
+          compass:
+              choosing == null &&
+                  (_isNavigating || _deviceHeading != null || _headingUp)
+              ? CompassButton(
+                  mapRotation: _mapRotation,
+                  headingUp: _headingUp,
+                  onPressed: _toggleHeadingUp,
+                )
+              : null,
           onZoomIn: _zoomIn,
           onZoomOut: _zoomOut,
           onLocate: () => _locateUser(showErrors: true),
@@ -2119,6 +3159,14 @@ class _MapScreenState extends State<MapScreen> {
           onToggleParking: choosing != null ? null : _toggleParkingLayer,
           showsParking: _showParkingLayer,
           isLoadingParking: _isLoadingParkings,
+          // A voce si segnala anche durante la navigazione, senza mani.
+          onVoiceReport:
+              _speechInput.isSupported &&
+                  choosing == null &&
+                  FirebaseAuth.instance.currentUser != null
+              ? _reportByVoice
+              : null,
+          isListening: _isListening,
         ),
       ),
     );
@@ -2198,6 +3246,7 @@ class _MapScreenState extends State<MapScreen> {
                 nearbyObstacles: _obstaclesNear(_endPoint!),
                 accessibility: _placeAccessibility,
                 isLoadingAccessibility: _isLoadingAccessibility,
+                entranceSummary: _entranceSummary,
                 onDirections: _openDirections,
                 onStart: _startFromPlace,
                 onShare: _sharePlace,
@@ -2233,6 +3282,13 @@ class _MapScreenState extends State<MapScreen> {
             stops: [for (final stop in _stops) stop.name],
             weatherWarning: _weatherWarning,
             onRemoveStop: _removeStop,
+            onSaveOffline: _saveRouteOffline,
+            onOpenPreferences: _openRoutePreferences,
+            preferencesSummary: _routePrefsSummary,
+            onShowSteps: _showRouteSteps,
+            offlineProgress: _offlineProgress,
+            isSavedOffline: identical(_offlineSavedFor, _routePoints),
+            arrivalWarning: _arrivalWarning,
           ),
         ),
       );
@@ -2352,7 +3408,10 @@ class _MapScreenState extends State<MapScreen> {
         maxZoom: _maxZoom,
         // Annulla il download delle tile uscite dallo schermo: mappa più
         // reattiva sul web e meno richieste ai server di OpenStreetMap.
-        tileProvider: CancellableNetworkTileProvider(),
+        // Le tile salvate per il percorso si leggono dall'archivio, anche
+        // senza rete; le altre arrivano dalla rete annullando quelle uscite
+        // dallo schermo.
+        tileProvider: RouteTileProvider(_offlineRoute),
         tileBuilder: isDark ? darkTileBuilder : lightTileBuilder,
       ),
     ];
@@ -2410,6 +3469,7 @@ class _MapScreenState extends State<MapScreen> {
       MarkerClusterLayerWidget(
         options: MarkerClusterLayerOptions(
           maxClusterRadius: 45,
+          rotate: true,
           size: const Size(40, 40),
           alignment: Alignment.center,
           padding: const EdgeInsets.all(50),
@@ -2419,6 +3479,7 @@ class _MapScreenState extends State<MapScreen> {
                   point: obstacle.position,
                   width: 40,
                   height: 40,
+                  rotate: true,
                   child: ObstacleMarker(
                     color: obstacle.color,
                     icon: obstacle.icon,
@@ -2435,6 +3496,8 @@ class _MapScreenState extends State<MapScreen> {
 
     layers.add(
       MarkerLayer(
+        // Con la mappa ruotata le icone restano dritte.
+        rotate: true,
         markers: [
           if (_startPoint != null && _choosingOnMapFor != true)
             Marker(
@@ -2528,9 +3591,11 @@ class _MapScreenState extends State<MapScreen> {
           if (_userLocation != null)
             Marker(
               point: _userLocation!,
-              width: 46,
-              height: 46,
-              child: const UserLocationDot(),
+              width: 72,
+              height: 72,
+              // Gira con la mappa: il cono punta così nella direzione vera.
+              rotate: false,
+              child: UserLocationDot(heading: _coneHeading),
             ),
         ],
       ),

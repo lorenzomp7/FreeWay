@@ -24,6 +24,7 @@ final overpass = {
         'wheelchair': 'limited',
         'toilets:wheelchair': 'yes',
         'wheelchair:description:it': 'Rampa sul lato di via Mazzini',
+        'opening_hours': 'Mo-Fr 09:00-19:00',
       },
     },
     {
@@ -69,6 +70,8 @@ void main() {
     expect(info.wheelchair, 'limited');
     expect(info.toilets, 'yes');
     expect(info.description, 'Rampa sul lato di via Mazzini');
+    expect(info.openingHoursText, 'Mo-Fr 09:00-19:00');
+    expect(info.openingHours, isNotNull);
     expect(info.entrances, hasLength(2));
     // L'ingresso principale ha gradini: il percorso va a quello accessibile.
     expect(info.bestEntrance?.name, 'B');
@@ -139,11 +142,19 @@ void main() {
   });
 
   testWidgets('la scheda mostra le voci di accessibilità', (tester) async {
+    // 23 novembre 2026 è un lunedì.
+    final monday10 = DateTime(2026, 11, 23, 10);
     final info = PlaceAccessibilityService.parse(overpass, 'N', 42, place);
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(body: AccessibilityFacts(info: info)),
+        home: Scaffold(
+          body: AccessibilityFacts(info: info, now: monday10),
+        ),
       ),
+    );
+    expect(
+      find.text('Aperto ora · chiude alle 19:00 (orari OpenStreetMap)'),
+      findsOneWidget,
     );
     expect(
       find.text('Parzialmente accessibile in sedia a rotelle'),
@@ -156,7 +167,7 @@ void main() {
     expect(find.text('Bagno accessibile'), findsOneWidget);
     expect(find.text('Parcheggio per disabili a 80 m'), findsOneWidget);
     expect(find.text('«Rampa sul lato di via Mazzini»'), findsOneWidget);
-    expect(AccessibilityFacts.rowCount(info), 5);
+    expect(AccessibilityFacts.rowCount(info, now: monday10), 6);
   });
 
   testWidgets('toccando un ingresso lo si sceglie come arrivo', (tester) async {

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:freeway/models/obstacle.dart';
 import 'package:freeway/services/obstacle_service.dart';
@@ -6,13 +7,13 @@ import 'package:latlong2/latlong.dart';
 import 'package:freeway/widgets/obstacle_sheets.dart';
 
 Map<String, dynamic> report({Map<String, dynamic> extra = const {}}) => {
-      'lat': 45.54,
-      'lng': 10.22,
-      'type': 'Gradino che rende impossibile il passaggio',
-      'timestamp': Timestamp.fromDate(DateTime(2025, 3, 1, 10, 30)),
-      'userId': 'alice',
-      ...extra,
-    };
+  'lat': 45.54,
+  'lng': 10.22,
+  'type': 'Gradino che rende impossibile il passaggio',
+  'timestamp': Timestamp.fromDate(DateTime(2025, 3, 1, 10, 30)),
+  'userId': 'alice',
+  ...extra,
+};
 
 void main() {
   group('Obstacle.fromMap', () {
@@ -34,8 +35,10 @@ void main() {
     });
 
     test('senza categoria salvata la ricava dal tipo', () {
-      expect(Obstacle.fromMap('o1', report()).category,
-          'Dislivello e pavimentazione');
+      expect(
+        Obstacle.fromMap('o1', report()).category,
+        'Dislivello e pavimentazione',
+      );
       final invalid = Obstacle.fromMap('o1', report(extra: {'category': 'x'}));
       expect(invalid.category, 'Dislivello e pavimentazione');
     });
@@ -43,10 +46,12 @@ void main() {
     test('legge le conferme', () {
       final obstacle = Obstacle.fromMap(
         'o1',
-        report(extra: {
-          'confirmedBy': ['bob', 'carla'],
-          'lastConfirmedAt': Timestamp.fromDate(DateTime(2025, 3, 5)),
-        }),
+        report(
+          extra: {
+            'confirmedBy': ['bob', 'carla'],
+            'lastConfirmedAt': Timestamp.fromDate(DateTime(2025, 3, 5)),
+          },
+        ),
       );
       expect(obstacle.confirmationCount, 2);
       expect(obstacle.lastConfirmedAt, DateTime(2025, 3, 5));
@@ -54,8 +59,14 @@ void main() {
   });
 
   test('chi può confermare un ostacolo', () {
-    final obstacle =
-        Obstacle.fromMap('o1', report(extra: {'confirmedBy': ['bob']}));
+    final obstacle = Obstacle.fromMap(
+      'o1',
+      report(
+        extra: {
+          'confirmedBy': ['bob'],
+        },
+      ),
+    );
     expect(obstacle.canBeConfirmedBy('alice'), isFalse, reason: 'autrice');
     expect(obstacle.canBeConfirmedBy('bob'), isFalse, reason: 'già confermato');
     expect(obstacle.canBeConfirmedBy('carla'), isTrue);
@@ -68,31 +79,39 @@ void main() {
         expect(obstacleCategoryOf(type), entry.key);
       }
     }
-    expect(obstacleCategoryOf('Cantieri sul marciapiede'), 'Ostacoli temporanei');
+    expect(
+      obstacleCategoryOf('Cantieri sul marciapiede'),
+      'Ostacoli temporanei',
+    );
     expect(obstacleCategoryOf('Qualcos\'altro'), 'Altro');
   });
 
   test('timeAgo', () {
     final now = DateTime(2025, 3, 10, 12);
-    expect(timeAgo(now.subtract(const Duration(seconds: 20)), now: now),
-        'proprio ora');
-    expect(timeAgo(now.subtract(const Duration(minutes: 5)), now: now),
-        '5 min fa');
+    expect(
+      timeAgo(now.subtract(const Duration(seconds: 20)), now: now),
+      'proprio ora',
+    );
+    expect(
+      timeAgo(now.subtract(const Duration(minutes: 5)), now: now),
+      '5 min fa',
+    );
     expect(timeAgo(now.subtract(const Duration(days: 1)), now: now), 'ieri');
-    expect(timeAgo(now.subtract(const Duration(days: 65)), now: now),
-        '2 mesi fa');
+    expect(
+      timeAgo(now.subtract(const Duration(days: 65)), now: now),
+      '2 mesi fa',
+    );
   });
 
   group('scadenza degli ostacoli temporanei', () {
     final reported = DateTime(2025, 3, 1);
     Obstacle make(String type, {DateTime? confirmed}) => Obstacle.fromMap('o', {
-          'lat': 45.54,
-          'lng': 10.22,
-          'type': type,
-          'timestamp': Timestamp.fromDate(reported),
-          if (confirmed != null)
-            'lastConfirmedAt': Timestamp.fromDate(confirmed),
-        });
+      'lat': 45.54,
+      'lng': 10.22,
+      'type': type,
+      'timestamp': Timestamp.fromDate(reported),
+      if (confirmed != null) 'lastConfirmedAt': Timestamp.fromDate(confirmed),
+    });
 
     test('gli ostacoli permanenti non scadono', () {
       final step = make('Gradino che rende impossibile il passaggio');
@@ -100,11 +119,40 @@ void main() {
       expect(step.isExpired(DateTime(2030)), isFalse);
     });
 
-    test('un ostacolo temporaneo scade dopo 14 giorni', () {
+    test('la durata dipende dal tipo di ostacolo', () {
       final car = make('Auto parcheggiata su scivolo o marciapiede');
-      expect(car.expiresAt, DateTime(2025, 3, 15));
-      expect(car.isExpired(DateTime(2025, 3, 14)), isFalse);
-      expect(car.isExpired(DateTime(2025, 3, 16)), isTrue);
+      expect(car.expiresAt, DateTime(2025, 3, 2));
+      expect(car.isExpired(DateTime(2025, 3, 1, 20)), isFalse);
+      expect(car.isExpired(DateTime(2025, 3, 2, 1)), isTrue);
+
+      final clutter = make('Rifiuti o ingombri che ostruiscono il passaggio');
+      expect(clutter.expiresAt, DateTime(2025, 3, 4));
+
+      final works = make('Cantieri con percorsi accessibili bloccati');
+      expect(works.expiresAt, DateTime(2025, 3, 31));
+      expect(works.isExpired(DateTime(2025, 3, 20)), isFalse);
+    });
+
+    test('un ascensore fuori servizio scade dopo 2 giorni', () {
+      final lift = make(kOutOfServiceType);
+      expect(lift.isTemporary, isTrue);
+      expect(lift.isOutOfService, isTrue);
+      expect(lift.category, 'Ostacoli temporanei');
+      expect(lift.lifetime, const Duration(days: 2));
+      expect(lift.expiresAt, reported.add(const Duration(days: 2)));
+      expect(lift.icon, Icons.elevator_outlined);
+    });
+
+    test('un temporaneo di tipo non noto scade dopo 14 giorni', () {
+      final old = Obstacle.fromMap('o', {
+        'lat': 45.54,
+        'lng': 10.22,
+        'type': 'Ingombro vecchio stile',
+        'category': 'Ostacoli temporanei',
+        'timestamp': Timestamp.fromDate(reported),
+      });
+      expect(old.lifetime, Obstacle.temporaryLifetime);
+      expect(old.expiresAt, DateTime(2025, 3, 15));
     });
 
     test('una conferma sposta la scadenza', () {
@@ -112,8 +160,12 @@ void main() {
         'Cantieri con percorsi accessibili bloccati',
         confirmed: DateTime(2025, 3, 10),
       );
-      expect(works.expiresAt, DateTime(2025, 3, 24));
-      expect(works.isExpired(DateTime(2025, 3, 20)), isFalse);
+      expect(works.expiresAt, DateTime(2025, 4, 9));
+      final car = make(
+        'Auto parcheggiata su scivolo o marciapiede',
+        confirmed: DateTime(2025, 3, 10, 8),
+      );
+      expect(car.expiresAt, DateTime(2025, 3, 11, 8));
     });
 
     test('senza data (scrittura non ancora confermata) non scade', () {
@@ -140,7 +192,11 @@ void main() {
     ];
 
     test('trova la segnalazione uguale più vicina', () {
-      final found = findDuplicate(obstacles, const LatLng(45.5400, 10.2200), step);
+      final found = findDuplicate(
+        obstacles,
+        const LatLng(45.5400, 10.2200),
+        step,
+      );
       expect(found?.id, 'nearest');
     });
 
@@ -150,8 +206,11 @@ void main() {
         isNull,
       );
       expect(
-        findDuplicate(obstacles, const LatLng(45.5400, 10.2200),
-            'Tornelli non accessibili'),
+        findDuplicate(
+          obstacles,
+          const LatLng(45.5400, 10.2200),
+          'Tornelli non accessibili',
+        ),
         isNull,
       );
     });
@@ -181,15 +240,19 @@ void main() {
     test('una conferma dopo i voti lo fa ricomparire', () {
       final voted = DateTime(2026, 11, 18, 10);
       expect(
-        withVotes(['a', 'b'], votedAt: voted, confirmedAt: voted.add(
-          const Duration(hours: 1),
-        )).isDismissedByVotes,
+        withVotes(
+          ['a', 'b'],
+          votedAt: voted,
+          confirmedAt: voted.add(const Duration(hours: 1)),
+        ).isDismissedByVotes,
         isFalse,
       );
       expect(
-        withVotes(['a', 'b'], votedAt: voted, confirmedAt: voted.subtract(
-          const Duration(hours: 1),
-        )).isDismissedByVotes,
+        withVotes(
+          ['a', 'b'],
+          votedAt: voted,
+          confirmedAt: voted.subtract(const Duration(hours: 1)),
+        ).isDismissedByVotes,
         isTrue,
       );
     });
