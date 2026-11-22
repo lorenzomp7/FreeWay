@@ -138,7 +138,7 @@ esplorative con browser collegato.
 anche in un sottopercorso come `https://lorenzomp7.github.io/FreeWay`: i test
 aprono la pagina relativa all'URL indicato, non la radice del dominio.
 Il workflow `agent-qa.yml` esegue analisi, test Flutter e test browser sulle
-pull request e sui push a `main` e `main_chatgpt`, conservando report e tracce dei
+pull request e sui push a `main` e `main_claude`, conservando report e tracce dei
 fallimenti. Non pubblica il sito e non richiede chiavi AI.
 
 ## Verifiche dell'integrazione
