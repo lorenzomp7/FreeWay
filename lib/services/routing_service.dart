@@ -659,8 +659,8 @@ class RoutingService {
     }
   }
 
-  /// Decodifica una polilinea codificata (Valhalla usa la precisione 6).
-  @visibleForTesting
+  /// Decodifica una polilinea codificata (Valhalla usa la precisione 6,
+  /// Transitous la indica nella risposta).
   static List<LatLng> decodePolyline(String encoded, int precision) {
     final factor = math.pow(10, precision).toDouble();
     final points = <LatLng>[];
@@ -1057,7 +1057,12 @@ class RoutingService {
     return null;
   }
 
-  int _countObstacles(List<LatLng> points, List<Obstacle> obstacles) {
+  int _countObstacles(List<LatLng> points, List<Obstacle> obstacles) =>
+      countObstaclesAlong(points, obstacles);
+
+  /// Ostacoli entro [obstacleRadius] metri dal tracciato [points].
+  static int countObstaclesAlong(
+      List<LatLng> points, List<Obstacle> obstacles) {
     var count = 0;
     for (final obstacle in obstacles) {
       for (var i = 0; i < points.length; i += 3) {

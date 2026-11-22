@@ -66,6 +66,22 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   restano. In navigazione l'app dice "Parcheggia nel posto riservato…" e,
   lasciata l'auto, ricalcola in sedia a rotelle. Senza parcheggi segnati vicino
   lo dice e porta in auto fino alla destinazione.
+- Modalità "Mezzi pubblici": bus, tram, metro e treni da
+  [Transitous](https://transitous.org) (gratuito, mondiale, motore open source
+  MOTIS), sempre con il profilo sedia a rotelle per i tratti a piedi e i
+  cambi. Ogni scheda mostra gli orari veri ("8:00 → 8:25"), la catena dei
+  mezzi e se sono accessibili ("Mezzi accessibili in sedia a rotelle", "1 mezzo
+  non accessibile" o "Accessibilità dei mezzi non indicata"); i viaggi con un
+  mezzo non accessibile vanno in fondo. Sotto le schede ci sono i mezzi uno per
+  uno e il link obbligatorio alle fonti. In navigazione: "Sali sul bus 10
+  direzione Centro alla fermata…" e "Scendi a…"; con i mezzi non si ricalcola
+  in automatico. Regole d'uso di Transitous rispettate: solo
+  `api.transitous.org`, cache di 2 minuti e almeno 5 secondi tra due richieste,
+  link alle fonti e contatto del progetto nella pagina "Chi siamo".
+  Transitous chiede che il progetto sia open source (serve un file `LICENSE`)
+  e, oltre 720 richieste al giorno, di avvisarli su Matrix. Copertura: Trenord
+  e molte aziende lombarde sì, Brescia Mobilità (bus e metro urbani) non
+  ancora.
 - Parcheggi per disabili sulla mappa: il pulsante blu "P" mostra gli stalli e
   i parcheggi con posti riservati della zona inquadrata (da OpenStreetMap,
   tramite Overpass); toccandone uno si vedono posti, tariffa e durata massima,

@@ -1,0 +1,1 @@
+void openLink(String url) {}

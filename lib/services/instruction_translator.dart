@@ -1,3 +1,5 @@
+import '../models/transit.dart';
+
 /// Traduce le manovre OSRM (`tipo|modificatore|via`) in testo leggibile.
 class InstructionTranslator {
   const InstructionTranslator(this.language);
@@ -96,6 +98,18 @@ class InstructionTranslator {
                 'poi prosegui in sedia a rotelle'
           : 'Park in the accessible parking space$where, then continue '
                 'by wheelchair';
+    } else if (type == 'board') {
+      text = _board(modifier, street, isItalian);
+    } else if (type == 'alight') {
+      text = isItalian
+          ? (street.isEmpty ? 'Scendi' : 'Scendi a $street')
+          : (street.isEmpty ? 'Get off' : 'Get off at $street');
+    } else if (type == 'elevator') {
+      text = isItalian ? 'Prendi l\'ascensore' : 'Take the elevator';
+    } else if (type == 'stairs') {
+      text = isItalian
+          ? 'Attenzione: scale${street.isEmpty ? '' : ' su $street'}'
+          : 'Caution: stairs${street.isEmpty ? '' : ' on $street'}';
     } else if (type == 'arrive') {
       final side = isItalian
           ? const {
@@ -135,12 +149,53 @@ class InstructionTranslator {
   }
 }
 
+/// "Sali sul bus 10 direzione Centro alla fermata Vittoria". [details] è
+/// `linea<TAB>direzione<TAB>fermata` (vedi TransitService).
+String _board(String vehicleName, String details, bool isItalian) {
+  final vehicle = TransitVehicle.values.firstWhere(
+    (v) => v.name == vehicleName,
+    orElse: () => TransitVehicle.other,
+  );
+  final parts = details.split('\t');
+  final line = parts.isNotEmpty ? parts[0] : '';
+  final headsign = parts.length > 1 ? parts[1] : '';
+  final stop = parts.length > 2 ? parts[2] : '';
+  if (!isItalian) {
+    final what = line.isEmpty ? vehicle.en : '${vehicle.en} $line';
+    return [
+      'Board the $what',
+      if (headsign.isNotEmpty) 'towards $headsign',
+      if (stop.isNotEmpty) 'at $stop',
+    ].join(' ');
+  }
+  // "sul bus", "sulla metro", "sul treno"…
+  final feminine =
+      vehicle == TransitVehicle.metro || vehicle == TransitVehicle.cableCar;
+  final what = line.isEmpty ? vehicle.it : '${vehicle.it} $line';
+  return [
+    'Sali ${feminine ? 'sulla' : 'sul'} $what',
+    if (headsign.isNotEmpty) 'direzione $headsign',
+    if (stop.isNotEmpty) 'alla fermata $stop',
+  ].join(' ');
+}
+
 /// Emoji mostrata nel pannello di navigazione per ogni manovra.
 String maneuverEmoji(String type, String modifier) {
   if (type == 'arrive') return '🏁';
   if (type == 'stop') return '📍';
   if (type == 'park') return '🅿️';
   if (type == 'depart') return '🚶';
+  if (type == 'board') {
+    return TransitVehicle.values
+        .firstWhere(
+          (v) => v.name == modifier,
+          orElse: () => TransitVehicle.other,
+        )
+        .emoji;
+  }
+  if (type == 'alight') return '🚏';
+  if (type == 'elevator') return '🛗';
+  if (type == 'stairs') return '⚠️';
   switch (modifier) {
     case 'uturn':
       return '↩️';

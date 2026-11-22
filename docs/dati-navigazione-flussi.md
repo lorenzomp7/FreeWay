@@ -167,6 +167,7 @@ provato dal vivo nel browser.
 | OpenRouteService | Sì, con pendenze e fondi | Gratis con chiave, limite giornaliero | La chiave è nel JavaScript pubblicato |
 | Valhalla (FOSSGIS) | Sì (`type: wheelchair`) | Gratis, [1 richiesta al secondo](https://fossgis.de/arbeitsgruppen/osm-server/nutzungsbedingungen), nessuna garanzia | Ora nell'app |
 | OSRM (FOSSGIS) | No | Gratis, 1 richiesta al secondo | Ultimo ripiego |
+| Transitous (MOTIS) | Sì, per i mezzi pubblici (`pedestrianProfile=WHEELCHAIR`, accessibilità di ogni mezzo dal GTFS) | Gratis, solo progetti open source non commerciali, oltre 720 richieste `/plan` al giorno va concordato | Ora nell'app ("Mezzi pubblici"); a Brescia solo i treni |
 | GraphHopper | Non confermato | [500 crediti al giorno, solo non commerciale](https://docs.graphhopper.com/openapi/section/plans-and-rate-limits) | Poco utile qui |
 | Google, Mapbox | No (Google solo per i mezzi pubblici) | A pagamento | Condizioni che non si combinano con le mappe OSM |
 

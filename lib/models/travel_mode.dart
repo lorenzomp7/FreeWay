@@ -12,7 +12,12 @@ enum TravelMode {
 
   /// In auto fino a un parcheggio per disabili vicino alla destinazione, poi
   /// in sedia a rotelle fino all'ingresso.
-  car('In auto', Icons.directions_car_rounded);
+  car('In auto', Icons.directions_car_rounded),
+
+  /// Bus, tram, metro e treni (Transitous), con i tratti a piedi e i cambi
+  /// accessibili in sedia a rotelle. In fondo all'elenco: i viaggi salvati
+  /// usano il nome, non la posizione.
+  transit('Mezzi pubblici', Icons.directions_transit_rounded);
 
   const TravelMode(this.label, this.icon);
 

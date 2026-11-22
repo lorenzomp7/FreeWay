@@ -41,6 +41,7 @@ import '../services/place_accessibility_service.dart';
 import '../services/recent_places_service.dart';
 import '../services/saved_places_service.dart';
 import '../services/routing_service.dart';
+import '../services/transit_service.dart';
 import '../services/trip_resume_service.dart';
 import '../services/trip_share_service.dart';
 import '../services/weather_service.dart';
@@ -78,6 +79,9 @@ class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
   final LocationService _locationService = LocationService();
   final RoutingService _routingService = RoutingService();
+
+  /// Mezzi pubblici accessibili (Transitous).
+  final TransitService _transitService = TransitService();
   final GeocodingService _geocodingService = GeocodingService();
   final PlaceAccessibilityService _accessibilityService =
       PlaceAccessibilityService();
@@ -405,6 +409,7 @@ class _MapScreenState extends State<MapScreen> {
     _alongRouteService.dispose();
     _weatherService.dispose();
     _parkingService.dispose();
+    _transitService.dispose();
     _parkingDebounce?.cancel();
     _startController.dispose();
     _endController.dispose();
@@ -1085,6 +1090,14 @@ class _MapScreenState extends State<MapScreen> {
         _isSearchExpanded = routes.isEmpty;
       });
       _fitRoute();
+      if (routes.isEmpty && mode == TravelMode.transit) {
+        _showSnack(
+          'Nessun collegamento con i mezzi pubblici trovato. Transitous non '
+          'copre ancora tutte le aziende di trasporto (a Brescia per ora solo '
+          'i treni).',
+          icon: Icons.directions_transit_rounded,
+        );
+      }
       unawaited(_loadWeather(start));
       if (routes.isNotEmpty && routes.first.ignoresPreferences) {
         _showSnack(
@@ -1094,7 +1107,7 @@ class _MapScreenState extends State<MapScreen> {
         );
       }
       if (startNavigation) _startNavigation();
-    } catch (_) {
+    } catch (error) {
       if (!mounted ||
           _startPoint != start ||
           _endPoint != end ||
@@ -1103,7 +1116,9 @@ class _MapScreenState extends State<MapScreen> {
       }
       setState(() => _isCalculating = false);
       _showError(
-        'Non è stato possibile calcolare il percorso. Riprova.',
+        error is TransitException
+            ? error.message
+            : 'Non è stato possibile calcolare il percorso. Riprova.',
         Icons.error_outline_rounded,
       );
     }
@@ -1119,6 +1134,16 @@ class _MapScreenState extends State<MapScreen> {
     TravelMode mode, {
     bool duringNavigation = false,
   }) async {
+    if (mode == TravelMode.transit) {
+      if (_stops.isNotEmpty && !duringNavigation) {
+        _showSnack(
+          'Con i mezzi pubblici le tappe intermedie non si possono usare: '
+          'calcolo il viaggio diretto.',
+          icon: Icons.info_outline_rounded,
+        );
+      }
+      return _transitService.plan(from, to, obstacles: _obstacles);
+    }
     if (mode != TravelMode.car) {
       return _routingService.getRoutes(
         from,
@@ -1485,7 +1510,18 @@ class _MapScreenState extends State<MapScreen> {
           : 0) +
       32.0 * _selectedRouteWarningCount +
       (_stops.isEmpty ? 0 : 44) +
-      (_weatherWarning == null ? 0 : 36);
+      (_weatherWarning == null ? 0 : 36) +
+      _transitInfoHeight;
+
+  /// Con i mezzi pubblici, l'elenco dei mezzi, l'avviso e il link alle fonti
+  /// sotto le schede.
+  double get _transitInfoHeight {
+    if (_routes.isEmpty) return 0;
+    final route = _routes[_selectedRouteIndex.clamp(0, _routes.length - 1)];
+    if (!route.usesTransit) return 0;
+    final rides = route.transitLegs.where((l) => !l.isWalk).length;
+    return 64.0 + 34 * rides;
+  }
 
   // --- Navigazione ---------------------------------------------------------
 
@@ -1802,6 +1838,9 @@ class _MapScreenState extends State<MapScreen> {
   /// Ricalcola il percorso da [from]. Con [leftAt], il punto in cui si è
   /// lasciato il percorso, chiede poi se la deviazione era per un ostacolo.
   Future<void> _recalculate(LatLng from, {LatLng? leftAt}) async {
+    // Con i mezzi pubblici niente ricalcolo automatico: il viaggio dipende
+    // dagli orari e Transitous chiede di fare poche richieste.
+    if (_travelMode == TravelMode.transit) return;
     _isRecalculating = true;
     try {
       final routes = await _getRoutes(
@@ -1918,6 +1957,12 @@ class _MapScreenState extends State<MapScreen> {
     if (_routes.isEmpty) return null;
     final route = _routes[_selectedRouteIndex.clamp(0, _routes.length - 1)];
     final left = 1 - (update?.progress ?? 0).clamp(0.0, 1.0);
+    // Con i mezzi pubblici conta l'orario d'arrivo vero, attese comprese.
+    final arrives = route.arrivalTime;
+    if (route.usesTransit && arrives != null) {
+      final seconds = arrives.difference(DateTime.now()).inSeconds;
+      return (route.distance * left, seconds < 0 ? 0.0 : seconds.toDouble());
+    }
     return (route.distance * left, route.duration * left);
   }
 
@@ -3371,6 +3416,25 @@ class _MapScreenState extends State<MapScreen> {
     final route = _selectedRouteIndex < _routes.length
         ? _routes[_selectedRouteIndex]
         : null;
+    // Mezzi pubblici: i tratti sui mezzi pieni, quelli a piedi a puntini.
+    if (route != null &&
+        route.usesTransit &&
+        identical(route.points, _routePoints)) {
+      return [
+        for (final leg in route.transitLegs)
+          if (leg.points.length > 1)
+            Polyline(
+              points: leg.points,
+              strokeWidth: leg.isWalk ? 6 : 8,
+              color: leg.isWalk ? AppPalette.primary : AppPalette.driveRoute,
+              borderColor: Colors.white,
+              borderStrokeWidth: leg.isWalk ? 1.5 : 2.5,
+              pattern: leg.isWalk
+                  ? const StrokePattern.dotted(spacingFactor: 1.6)
+                  : const StrokePattern.solid(),
+            ),
+      ];
+    }
     final split = route != null &&
             route.usesCar &&
             identical(route.points, _routePoints)

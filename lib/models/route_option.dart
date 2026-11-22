@@ -1,6 +1,7 @@
 import 'package:latlong2/latlong.dart';
 
 import 'disabled_parking.dart';
+import 'transit.dart';
 
 /// Singola manovra restituita da OSRM.
 ///
@@ -143,6 +144,14 @@ class RouteOption {
 
   bool get usesCar => driveEndIndex > 0;
 
+  /// Con i mezzi pubblici: i tratti a piedi e sui mezzi, in ordine, e gli
+  /// orari veri di partenza e di arrivo (comprese le attese).
+  List<TransitLeg> transitLegs = const [];
+  DateTime? departureTime;
+  DateTime? arrivalTime;
+
+  bool get usesTransit => transitLegs.isNotEmpty;
+
   /// Nessun percorso rispettava le opzioni scelte (pendenza, cordoli,
   /// fondo): questo è stato calcolato senza.
   bool ignoresPreferences = false;
@@ -179,7 +188,11 @@ class RouteOption {
       ..parking = parking
       ..driveEndIndex = driveEndIndex
       ..walkDistance = walkDistance
-      ..walkDuration = walkDuration / factor;
+      ..walkDuration = walkDuration / factor
+      // Gli orari dei mezzi non dipendono dal passo.
+      ..transitLegs = transitLegs
+      ..departureTime = departureTime
+      ..arrivalTime = arrivalTime;
   }
 
   int get hardWarningCount => warnings.where((w) => w.isHard).length;

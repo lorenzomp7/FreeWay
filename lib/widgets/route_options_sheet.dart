@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../models/route_option.dart';
+import '../models/transit.dart';
 import '../services/along_route_service.dart';
+import '../services/open_link.dart';
 import '../services/opening_hours.dart' show formatClock;
+import '../services/transit_service.dart' show TransitService;
 import '../theme/app_theme.dart';
 
 /// Pannello in basso con i percorsi trovati e il pulsante "Avvia navigazione".
@@ -167,6 +170,9 @@ class RouteOptionsSheet extends StatelessWidget {
             ),
             if (selectedIndex < routes.length && routes[selectedIndex].usesCar)
               CarParkingInfo(route: routes[selectedIndex]),
+            if (selectedIndex < routes.length &&
+                routes[selectedIndex].usesTransit)
+              TransitInfo(route: routes[selectedIndex]),
             if (selectedIndex < routes.length &&
                 routes[selectedIndex].ignoresPreferences)
               Padding(
@@ -405,7 +411,13 @@ class RouteCard extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
     final badge = _obstacleBadge(context, route);
     final start = departure;
-    final arrival = start == null
+    final leaves = route.departureTime;
+    final arrives = route.arrivalTime;
+    // Con i mezzi pubblici gli orari veri (comprese le attese); altrimenti
+    // si parte adesso.
+    final arrival = route.usesTransit && leaves != null && arrives != null
+        ? '${formatClock(leaves)}–${formatClock(arrives)}'
+        : start == null
         ? null
         : formatClock(start.add(Duration(seconds: route.duration.round())));
 
@@ -457,8 +469,11 @@ class RouteCard extends StatelessWidget {
                 if (arrival != null) ...[
                   const SizedBox(width: 6),
                   Text(
-                    'Arrivo $arrival',
-                    semanticsLabel: 'Arrivo alle $arrival',
+                    route.usesTransit ? arrival : 'Arrivo $arrival',
+                    semanticsLabel: route.usesTransit
+                        ? 'Parte alle ${formatClock(leaves!)}, arriva alle '
+                              '${formatClock(arrives!)}'
+                        : 'Arrivo alle $arrival',
                     style: textTheme.labelMedium?.copyWith(
                       color: colors.textSecondary,
                     ),
@@ -484,6 +499,9 @@ class RouteCard extends StatelessWidget {
                 ),
               ],
             ),
+            if (route.usesTransit)
+              TransitChain(legs: route.transitLegs)
+            else
             Row(
               children: [
                 Expanded(
@@ -524,7 +542,9 @@ class RouteCard extends StatelessWidget {
                 ),
               ],
             ),
-            if (route.usesCar)
+            if (route.usesTransit)
+              TransitAccessLine(legs: route.transitLegs)
+            else if (route.usesCar)
               _ParkingLine(route: route)
             else
               _TerrainLine(route: route),
@@ -881,6 +901,185 @@ class OfflineRouteChip extends StatelessWidget {
       label: const Text('Salva per l\'uso senza rete'),
       tooltip: 'Salva la mappa del tragitto, nel caso la rete cada',
       onPressed: onPressed,
+    );
+  }
+}
+
+
+String _minutes(Duration d) {
+  final minutes = (d.inSeconds / 60).ceil().clamp(1, 100000);
+  return minutes >= 60 ? '${minutes ~/ 60} h ${minutes % 60} min' : '$minutes min';
+}
+
+/// Catena dei tratti di un viaggio con i mezzi: "🚶 4 min › 🚌 10 › 🚶 3 min".
+class TransitChain extends StatelessWidget {
+  const TransitChain({super.key, required this.legs});
+
+  final List<TransitLeg> legs;
+
+  static String describe(List<TransitLeg> legs) => [
+    for (final leg in legs)
+      leg.isWalk
+          ? '${leg.vehicle.emoji} ${_minutes(leg.duration)}'
+          : '${leg.vehicle.emoji} ${leg.line.isEmpty ? leg.vehicle.it : leg.line}',
+  ].join(' › ');
+
+  static String _spoken(List<TransitLeg> legs) => [
+    for (final leg in legs)
+      leg.isWalk ? 'a piedi ${_minutes(leg.duration)}' : leg.title,
+  ].join(', poi ');
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    return Text(
+      describe(legs),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      semanticsLabel: _spoken(legs),
+      style: Theme.of(
+        context,
+      ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
+    );
+  }
+}
+
+/// Riga dell'accessibilità dei mezzi di un viaggio.
+class TransitAccessLine extends StatelessWidget {
+  const TransitAccessLine({super.key, required this.legs});
+
+  final List<TransitLeg> legs;
+
+  static String label(List<TransitLeg> legs) {
+    final bad = legs
+        .where((l) => !l.isWalk && l.access == TransitAccess.notAccessible)
+        .length;
+    if (bad > 0) {
+      return bad == 1 ? '1 mezzo non accessibile' : '$bad mezzi non accessibili';
+    }
+    return switch (overallAccess(legs)) {
+      TransitAccess.accessible => 'Mezzi accessibili',
+      _ => 'Accessibilità non indicata',
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final access = overallAccess(legs);
+    final color = switch (access) {
+      TransitAccess.accessible => colors.success,
+      TransitAccess.notAccessible => colors.danger,
+      TransitAccess.unknown => colors.textTertiary,
+    };
+    return Row(
+      children: [
+        Icon(
+          access == TransitAccess.notAccessible
+              ? Icons.not_accessible_rounded
+              : Icons.accessible_rounded,
+          color: color,
+          size: 14,
+        ),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Text(
+            label(legs),
+            semanticsLabel: switch (overallAccess(legs)) {
+              TransitAccess.accessible => 'Mezzi accessibili in sedia a rotelle',
+              TransitAccess.unknown => 'Accessibilità dei mezzi non indicata',
+              TransitAccess.notAccessible => label(legs),
+            },
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: color),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Sotto le schede: i tratti del viaggio con i mezzi, l'accessibilità di
+/// ciascun mezzo e il link alle fonti di Transitous (obbligatorio).
+class TransitInfo extends StatelessWidget {
+  const TransitInfo({super.key, required this.route});
+
+  final RouteOption route;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    final small = textTheme.bodySmall?.copyWith(color: colors.textSecondary);
+    final rides = route.transitLegs.where((l) => !l.isWalk).toList();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 2, 20, 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final leg in rides)
+            Semantics(
+              container: true,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(leg.vehicle.emoji),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        '${formatClock(leg.departure)} ${leg.title}'
+                        '${leg.headsign.isEmpty ? '' : ' → ${leg.headsign}'}'
+                        ' da ${leg.fromName} a ${leg.toName}'
+                        '${switch (leg.access) {
+                          TransitAccess.accessible => ' · accessibile',
+                          TransitAccess.notAccessible => ' · non accessibile',
+                          TransitAccess.unknown => '',
+                        }}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: small?.copyWith(
+                          color: leg.access == TransitAccess.notAccessible
+                              ? colors.danger
+                              : null,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          Text(
+            'I tratti a piedi sono calcolati per la sedia a rotelle ma non '
+            'evitano gli ostacoli segnalati.',
+            style: small?.copyWith(fontSize: 11.5),
+          ),
+          Semantics(
+            link: true,
+            label: 'Orari e percorsi: Transitous e OpenStreetMap, apri le fonti',
+            excludeSemantics: true,
+            child: InkWell(
+              onTap: () => openLink(TransitService.sourcesUrl),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(
+                  'Orari: Transitous · © OpenStreetMap · fonti',
+                  style: small?.copyWith(
+                    fontSize: 11.5,
+                    color: AppPalette.primary,
+                    decoration: TextDecoration.underline,
+                    decorationColor: AppPalette.primary,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
