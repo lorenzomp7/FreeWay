@@ -9,7 +9,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 /// ID client OAuth per "Accedi con Google" sul web (Authentication → Metodo
 /// di accesso → Google → Configurazione SDK web). Vuoto finché non c'è.
-const String kGoogleWebClientId = '';
+const String kGoogleWebClientId =
+    '221640287393-culih79egq8dochr52rll5tabceumpaa.apps.googleusercontent.com';
 
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
@@ -25,11 +26,12 @@ class DefaultFirebaseOptions {
       web.apiKey.isNotEmpty && web.projectId.isNotEmpty;
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: '',
-    appId: '',
-    messagingSenderId: '',
-    projectId: '',
-    authDomain: '',
-    storageBucket: '',
+    apiKey: 'AIzaSyBbiJni3pw2ygX7B9AWdjc96Zs2PQyM_wY',
+    appId: '1:221640287393:web:b7d787c623b808d1fcfce0',
+    messagingSenderId: '221640287393',
+    projectId: 'freewayonlineapp',
+    authDomain: 'freewayonlineapp.firebaseapp.com',
+    storageBucket: 'freewayonlineapp.firebasestorage.app',
+    measurementId: 'G-KWWJ2Y7WC3',
   );
 }
