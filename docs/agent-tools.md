@@ -34,7 +34,9 @@ revisione del codice, debugging, performance e sviluppo incrementale.
 ### Playwriter
 
 Il setup installa il CLI e `.mcp.json` / `.codex/config.toml` configurano il
-server. Avviare il client dalla radice della repo. Per collegare Chrome:
+server. Per Claude Code `.mcp.json` contiene solo Playwriter; Vibetest e
+container-use sono in `.mcp.optional.json` e si caricano su richiesta con
+`claude --mcp-config .mcp.optional.json`. Avviare il client dalla radice della repo. Per collegare Chrome:
 
 1. Installare l'[estensione ufficiale](https://chromewebstore.google.com/detail/playwriter/jfeammnjpkecdekppnclgkkffahnhfhe).
 2. Aprire FreeWay e fare clic sull'estensione per collegare la scheda.

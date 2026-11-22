@@ -46,3 +46,7 @@ tools/agents/playwright-report/
 
 __pycache__/
 *.pyc
+
+# Claude Code: impostazioni personali e stato degli hook (non versionati)
+.claude/settings.local.json
+.claude/hooks/.state/

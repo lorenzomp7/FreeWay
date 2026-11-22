@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "vibetest": {
+      "command": "python3",
+      "args": [
+        "tool/agent_tools.py",
+        "vibetest"
+      ]
+    },
+    "container-use": {
+      "command": "container-use",
+      "args": [
+        "stdio"
+      ]
+    }
+  }
+}
