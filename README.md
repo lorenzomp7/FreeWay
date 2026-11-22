@@ -78,8 +78,8 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   in automatico. Regole d'uso di Transitous rispettate: solo
   `api.transitous.org`, cache di 2 minuti e almeno 5 secondi tra due richieste,
   link alle fonti e contatto del progetto nella pagina "Chi siamo".
-  Transitous chiede che il progetto sia open source (serve un file `LICENSE`)
-  e, oltre 720 richieste al giorno, di avvisarli su Matrix. Copertura: Trenord
+  Transitous chiede che il progetto sia open source (lo è: licenza MIT) e,
+  oltre 720 richieste al giorno, di avvisarli su Matrix. Copertura: Trenord
   e molte aziende lombarde sì, Brescia Mobilità (bus e metro urbani) non
   ancora.
 - Parcheggi per disabili sulla mappa: il pulsante blu "P" mostra gli stalli e
@@ -466,6 +466,15 @@ Senza la chiave l'app funziona come prima, senza App Check.
 stanno account e segnalazioni e cosa serve per il GDPR, quali provider di
 navigazione conviene usare, come funzionano i parcheggi per disabili e se
 esistono dati sulle auto in movimento e sui flussi di persone.
+
+## Licenza
+
+Il codice di FreeWay è distribuito con la [licenza MIT](LICENSE): chiunque può
+usarlo, modificarlo e ridistribuirlo, anche in altri progetti, purché mantenga
+l'avviso di copyright e il testo della licenza. I dati delle mappe restano
+© OpenStreetMap (licenza ODbL) e gli orari dei mezzi pubblici seguono le
+condizioni delle fonti elencate da Transitous; le librerie usate hanno ciascuna
+la propria licenza.
 
 ## Nota sull'origine del codice
 
