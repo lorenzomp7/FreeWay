@@ -9,6 +9,7 @@ import 'firebase_options.dart';
 import 'screens/login_screen.dart';
 import 'screens/map_screen.dart';
 import 'screens/trip_viewer_screen.dart';
+import 'services/backend.dart';
 import 'theme/app_theme.dart';
 import 'widgets/common.dart';
 
@@ -17,48 +18,20 @@ Future<void> main() async {
   // Sul web Flutter attiva il supporto ai lettori di schermo solo dopo un clic
   // su un pulsante nascosto: per un'app sull'accessibilità lo attiviamo subito.
   if (kIsWeb) SemanticsBinding.instance.ensureSemantics();
-  // Senza un progetto Firebase configurato l'app non si collega a nulla.
-  if (!DefaultFirebaseOptions.isConfigured) {
-    runApp(const NotConfiguredApp());
-    return;
+  // Senza un progetto Firebase l'app funziona lo stesso: mappa, percorsi e
+  // navigazione non ne hanno bisogno; restano spente le funzioni condivise.
+  if (DefaultFirebaseOptions.isConfigured) {
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      Backend.markAvailable();
+      await _activateAppCheck();
+    } catch (_) {
+      // Se Firebase non parte, l'app resta usabile senza account.
+    }
   }
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  await _activateAppCheck();
   runApp(const FreeWayApp());
-}
-
-/// Mostrata quando `lib/firebase_options.dart` non ha ancora i dati del
-/// progetto Firebase.
-class NotConfiguredApp extends StatelessWidget {
-  const NotConfiguredApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'FREE WAY',
-      debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(AppColors.light, Brightness.light),
-      darkTheme: buildAppTheme(AppColors.dark, Brightness.dark),
-      home: const Scaffold(
-        body: Center(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AppLogo(height: 70),
-                SizedBox(height: 24),
-                Text(
-                  'FREE WAY è in manutenzione: torna presto.',
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 /// Chiave del sito reCAPTCHA Enterprise per Firebase App Check, passata in
@@ -85,28 +58,34 @@ class FreeWayApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'FREE WAY',
+      title: 'FreeWay',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(AppColors.light, Brightness.light),
       darkTheme: buildAppTheme(AppColors.dark, Brightness.dark),
       themeMode: ThemeMode.system,
-      home: _home(),
-    );
-  }
-
-  /// Con `?viaggio=id` si apre il viaggio condiviso, senza accesso.
-  Widget _home() {
-    final tripId = Uri.base.queryParameters['viaggio'];
-    if (tripId == null || tripId.isEmpty) return const AuthGate();
-    return Builder(
-      builder: (context) => TripViewerScreen(
-        tripId: tripId,
-        onOpenApp: () => Navigator.of(context).pushReplacement(
-          MaterialPageRoute<void>(builder: (_) => const AuthGate()),
-        ),
+      home: homeFor(
+        backend: Backend.available,
+        tripId: Uri.base.queryParameters['viaggio'],
       ),
     );
   }
+}
+
+/// La prima schermata. Con `?viaggio=id` si apre il viaggio condiviso, senza
+/// accesso. Senza servizio dati non ci sono né account né viaggi condivisi:
+/// si apre subito la mappa.
+@visibleForTesting
+Widget homeFor({required bool backend, String? tripId}) {
+  if (!backend) return const MapScreen();
+  if (tripId == null || tripId.isEmpty) return const AuthGate();
+  return Builder(
+    builder: (context) => TripViewerScreen(
+      tripId: tripId,
+      onOpenApp: () => Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(builder: (_) => const AuthGate()),
+      ),
+    ),
+  );
 }
 
 /// Mostra la mappa se l'utente ha effettuato l'accesso, altrimenti il login.

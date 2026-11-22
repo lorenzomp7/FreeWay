@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Regole di sicurezza di Cloud Firestore per FREE WAY.
+// Regole di sicurezza di Cloud Firestore per FreeWay.
 // Pubblicazione: firebase deploy --only firestore:rules
 service cloud.firestore {
   match /databases/{database}/documents {

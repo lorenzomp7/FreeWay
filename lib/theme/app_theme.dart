@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Colori principali del brand FREE WAY.
+/// Colori principali del brand FreeWay.
 class AppPalette {
   static const Color primary = Color(0xFFEC0414);
   static const Color primaryDark = Color(0xFFC00310);

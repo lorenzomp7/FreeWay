@@ -20,6 +20,7 @@ import '../models/route_option.dart';
 import '../models/route_preferences.dart';
 import '../models/travel_mode.dart';
 import '../services/along_route_service.dart';
+import '../services/backend.dart';
 import '../services/disabled_parking_service.dart';
 import '../services/contribution_log_service.dart';
 import '../services/entrance_report_service.dart';
@@ -109,12 +110,14 @@ class _MapScreenState extends State<MapScreen> {
   /// Tappe intermedie scelte dall'utente, in ordine ("Add stop").
   List<AlongRoutePlace> _stops = [];
   static const int _maxStops = 3;
-  final ObstacleService _obstacleService = ObstacleService(
-    FirebaseFirestore.instance,
-  );
-  final EntranceReportService _entranceService = EntranceReportService(
-    FirebaseFirestore.instance,
-  );
+  // Senza servizio dati (nessun progetto Firebase) questi servizi non ci
+  // sono: le funzioni condivise restano spente.
+  final ObstacleService? _obstacleService = Backend.available
+      ? ObstacleService(FirebaseFirestore.instance)
+      : null;
+  final EntranceReportService? _entranceService = Backend.available
+      ? EntranceReportService(FirebaseFirestore.instance)
+      : null;
   final ArrivalQuestionPolicy _arrivalPolicy = ArrivalQuestionPolicy();
   final ThanksNotifier _thanksNotifier = ThanksNotifier();
 
@@ -141,9 +144,9 @@ class _MapScreenState extends State<MapScreen> {
   );
   final NavigationService _navigationService = NavigationService();
   final TtsService _ttsService = TtsService();
-  final TripShareService _tripShare = TripShareService(
-    FirebaseFirestore.instance,
-  );
+  final TripShareService? _tripShare = Backend.available
+      ? TripShareService(FirebaseFirestore.instance)
+      : null;
 
   /// "Salva per l'uso senza rete" e stato della rete.
   final OfflineRouteService _offlineRoute = OfflineRouteService();
@@ -247,7 +250,8 @@ class _MapScreenState extends State<MapScreen> {
 
   /// `true` o `false` mentre si sceglie sulla mappa la partenza o l'arrivo.
   bool? _choosingOnMapFor;
-  bool _showReportHint = true;
+  /// Senza servizio dati non si può segnalare: niente suggerimento.
+  bool _showReportHint = Backend.available;
 
   List<Obstacle> _obstacles = [];
 
@@ -347,14 +351,14 @@ class _MapScreenState extends State<MapScreen> {
     _tripResume.load().then((trip) {
       if (mounted && trip != null) setState(() => _pendingTrip = trip);
     });
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = Backend.userId;
     if (userId != null) {
       _contributionLog.load(userId).then((_) {
         _contributionLogLoaded = true;
         _maybeShowWeeklyReview();
       });
     }
-    _obstacleService.listen((obstacles) {
+    _obstacleService?.listen((obstacles) {
       // Gli ostacoli temporanei non confermati da tempo non compaiono né
       // sulla mappa né nel calcolo dei percorsi.
       // Spariscono anche gli ostacoli che almeno due persone hanno detto
@@ -390,12 +394,12 @@ class _MapScreenState extends State<MapScreen> {
     _speechInput.cancel();
     _gpsWatchdog?.cancel();
     _navigationService.dispose();
-    if (_tripShare.isSharing) unawaited(_tripShare.stop());
-    _tripShare.dispose();
+    if (_tripShare?.isSharing ?? false) unawaited(_tripShare!.stop());
+    _tripShare?.dispose();
     _connectivitySubscription?.cancel();
     _compassSubscription?.cancel();
     _offlineRoute.dispose();
-    _obstacleService.dispose();
+    _obstacleService?.dispose();
     _geocodingService.dispose();
     _accessibilityService.dispose();
     _alongRouteService.dispose();
@@ -831,7 +835,7 @@ class _MapScreenState extends State<MapScreen> {
   void _loadEntranceSummary(LatLng point) {
     final request = ++_entranceRequest;
     _entranceSummary = const EntranceSummary();
-    _entranceService.near(point).then((summary) {
+    _entranceService?.near(point).then((summary) {
       if (!mounted || request != _entranceRequest) return;
       setState(() => _entranceSummary = summary);
     });
@@ -1700,14 +1704,14 @@ class _MapScreenState extends State<MapScreen> {
     // si annuncia al prossimo aggiornamento.
     if (speech == null) _maybeWarnObstacleAhead(update);
     _maybeAskAboutObstacle(update.position);
-    if (_tripShare.isSharing) {
+    if (_tripShare?.isSharing ?? false) {
       if (update.hasArrived) {
-        _tripShare.arrived(update.position);
+        _tripShare!.arrived(update.position);
         unawaited(_tripShare.finishAfterArrival());
         setState(() {});
       } else {
         final remaining = _remaining(update);
-        _tripShare.update(
+        _tripShare!.update(
           position: update.position,
           accuracy: update.accuracy,
           remainingMeters: remaining?.$1,
@@ -1754,7 +1758,7 @@ class _MapScreenState extends State<MapScreen> {
       along,
       _obstacles,
       _announcedObstacleIds,
-      FirebaseAuth.instance.currentUser?.uid,
+      Backend.userId,
       maxAhead: aheadWarningDistance(update.speed),
     );
     if (ahead == null) return;
@@ -1920,13 +1924,13 @@ class _MapScreenState extends State<MapScreen> {
   /// "Condividi il viaggio" durante la navigazione, come "Share trip
   /// progress" di Google Maps.
   Future<void> _shareTrip() async {
-    if (_tripShare.isSharing) {
+    if (_tripShare?.isSharing ?? false) {
       final action = await showShareTripOptions(context);
       if (!mounted || action == null) return;
       if (action == ShareTripAction.copyLink) {
-        await _copyTripLink(_tripShare.activeId!);
+        await _copyTripLink(_tripShare!.activeId!);
       } else {
-        await _tripShare.stop();
+        await _tripShare!.stop();
         if (!mounted) return;
         setState(() {});
         _showSnack(
@@ -1937,7 +1941,7 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
     final destination = _endPoint;
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = Backend.userId;
     if (destination == null || userId == null) return;
     final name = _endController.text.isEmpty
         ? 'destinazione'
@@ -1954,7 +1958,7 @@ class _MapScreenState extends State<MapScreen> {
     }
     final remaining = _remaining(_navigationUpdate);
     try {
-      final id = await _tripShare.start(
+      final id = await _tripShare!.start(
         userId: userId,
         position: position,
         accuracy: _userAccuracy ?? 0,
@@ -1993,7 +1997,7 @@ class _MapScreenState extends State<MapScreen> {
 
   void _stopNavigation() {
     _keepScreenOn(false);
-    if (_tripShare.isSharing) unawaited(_tripShare.stop());
+    if (_tripShare?.isSharing ?? false) unawaited(_tripShare!.stop());
     unawaited(_tripResume.clear());
     _gpsWatchdog?.cancel();
     _gpsSignalLost = false;
@@ -2127,7 +2131,7 @@ class _MapScreenState extends State<MapScreen> {
     final draft = preset ?? await showReportObstacleSheet(context);
     if (draft == null || !mounted) return;
     final type = draft.type;
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = Backend.userId;
     if (userId == null) return;
 
     final duplicate = findDuplicate(_obstacles, point, type);
@@ -2149,7 +2153,8 @@ class _MapScreenState extends State<MapScreen> {
     final before = _myContributions();
     bool photoSaved;
     try {
-      photoSaved = await _obstacleService.add(
+      // C'è un utente, quindi c'è anche il servizio dati.
+      photoSaved = await _obstacleService!.add(
         point,
         type,
         userId,
@@ -2228,7 +2233,7 @@ class _MapScreenState extends State<MapScreen> {
       _speechInput.cancel();
       return;
     }
-    if (FirebaseAuth.instance.currentUser == null) return;
+    if (Backend.userId == null) return;
     final point = _userLocation ?? _mapController.camera.center;
     _ttsService.stop();
     setState(() {
@@ -2283,7 +2288,7 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _confirmObstacle(Obstacle obstacle, String userId) async {
     final before = _myContributions();
     try {
-      await _obstacleService.confirm(obstacle.id, userId);
+      await _obstacleService?.confirm(obstacle.id, userId);
       await _logHelp(userId, HelpKind.confirm, obstacle);
       if (!mounted) return;
       _showThanks("Grazie! Hai confermato che l'ostacolo c'è ancora.", before);
@@ -2298,7 +2303,7 @@ class _MapScreenState extends State<MapScreen> {
 
   /// I propri contributi come li vede la scheda "Le tue segnalazioni".
   Contributions? _myContributions() {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = Backend.userId;
     return userId == null ? null : Contributions.of(_allObstacles, userId);
   }
 
@@ -2357,7 +2362,7 @@ class _MapScreenState extends State<MapScreen> {
   /// All'apertura, una volta a settimana, "La tua settimana" con i
   /// contributi della settimana prima, se ce ne sono stati.
   Future<void> _maybeShowWeeklyReview() async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = Backend.userId;
     if (_weeklyReviewChecked ||
         userId == null ||
         !_obstaclesLoaded ||
@@ -2400,7 +2405,7 @@ class _MapScreenState extends State<MapScreen> {
 
   /// "Le tue segnalazioni": toccandone una la mappa la mostra.
   Future<void> _openContributions() async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = Backend.userId;
     if (userId == null) return;
     final picked = await showContributionsSheet(
       context,
@@ -2421,12 +2426,12 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _openObstacle(Obstacle obstacle) async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = Backend.userId;
     final action = await showObstacleDetailsSheet(
       context,
       obstacle,
       currentUserId: userId,
-      loadPhoto: _obstacleService.loadPhoto,
+      loadPhoto: _obstacleService?.loadPhoto,
     );
     if (action == null || !mounted) return;
     if (action == ObstacleAction.confirm) {
@@ -2469,7 +2474,7 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
     try {
-      await _obstacleService.remove(
+      await _obstacleService?.remove(
         obstacle.id,
         userId,
         hasPhoto: obstacle.hasPhoto,
@@ -2514,7 +2519,7 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
     try {
-      await _obstacleService.voteNotThere(obstacle.id, userId);
+      await _obstacleService?.voteNotThere(obstacle.id, userId);
       await _logHelp(userId, HelpKind.gone, obstacle);
       if (!mounted) return;
       final hides =
@@ -2551,7 +2556,7 @@ class _MapScreenState extends State<MapScreen> {
       }
       return;
     }
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = Backend.userId;
     final obstacle = obstacleToVerify(
       position,
       _obstacles,
@@ -2582,7 +2587,7 @@ class _MapScreenState extends State<MapScreen> {
     if (_arrivalHandled) return;
     _arrivalHandled = true;
     final destination = _endPoint;
-    if (destination == null || FirebaseAuth.instance.currentUser == null) {
+    if (destination == null || Backend.userId == null) {
       return;
     }
     if (!await _arrivalPolicy.tryAsk() || !mounted) return;
@@ -2601,7 +2606,7 @@ class _MapScreenState extends State<MapScreen> {
   /// c'è già una segnalazione.
   void _maybeAskAboutDeviation(LatLng leftAt) {
     if (_deviationAsked ||
-        FirebaseAuth.instance.currentUser == null ||
+        Backend.userId == null ||
         !shouldAskAboutDeviation(leftAt, _obstacles)) {
       return;
     }
@@ -2649,11 +2654,11 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _answerArrivalPrompt(EntranceAnswer answer) async {
     final destination = _arrivalPrompt;
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = Backend.userId;
     _closeArrivalPrompt();
     if (destination == null || userId == null) return;
     try {
-      await _entranceService.add(destination, answer, userId);
+      await _entranceService?.add(destination, answer, userId);
       if (!mounted) return;
       _showSnack(
         "Grazie! La tua risposta aiuta chi andrà lì dopo di te.",
@@ -2675,7 +2680,7 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _answerPassPrompt(PassVote vote) async {
     final obstacle = _passPrompt;
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = Backend.userId;
     _closePassPrompt();
     if (obstacle != null && userId != null) {
       await _votePass(obstacle, userId, vote);
@@ -2684,7 +2689,7 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _thankReporter(Obstacle obstacle, String userId) async {
     try {
-      await _obstacleService.thank(obstacle.id, userId);
+      await _obstacleService?.thank(obstacle.id, userId);
       if (!mounted) return;
       _showSnack(
         'Grazie inviato a chi ha segnalato questo ostacolo.',
@@ -2702,7 +2707,7 @@ class _MapScreenState extends State<MapScreen> {
 
   /// Se le proprie segnalazioni hanno ricevuto nuovi grazie, lo dice.
   Future<void> _announceNewThanks(List<Obstacle> obstacles) async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = Backend.userId;
     if (userId == null) return;
     final fresh = await _thanksNotifier.newThanks(
       userId,
@@ -2725,7 +2730,7 @@ class _MapScreenState extends State<MapScreen> {
   ) async {
     final before = _myContributions();
     try {
-      await _obstacleService.votePass(obstacle.id, userId, vote);
+      await _obstacleService?.votePass(obstacle.id, userId, vote);
       await _logHelp(userId, HelpKind.pass, obstacle);
       if (!mounted) return;
       _showThanks(
@@ -2748,7 +2753,7 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _answerVerifyPrompt({required bool stillThere}) async {
     final obstacle = _verifyPrompt;
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = Backend.userId;
     _closeVerifyPrompt();
     if (obstacle == null || userId == null) return;
     if (stillThere) {
@@ -2770,7 +2775,7 @@ class _MapScreenState extends State<MapScreen> {
     if (!_isNavigating || _routes.isEmpty || _endPoint == null) {
       return;
     }
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = Backend.userId;
     final fresh = active
         .where((o) => !_knownObstacleIds.contains(o.id))
         // Le proprie segnalazioni non sono una sorpresa.
@@ -2984,8 +2989,12 @@ class _MapScreenState extends State<MapScreen> {
                 Row(
                   children: [
                     TopBar(
-                      onLogout: () => FirebaseAuth.instance.signOut(),
-                      onOpenContributions: _openContributions,
+                      onLogout: Backend.available
+                          ? () => FirebaseAuth.instance.signOut()
+                          : null,
+                      onOpenContributions: Backend.available
+                          ? _openContributions
+                          : null,
                     ),
                   ],
                 ),
@@ -3054,8 +3063,8 @@ class _MapScreenState extends State<MapScreen> {
               onMutedChanged: (_) => setState(() {}),
             ),
             onRepeat: _ttsService.repeat,
-            onShareTrip: _shareTrip,
-            isSharingTrip: _tripShare.isSharing,
+            onShareTrip: _tripShare == null ? null : _shareTrip,
+            isSharingTrip: (_tripShare?.isSharing ?? false),
             isOffline: _isOffline,
             remainingSeconds: _remaining(_navigationUpdate)?.$2,
           ),
@@ -3155,7 +3164,9 @@ class _MapScreenState extends State<MapScreen> {
           onZoomOut: _zoomOut,
           onLocate: () => _locateUser(showErrors: true),
           isLocating: _isLocatingUser,
-          onReport: _isNavigating || choosing != null ? null : _reportHere,
+          onReport: _isNavigating || choosing != null || !Backend.available
+              ? null
+              : _reportHere,
           onToggleParking: choosing != null ? null : _toggleParkingLayer,
           showsParking: _showParkingLayer,
           isLoadingParking: _isLoadingParkings,
@@ -3163,7 +3174,7 @@ class _MapScreenState extends State<MapScreen> {
           onVoiceReport:
               _speechInput.isSupported &&
                   choosing == null &&
-                  FirebaseAuth.instance.currentUser != null
+                  Backend.userId != null
               ? _reportByVoice
               : null,
           isListening: _isListening,
@@ -3610,7 +3621,12 @@ class _MapScreenState extends State<MapScreen> {
         maxZoom: _maxZoom,
         onTap: (_, _) => FocusScope.of(context).unfocus(),
         onLongPress: (_, point) {
-          if (_choosingOnMapFor == null) _reportObstacle(point);
+          if (_choosingOnMapFor != null) return;
+          if (!Backend.available) {
+            _showSnack(kSharedFeaturesOff, icon: Icons.info_outline_rounded);
+            return;
+          }
+          _reportObstacle(point);
         },
         onPositionChanged: (_, _) => _onMapMoved(),
         interactionOptions: const InteractionOptions(

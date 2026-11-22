@@ -409,6 +409,12 @@ Il sito sta solo su GitHub Pages (vedi sopra). Firebase serve unicamente per
 login e segnalazioni (Authentication e Firestore).
 [Come creare e impostare il progetto Firebase](docs/firebase-setup.md).
 
+Senza un progetto Firebase in `lib/firebase_options.dart` il sito resta online
+e si apre direttamente sulla mappa: ricerca, percorsi, navigazione e voce
+funzionano, mentre account, segnalazioni, conferme, ingressi, condivisione del
+viaggio e "Le tue segnalazioni" sono spenti con un avviso. Non c'è più una
+pagina di manutenzione.
+
 Le regole di Firestore si pubblicano da sole a ogni push su `main`, dopo che
 le prove nell'emulatore sono passate, se il repository ha il secret
 `FIREBASE_SERVICE_ACCOUNT` e la variabile `FIREBASE_PROJECT_ID`. A mano:
@@ -421,7 +427,7 @@ firebase deploy --only firestore:rules --project ID-DEL-TUO-PROGETTO
 
 L'informativa ("Privacy" nel menu) mostra il titolare del trattamento e il
 contatto scritti in `lib/models/info_page.dart` (`kPrivacyController` e
-`kPrivacyContact`). Finché sono vuoti, indica il team FREE WAY.
+`kPrivacyContact`). Finché sono vuoti, indica il team FreeWay.
 
 ### Firebase App Check (facoltativo)
 

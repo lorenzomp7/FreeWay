@@ -1,6 +1,6 @@
 {
-  "name": "FREE WAY",
-  "short_name": "FREE WAY",
+  "name": "FreeWay",
+  "short_name": "FreeWay",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#FFFFFF",

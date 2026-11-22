@@ -106,7 +106,7 @@ class SheetHeader extends StatelessWidget {
   }
 }
 
-/// Banner con il logo FREE WAY (su sfondo bianco nel tema scuro).
+/// Banner con il logo FreeWay (su sfondo bianco nel tema scuro).
 class AppLogo extends StatelessWidget {
   const AppLogo({super.key, required this.height});
 
@@ -151,7 +151,7 @@ class LogoBadge extends StatelessWidget {
   }
 }
 
-/// Scritta "FREE WAY" con "WAY" nel colore primario.
+/// Scritta "FreeWay" con "Way" nel colore primario.
 class Wordmark extends StatelessWidget {
   const Wordmark({super.key});
 
@@ -163,11 +163,11 @@ class Wordmark extends StatelessWidget {
           color: AppColors.of(context).textPrimary,
           fontSize: 15,
           fontWeight: FontWeight.w800,
-          letterSpacing: 0.6,
+          letterSpacing: 0.2,
         ),
         children: const [
-          TextSpan(text: 'FREE'),
-          TextSpan(text: ' WAY', style: TextStyle(color: AppPalette.primary)),
+          TextSpan(text: 'Free'),
+          TextSpan(text: 'Way', style: TextStyle(color: AppPalette.primary)),
         ],
       ),
     );

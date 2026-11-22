@@ -4,8 +4,11 @@ FreeWay usa Firebase per due cose: gli account (Authentication) e le
 segnalazioni (Cloud Firestore). Il sito resta su GitHub Pages.
 
 L'app non è collegata a nessun progetto Firebase finché in
-`lib/firebase_options.dart` non ci sono i dati del vostro: fino ad allora mostra
-"FREE WAY è in manutenzione". Questi passi creano il progetto da zero.
+`lib/firebase_options.dart` non ci sono i dati del vostro. Fino ad allora
+funziona lo stesso, senza account: mappa, ricerca, percorsi, navigazione e voce
+ci sono; segnalazioni, conferme, ingressi, condivisione del viaggio e "Le tue
+segnalazioni" restano spenti, con un avviso. Appena inserite i dati del progetto
+si riaccendono da soli. Questi passi creano il progetto da zero.
 
 ## 1. Account Google del progetto
 

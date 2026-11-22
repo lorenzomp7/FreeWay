@@ -125,7 +125,7 @@ class _AccountSheetState extends State<AccountSheet> {
     final who = user == null
         ? ''
         : user.isAnonymous
-        ? 'Stai usando FREE WAY come ospite.'
+        ? 'Stai usando FreeWay come ospite.'
         : 'Account: ${user.email ?? user.displayName ?? 'senza email'}';
     final busy = _exporting || _deleting;
     return SafeArea(

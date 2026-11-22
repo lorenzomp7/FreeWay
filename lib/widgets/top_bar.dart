@@ -8,9 +8,11 @@ import 'info_sheet.dart';
 
 /// Barra superiore della mappa: logo, menu informazioni e logout.
 class TopBar extends StatelessWidget {
-  const TopBar({super.key, required this.onLogout, this.onOpenContributions});
+  const TopBar({super.key, this.onLogout, this.onOpenContributions});
 
-  final VoidCallback onLogout;
+  /// "Esci"; senza (nessun servizio dati, quindi nessun account) mancano
+  /// sia "Esci" sia "I tuoi dati".
+  final VoidCallback? onLogout;
 
   /// "Le tue segnalazioni"; senza, il pulsante non c'è.
   final VoidCallback? onOpenContributions;
@@ -65,25 +67,26 @@ class TopBar extends StatelessWidget {
                     ],
                   ),
                 ),
-              const PopupMenuDivider(),
-              PopupMenuItem<Object>(
-                value: 'account',
-                height: 46,
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.manage_accounts_outlined,
-                      color: AppPalette.primary,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      'I tuoi dati',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                  ],
+              if (onLogout != null) const PopupMenuDivider(),
+              if (onLogout != null)
+                PopupMenuItem<Object>(
+                  value: 'account',
+                  height: 46,
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.manage_accounts_outlined,
+                        color: AppPalette.primary,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'I tuoi dati',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
             ],
             child: CircleIconBadge(
               icon: Icons.info_outline_rounded,
@@ -111,19 +114,21 @@ class TopBar extends StatelessWidget {
               ),
             ),
           ],
-          const SizedBox(width: 4),
-          Tooltip(
-            message: 'Esci',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(999),
-              onTap: onLogout,
-              child: CircleIconBadge(
-                icon: Icons.logout_rounded,
-                background: colors.surfaceMuted,
-                foreground: colors.textSecondary,
+          if (onLogout != null) ...[
+            const SizedBox(width: 4),
+            Tooltip(
+              message: 'Esci',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: onLogout,
+                child: CircleIconBadge(
+                  icon: Icons.logout_rounded,
+                  background: colors.surfaceMuted,
+                  foreground: colors.textSecondary,
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );

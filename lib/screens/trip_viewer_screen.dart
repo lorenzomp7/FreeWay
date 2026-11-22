@@ -245,7 +245,7 @@ class _TripViewerScreenState extends State<TripViewerScreen> {
             ),
             const SizedBox(height: 10),
             Text(
-              'Condiviso con FREE WAY. La posizione è visibile solo a chi ha '
+              'Condiviso con FreeWay. La posizione è visibile solo a chi ha '
               'il link e smette di esserlo all\'arrivo.',
               style: textTheme.bodySmall?.copyWith(color: colors.textTertiary),
             ),
@@ -255,7 +255,7 @@ class _TripViewerScreenState extends State<TripViewerScreen> {
                 alignment: Alignment.centerRight,
                 child: TextButton(
                   onPressed: widget.onOpenApp,
-                  child: const Text('Apri FREE WAY'),
+                  child: const Text('Apri FreeWay'),
                 ),
               ),
             ],

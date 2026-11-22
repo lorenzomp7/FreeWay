@@ -27,11 +27,11 @@ const String kPrivacyContact = '';
 /// Informativa sul trattamento dei dati (artt. 13 e 14 GDPR), in breve.
 const InfoPage privacyPage = InfoPage(
   title: 'Privacy',
-  subtitle: 'Quali dati usa FREE WAY e come eliminarli',
+  subtitle: 'Quali dati usa FreeWay e come eliminarli',
   icon: Icons.privacy_tip_outlined,
   paragraphs: [
     'Titolare del trattamento: '
-        '${kPrivacyController == '' ? 'il team FREE WAY di Enactus UniBs (Università degli Studi di Brescia)' : '$kPrivacyController, per il progetto FREE WAY di Enactus UniBs'}. '
+        '${kPrivacyController == '' ? 'il team FreeWay di Enactus UniBs (Università degli Studi di Brescia)' : '$kPrivacyController, per il progetto FreeWay di Enactus UniBs'}. '
         'Per domande o per esercitare i tuoi diritti: '
         '${kPrivacyContact == '' ? 'scrivi al team (vedi "Chi siamo")' : kPrivacyContact}.',
     'Account e segnalazioni sono salvati su Google Firebase (Authentication '
@@ -73,10 +73,10 @@ const InfoPage privacyPage = InfoPage(
 const List<InfoPage> infoPages = [
   InfoPage(
     title: 'Chi siamo',
-    subtitle: 'Il progetto e le persone dietro FREE WAY',
+    subtitle: 'Il progetto e le persone dietro FreeWay',
     icon: Icons.diversity_3_rounded,
     paragraphs: [
-      "FREE WAY nasce dall'idea di rendere le città più accessibili a tutti/e. "
+      "FreeWay nasce dall'idea di rendere le città più accessibili a tutti/e. "
           'Vogliamo aiutare le persone a spostarsi liberamente, segnalando in '
           'tempo reale gli ostacoli sulle strade e sui marciapiedi.',
       'Il progetto è realizzato da un team di studenti/sse e dottorandi/e '
@@ -92,11 +92,11 @@ const List<InfoPage> infoPages = [
     subtitle: 'Tre gesti per muoverti e contribuire',
     icon: Icons.lightbulb_outline_rounded,
     paragraphs: [
-      'Con FREE WAY trovi il percorso pedonale migliore da un punto A a un '
+      'Con FreeWay trovi il percorso pedonale migliore da un punto A a un '
           'punto B, tenendo conto delle barriere segnalate dalla community.',
     ],
     bullets: [
-      'Cerca il luogo da raggiungere, poi scegli da dove partire: FREE WAY '
+      'Cerca il luogo da raggiungere, poi scegli da dove partire: FreeWay '
           'calcola il percorso più accessibile.',
       'Tieni premuto sulla mappa, oppure usa il pulsante "Segnala un ostacolo '
           'qui", per segnalare un ostacolo che incontri.',

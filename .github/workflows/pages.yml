@@ -1,4 +1,4 @@
-name: Publish FREE WAY
+name: Publish FreeWay
 on:
   push:
     branches: [main]

@@ -5,11 +5,14 @@ test('accesso visibile e utilizzabile con tastiera e schermo piccolo', async ({ 
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('./');
-  // Senza progetto Firebase configurato l'app mostra solo la manutenzione.
+  // Senza progetto Firebase configurato non ci sono account: si apre subito
+  // la mappa, con la ricerca. Non deve mai comparire una pagina di
+  // manutenzione.
   const guestButton = page.getByRole('button', { name: 'Continua come ospite' });
-  const maintenance = page.getByText('FREE WAY è in manutenzione', { exact: false });
-  await expect(guestButton.or(maintenance)).toBeVisible();
-  if (await maintenance.isVisible()) {
+  const search = page.getByRole('textbox', { name: /Cerca un luogo/ });
+  await expect(guestButton.or(search)).toBeVisible({ timeout: 60000 });
+  await expect(page.getByText('manutenzione', { exact: false })).toHaveCount(0);
+  if (await search.isVisible()) {
     expect(errors).toEqual([]);
     return;
   }
