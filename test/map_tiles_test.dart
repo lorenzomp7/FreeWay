@@ -5,22 +5,22 @@ import 'package:freeway/services/map_tiles.dart';
 
 void main() {
   test('stile chiaro Voyager e stile scuro Dark Matter', () {
-    expect(tileStyleFor(Brightness.light), 'voyager');
+    expect(tileStyleFor(Brightness.light), 'rastertiles/voyager');
     expect(tileStyleFor(Brightness.dark), 'dark_all');
     expect(
       tileTemplateFor(Brightness.dark),
-      'https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png',
+      'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
     );
   });
 
   test('sugli schermi ad alta densità si chiedono le tile @2x', () {
     expect(
       tileUrl(Brightness.light, 16, 34628, 23435, highDensity: true),
-      'https://basemaps.cartocdn.com/rastertiles/voyager/16/34628/23435@2x.png',
+      'https://a.basemaps.cartocdn.com/rastertiles/voyager/16/34628/23435@2x.png',
     );
     expect(
       tileUrl(Brightness.light, 16, 34628, 23435, highDensity: false),
-      'https://basemaps.cartocdn.com/rastertiles/voyager/16/34628/23435.png',
+      'https://a.basemaps.cartocdn.com/rastertiles/voyager/16/34628/23435.png',
     );
   });
 

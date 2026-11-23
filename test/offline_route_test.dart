@@ -70,7 +70,7 @@ void main() {
     expect(store.length, offline.saved.length);
     expect(progress.last, offline.saved.length);
     final url = offline.saved.first;
-    expect(url, startsWith('https://basemaps.cartocdn.com/rastertiles/'));
+    expect(url, startsWith('https://a.basemaps.cartocdn.com/'));
     expect(url, endsWith('@2x.png'));
     // Stile chiaro e scuro: la mappa resta visibile se cambia il tema.
     final tiles = OfflineRouteService.tilesForRoute(walk)!;

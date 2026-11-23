@@ -11,11 +11,11 @@ import 'package:flutter_map/flutter_map.dart';
 ///
 /// Uso gratuito con l'attribuzione di [kMapAttribution]; condizioni:
 /// https://carto.com/basemaps e https://www.openstreetmap.org/copyright.
-const String _cartoHost = 'https://basemaps.cartocdn.com/rastertiles';
+const String _cartoHost = 'https://a.basemaps.cartocdn.com';
 
-/// Stile delle tile per il tema dell'app.
+/// Stile delle tile per il tema dell'app, come percorso sul server CARTO.
 String tileStyleFor(Brightness brightness) =>
-    brightness == Brightness.dark ? 'dark_all' : 'voyager';
+    brightness == Brightness.dark ? 'dark_all' : 'rastertiles/voyager';
 
 /// Modello per [TileLayer.urlTemplate]: `{r}` diventa `@2x` quando la
 /// [TileLayer] ha `retinaMode` attivo.
