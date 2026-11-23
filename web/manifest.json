@@ -2,9 +2,13 @@
   "name": "FreeWay",
   "short_name": "FreeWay",
   "start_url": ".",
-  "display": "standalone",
-  "background_color": "#FFFFFF",
-  "theme_color": "#EC0414",
+  "display": "fullscreen",
+  "display_override": [
+    "fullscreen",
+    "standalone"
+  ],
+  "background_color": "#0D0F13",
+  "theme_color": "#0D0F13",
   "description": "Percorsi pedonali accessibili e segnalazione di barriere architettoniche. Un progetto di Enactus UniBs.",
   "lang": "it",
   "orientation": "portrait-primary",
