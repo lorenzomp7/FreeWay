@@ -1,0 +1,86 @@
+name: Worker del traffico
+# Prova il Worker del traffico (tools/traffic-worker) e, sui push a main o
+# a mano da Actions, lo pubblica su Cloudflare tutto in cloud, senza
+# installare nulla sul computer. Servono tre secret del repository:
+#   CLOUDFLARE_API_TOKEN  token Cloudflare con il modello "Edit Cloudflare Workers"
+#   CLOUDFLARE_ACCOUNT_ID ID dell'account Cloudflare
+#   TOMTOM_KEY            chiave API di TomTom (resta segreta nel Worker)
+# Senza, prova il Worker ma non pubblica nulla. Guida:
+# tools/traffic-worker/README.md
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/traffic-worker/**'
+      - '.github/workflows/traffic-worker.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/traffic-worker/**'
+      - '.github/workflows/traffic-worker.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test tools/traffic-worker/worker.test.mjs
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
+    defaults:
+      run:
+        working-directory: tools/traffic-worker
+    steps:
+      - name: Controlla la configurazione
+        id: check
+        working-directory: .
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ] || [ -z "$TOMTOM_KEY" ]; then
+            echo "::notice::Mancano CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID o TOMTOM_KEY: Worker non pubblicato."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.enabled == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.enabled == 'true'
+        with:
+          node-version: 22
+      - name: Pubblica il Worker
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          npx --yes wrangler@4 deploy | tee "$RUNNER_TEMP/deploy.log"
+      - name: Salva la chiave TomTom come segreto del Worker
+        if: steps.check.outputs.enabled == 'true'
+        run: printf '%s' "$TOMTOM_KEY" | npx --yes wrangler@4 secret put TOMTOM_KEY
+      - name: Indirizzo da mettere in TRAFFIC_URL
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | head -n 1 || true)
+          if [ -n "$url" ]; then
+            echo "Worker pubblicato: $url"
+            {
+              echo "### Worker del traffico pubblicato"
+              echo
+              echo "Metti questo indirizzo nella variabile del repository \`TRAFFIC_URL\`:"
+              echo
+              echo "\`$url\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Indirizzo del Worker non trovato nel log: controlla l'output di wrangler deploy."
+          fi

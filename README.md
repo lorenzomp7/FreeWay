@@ -387,8 +387,9 @@ Come quella di OpenRouteService, la chiave finisce nel JavaScript pubblicato:
 Con il traffico attivo, i percorsi a piedi e in sedia a rotelle avvisano delle
 strade principali trafficate e, se c'è un'alternativa più tranquilla che non
 allunga di oltre il 15%, la propongono per prima ("Meno traffico"). La chiave
-di TomTom resta in un piccolo Cloudflare Worker (`tools/traffic-worker/`):
-la guida per crearlo e collegarlo con la variabile `TRAFFIC_URL` è in
+di TomTom resta in un piccolo Cloudflare Worker (`tools/traffic-worker/`),
+pubblicato da GitHub Actions (workflow "Worker del traffico"), senza
+installare nulla in locale. La guida, tutta da browser, è in
 [tools/traffic-worker/README.md](tools/traffic-worker/README.md). Senza
 `TRAFFIC_URL` il traffico è spento.
 
