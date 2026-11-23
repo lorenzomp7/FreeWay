@@ -161,6 +161,20 @@ service cloud.firestore {
           || validPassVoteOn('passNoBy'));
     }
 
+    // "L'ostacolo non c'è più": la segnalazione non si cancella ma diventa
+    // risolta, così chi l'ha fatta tiene i punti. Si segna una volta sola, a
+    // proprio nome e con l'ora del server; sulle segnalazioni degli altri
+    // serve un account e al massimo una ogni 10 secondi, come la rimozione.
+    function validResolve() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['resolvedAt', 'resolvedBy'])
+        && !('resolvedAt' in resource.data)
+        && request.resource.data.resolvedAt == request.time
+        && request.resource.data.resolvedBy == request.auth.uid
+        && (resource.data.get('userId', '') == request.auth.uid
+          || (!isGuest() && stampsNow('lastRemovalAt')));
+    }
+
     match /segnalazioni/{reportId} {
       // Le segnalazioni sono visibili a tutti gli utenti dell'app (ospiti inclusi).
       allow read: if signedIn();
@@ -173,11 +187,11 @@ service cloud.firestore {
 
       // Le uniche modifiche ammesse sono la conferma che l'ostacolo c'è
       // ancora, il voto "non c'è più", la risposta "si riesce a passare?",
-      // il "grazie" a chi ha segnalato e il ritiro del proprio uid quando si
-      // eliminano i propri dati.
+      // il "grazie" a chi ha segnalato, "l'ostacolo non c'è più" (risolta) e
+      // il ritiro del proprio uid quando si eliminano i propri dati.
       allow update: if signedIn()
         && (validConfirmation() || validNotThere() || validPassVote()
-          || validThank()
+          || validThank() || validResolve()
           || withdrawsOwnVote('confirmedBy') || withdrawsOwnVote('notThereBy')
           || withdrawsOwnVote('thankedBy') || withdrawsOwnVote('passYesBy')
           || withdrawsOwnVote('passHardBy') || withdrawsOwnVote('passNoBy'));

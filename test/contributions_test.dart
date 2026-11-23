@@ -20,6 +20,7 @@ Obstacle report(
   List<String> notThereBy = const [],
   List<String> passYesBy = const [],
   DateTime? lastNotThereAt,
+  String? resolvedBy,
 }) => Obstacle(
   id: id,
   position: at,
@@ -31,9 +32,29 @@ Obstacle report(
   notThereBy: notThereBy,
   lastNotThereAt: lastNotThereAt,
   passYesBy: passYesBy,
+  resolvedBy: resolvedBy,
+  resolvedAt: resolvedBy == null ? null : now.subtract(const Duration(days: 1)),
 );
 
 void main() {
+  test('i punti restano quando l\'ostacolo segnalato viene tolto', () {
+    final before = Contributions.of([report('a'), report('b')], me);
+    // Qualcuno dice che il primo ostacolo non c'è più: è risolto.
+    final after = Contributions.of([
+      report('a', resolvedBy: 'altro'),
+      report('b'),
+    ], me);
+    expect(after.points, before.points);
+    expect(after.reports, hasLength(2));
+    expect(
+      ReportStatus.of(after.reports.firstWhere((o) => o.id == 'a'), now),
+      ReportStatus.resolved,
+    );
+    expect(after.visibleReports(now), 1);
+    // Una segnalazione eliminata perché sbagliata non conta più.
+    expect(Contributions.of([report('b')], me).points, lessThan(before.points));
+  });
+
   test('conta le proprie segnalazioni e gli aiuti dati agli altri', () {
     final c = Contributions.of([
       report(

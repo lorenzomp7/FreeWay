@@ -49,7 +49,13 @@ typedef PhotoLoader = Future<Uint8List?> Function(String obstacleId);
 /// Azione scelta nella scheda di un ostacolo.
 enum ObstacleAction {
   confirm,
+
+  /// "L'ostacolo non c'è più": la segnalazione diventa risolta.
   remove,
+
+  /// "Elimina la segnalazione" (solo la propria, se era sbagliata): si
+  /// cancella e non conta più nei punti.
+  delete,
   thank,
   passYes,
   passHard,
@@ -709,6 +715,18 @@ class ObstacleDetailsSheet extends StatelessWidget {
                     foregroundColor: colors.success,
                   ),
                 ),
+                if (obstacle.isReportedBy(currentUserId)) ...[
+                  const SizedBox(height: 4),
+                  TextButton.icon(
+                    onPressed: () =>
+                        Navigator.of(context).pop(ObstacleAction.delete),
+                    icon: const Icon(Icons.delete_outline_rounded, size: 19),
+                    label: const Text('Elimina la segnalazione: era sbagliata'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: colors.textSecondary,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Text(
                   'Rimuovendolo aiuti le altre persone a ricevere percorsi aggiornati.',

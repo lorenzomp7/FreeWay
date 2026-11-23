@@ -26,6 +26,31 @@ void main() {
       expect(obstacle.confirmationCount, 0);
     });
 
+    test('una segnalazione risolta resta salvata ma sparisce dalla mappa', () {
+      final open = Obstacle.fromMap('o1', report());
+      expect(open.isResolved, isFalse);
+      expect(open.isHidden(DateTime(2025, 3, 2)), isFalse);
+      final resolved = Obstacle.fromMap(
+        'o1',
+        report(
+          extra: {
+            'resolvedAt': Timestamp.fromDate(DateTime(2025, 3, 2, 9)),
+            'resolvedBy': 'bob',
+          },
+        ),
+      );
+      expect(resolved.isResolved, isTrue);
+      expect(resolved.resolvedBy, 'bob');
+      expect(resolved.resolvedAt, DateTime(2025, 3, 2, 9));
+      expect(resolved.isHidden(DateTime(2025, 3, 2)), isTrue);
+      // Appena scritta l'ora del server non c'è ancora: è già risolta.
+      final pending = Obstacle.fromMap(
+        'o1',
+        report(extra: {'resolvedBy': 'alice'}),
+      );
+      expect(pending.isResolved, isTrue);
+    });
+
     test('usa la categoria salvata se valida', () {
       final obstacle = Obstacle.fromMap(
         'o1',

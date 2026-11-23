@@ -95,6 +95,25 @@ await check('utente cancella altrui', assertSucceeds(remove(alice, 'alice', 's1'
 await check('seconda rimozione subito dopo rifiutata', (async () => { await seed('s2', { lat: 1, lng: 1, type: 'x', timestamp: Timestamp.now(), userId: 'z' }); await assertFails(remove(alice, 'alice', 's2')); })());
 await age('alice', 'lastRemovalAt', 11);
 await check('rimozione dopo 11 s accettata', assertSucceeds(remove(alice, 'alice', 's2')));
+
+// --- "L'ostacolo non c'è più": segnalazione risolta, i punti restano ---
+const resolve = (db, uid, id, extra = {}) => { const b = writeBatch(db); b.update(doc(db, 'segnalazioni/' + id), { resolvedAt: serverTimestamp(), resolvedBy: uid, ...extra }); b.set(doc(db, 'limiti/' + uid), { lastRemovalAt: serverTimestamp() }, { merge: true }); return b.commit(); };
+const resolveOwn = (db, uid, id) => updateDoc(doc(db, 'segnalazioni/' + id), { resolvedAt: serverTimestamp(), resolvedBy: uid });
+await seed('r1', { lat: 1, lng: 1, type: 'x', timestamp: Timestamp.now(), userId: 'guest1' });
+await seed('r2', { lat: 1, lng: 1, type: 'x', timestamp: Timestamp.now(), userId: 'z' });
+await seed('r3', { lat: 1, lng: 1, type: 'x', timestamp: Timestamp.now(), userId: 'z' });
+await check('ospite risolve la propria anche senza limiti', assertSucceeds(resolveOwn(guest, 'guest1', 'r1')));
+await check('già risolta non si risolve di nuovo', assertFails(resolveOwn(guest, 'guest1', 'r1')));
+await check('ospite non risolve quella altrui', assertFails(resolve(guest2, 'guest2', 'r2')));
+await age('alice', 'lastRemovalAt', 11);
+await check('utente risolve quella altrui', assertSucceeds(resolve(alice, 'alice', 'r2')));
+await check('seconda risoluzione subito dopo rifiutata', assertFails(resolve(alice, 'alice', 'r3')));
+await age('alice', 'lastRemovalAt', 11);
+await check('risoluzione altrui senza limiti rifiutata', assertFails(updateDoc(doc(alice, 'segnalazioni/r3'), { resolvedAt: serverTimestamp(), resolvedBy: 'alice' })));
+await check('risoluzione a nome di altri rifiutata', assertFails(resolve(alice, 'alice', 'r3', { resolvedBy: 'z' })));
+await check('risoluzione con ora del client rifiutata', assertFails(resolve(alice, 'alice', 'r3', { resolvedAt: Timestamp.now() })));
+await check('risoluzione che cambia altri campi rifiutata', assertFails(resolve(alice, 'alice', 'r3', { type: 'altro' })));
+await check('utente risolve dopo l\'attesa', assertSucceeds(resolve(alice, 'alice', 'r3')));
 await check('rimozione non cambia il limite delle segnalazioni', (async () => { await age('alice', 'lastReportAt', 60); await assertSucceeds(add(alice, 'alice', 'a9')); })());
 
 // --- foto ---

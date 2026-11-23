@@ -103,6 +103,8 @@ class Obstacle {
     this.passHardBy = const [],
     this.passNoBy = const [],
     this.thankedBy = const [],
+    this.resolvedAt,
+    this.resolvedBy,
   }) : _storedCategory = category;
 
   final String id;
@@ -132,6 +134,13 @@ class Obstacle {
   /// Chi ha ringraziato l'autore della segnalazione.
   final List<String> thankedBy;
 
+  /// Quando e da chi è stato detto "L'ostacolo non c'è più": la segnalazione
+  /// resta salvata, così chi l'ha fatta tiene i punti, ma sparisce dalla mappa.
+  final DateTime? resolvedAt;
+  final String? resolvedBy;
+
+  bool get isResolved => resolvedAt != null || resolvedBy != null;
+
   final String? _storedCategory;
 
   factory Obstacle.fromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
@@ -142,6 +151,7 @@ class Obstacle {
     final timestamp = data['timestamp'];
     final confirmed = data['lastConfirmedAt'];
     final notThere = data['lastNotThereAt'];
+    final resolved = data['resolvedAt'];
     return Obstacle(
       id: id,
       position: LatLng(
@@ -165,6 +175,9 @@ class Obstacle {
       passHardBy: _uids(data[PassVote.hard.field]),
       passNoBy: _uids(data[PassVote.no.field]),
       thankedBy: _uids(data['thankedBy']),
+      // Appena scritto, l'ora del server può non essere ancora arrivata.
+      resolvedAt: resolved is Timestamp ? resolved.toDate() : null,
+      resolvedBy: data['resolvedBy'] as String?,
     );
   }
 
@@ -283,8 +296,9 @@ class Obstacle {
     return confirmed == null || (voted != null && voted.isAfter(confirmed));
   }
 
-  /// Da non mostrare né usare nei percorsi: scaduto o tolto dai voti.
-  bool isHidden([DateTime? now]) => isExpired(now) || isDismissedByVotes;
+  /// Da non mostrare né usare nei percorsi: risolto, scaduto o tolto dai voti.
+  bool isHidden([DateTime? now]) =>
+      isResolved || isExpired(now) || isDismissedByVotes;
 
   /// [uid] può votare che l'ostacolo non c'è più.
   bool canVoteNotThereBy(String? uid) =>

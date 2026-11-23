@@ -2500,7 +2500,59 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
     if (userId == null) return;
+    if (action == ObstacleAction.delete) {
+      await _deleteOwnReport(obstacle, userId);
+      return;
+    }
     await _removeObstacle(obstacle, userId);
+  }
+
+  /// La propria segnalazione era sbagliata: si cancella davvero e non conta
+  /// più nei punti (diverso da "L'ostacolo non c'è più", che la risolve).
+  Future<void> _deleteOwnReport(Obstacle obstacle, String userId) async {
+    if (!obstacle.isReportedBy(userId)) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminare la segnalazione?'),
+        content: const Text(
+          'Usalo solo se la segnalazione era sbagliata: sparisce e non conta '
+          "più nei tuoi punti. Se l'ostacolo è stato tolto, scegli invece "
+          "\"L'ostacolo non c'è più\": i punti restano.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Annulla'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Elimina'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await _obstacleService?.remove(
+        obstacle.id,
+        userId,
+        hasPhoto: obstacle.hasPhoto,
+      );
+      if (!mounted) return;
+      _showSnack(
+        'Segnalazione eliminata.',
+        iconColor: AppColors.of(context).success,
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile eliminare la segnalazione. Riprova tra '
+        'qualche secondo.',
+        Icons.error_outline_rounded,
+      );
+    }
   }
 
   /// Un ospite può togliere solo le proprie segnalazioni (regole Firestore).
@@ -2526,7 +2578,7 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
     try {
-      await _obstacleService?.remove(
+      await _obstacleService?.resolve(
         obstacle.id,
         userId,
         hasPhoto: obstacle.hasPhoto,
