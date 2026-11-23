@@ -2,43 +2,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../services/map_tiles.dart';
 import '../theme/app_theme.dart';
 
-/// Filtri colorati delle mappe: tessere più chiare o invertite nel tema scuro.
-List<double> _tileMatrix(
-  double contrast,
-  bool invert,
-  double offset,
-  double saturation,
-) {
-  final c = invert ? -contrast : contrast;
-  final o = invert ? 255 - offset : offset;
-  final rg = (0.715 - saturation * 0.715) * c;
-  final rb = (0.072 - saturation * 0.072) * c;
-  final gr = (0.213 - saturation * 0.213) * c;
-  return [
-    (0.213 + saturation * 0.787) * c, rg, rb, 0, o, //
-    gr, (0.715 + saturation * 0.285) * c, rb, 0, o, //
-    gr, rg, (0.072 + saturation * 0.928) * c, 0, o, //
-    0, 0, 0, 1, 0, //
-  ];
-}
-
-Widget lightTileBuilder(BuildContext context, Widget tileWidget, dynamic tile) {
-  return ColorFiltered(
-    colorFilter: ColorFilter.matrix(_tileMatrix(0.97, false, 8, 0.35)),
-    child: tileWidget,
-  );
-}
-
-Widget darkTileBuilder(BuildContext context, Widget tileWidget, dynamic tile) {
-  return ColorFiltered(
-    colorFilter: ColorFilter.matrix(_tileMatrix(0.82, true, 18, 0.12)),
-    child: tileWidget,
-  );
-}
-
-/// Attribuzione obbligatoria di OpenStreetMap.
+/// Attribuzione obbligatoria dei dati (OpenStreetMap) e delle tile (CARTO).
 class OsmAttribution extends StatelessWidget {
   const OsmAttribution({super.key});
 
@@ -52,11 +19,10 @@ class OsmAttribution extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
-        '© OpenStreetMap contributors',
-        style: Theme.of(context)
-            .textTheme
-            .labelSmall
-            ?.copyWith(fontSize: 9.5, letterSpacing: 0.1),
+        kMapAttribution,
+        style: Theme.of(
+          context,
+        ).textTheme.labelSmall?.copyWith(fontSize: 9.5, letterSpacing: 0.1),
       ),
     );
   }
@@ -84,7 +50,6 @@ class MapControls extends StatelessWidget {
   final bool showsParking;
   final bool isLoadingParking;
 
-
   /// Pulsante della bussola, sopra lo zoom; `null` per nasconderlo.
   final Widget? compass;
 
@@ -107,11 +72,11 @@ class MapControls extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     BoxDecoration decoration() => BoxDecoration(
-          color: colors.surface,
-          border: Border.all(color: colors.border),
-          borderRadius: BorderRadius.circular(8),
-          boxShadow: softShadow(colors),
-        );
+      color: colors.surface,
+      border: Border.all(color: colors.border),
+      borderRadius: BorderRadius.circular(8),
+      boxShadow: softShadow(colors),
+    );
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -325,8 +290,10 @@ class CategoryFilterBar extends StatelessWidget {
                   ),
                   const SizedBox(width: 6),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 1,
+                    ),
                     decoration: BoxDecoration(
                       color: isSelected
                           ? Colors.white.withValues(alpha: 0.22)
@@ -390,10 +357,9 @@ class ReportHint extends StatelessWidget {
             child: Text(
               'Tieni premuto sulla mappa per segnalare un ostacolo',
               maxLines: 2,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: colors.textSecondary),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
             ),
           ),
           const SizedBox(width: 4),
@@ -854,7 +820,11 @@ class ParkingMarker extends StatelessWidget {
           ),
         ],
       ),
-      child: const Icon(Icons.accessible_rounded, color: Colors.white, size: 17),
+      child: const Icon(
+        Icons.accessible_rounded,
+        color: Colors.white,
+        size: 17,
+      ),
     );
     return Tooltip(
       message: label,

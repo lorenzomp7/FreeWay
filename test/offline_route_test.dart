@@ -50,7 +50,10 @@ void main() {
     expect(OfflineRouteService.tilesForRoute(long), isNull);
     final requests = <Uri>[];
     final offline = service(MemoryTileStore(), requests: requests);
-    expect(await offline.saveRoute(long), OfflineSaveResult.tooLong);
+    expect(
+      await offline.saveRoute(long, highDensity: true),
+      OfflineSaveResult.tooLong,
+    );
     expect(requests, isEmpty);
   });
 
@@ -60,13 +63,26 @@ void main() {
     final offline = service(store);
     final result = await offline.saveRoute(
       walk,
+      highDensity: true,
       onProgress: (done, _) => progress.add(done),
     );
     expect(result, OfflineSaveResult.saved);
     expect(store.length, offline.saved.length);
     expect(progress.last, offline.saved.length);
     final url = offline.saved.first;
-    expect(url, startsWith('https://tile.openstreetmap.org/1'));
+    expect(url, startsWith('https://basemaps.cartocdn.com/rastertiles/'));
+    expect(url, endsWith('@2x.png'));
+    // Stile chiaro e scuro: la mappa resta visibile se cambia il tema.
+    final tiles = OfflineRouteService.tilesForRoute(walk)!;
+    expect(offline.saved.length, tiles.length * 2);
+    expect(
+      offline.saved.where((u) => u.contains('/voyager/')),
+      hasLength(tiles.length),
+    );
+    expect(
+      offline.saved.where((u) => u.contains('/dark_all/')),
+      hasLength(tiles.length),
+    );
     expect(await store.get(url), [1, 2, 3]);
 
     final reloaded = service(store);
@@ -84,15 +100,21 @@ void main() {
   test('se alcune tile non arrivano il salvataggio è parziale', () async {
     final offline = service(
       MemoryTileStore(),
-      fails: (url) => url.path.startsWith('/15/'),
+      fails: (url) => url.path.contains('/15/'),
     );
-    expect(await offline.saveRoute(walk), OfflineSaveResult.partial);
+    expect(
+      await offline.saveRoute(walk, highDensity: true),
+      OfflineSaveResult.partial,
+    );
     expect(offline.saved.every((u) => u.contains('/16/')), isTrue);
   });
 
   test('senza rete il salvataggio fallisce', () async {
     final offline = service(MemoryTileStore(), fails: (_) => true);
-    expect(await offline.saveRoute(walk), OfflineSaveResult.failed);
+    expect(
+      await offline.saveRoute(walk, highDensity: true),
+      OfflineSaveResult.failed,
+    );
     expect(offline.hasSavedRoute, isFalse);
   });
 }

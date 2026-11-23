@@ -27,6 +27,7 @@ import '../services/entrance_report_service.dart';
 import '../services/geo_utils.dart';
 import '../services/geocoding_service.dart';
 import '../services/location_service.dart';
+import '../services/map_tiles.dart';
 import '../services/navigation_service.dart';
 import '../services/obstacle_alerts.dart';
 import '../services/nearby_accessible_service.dart';
@@ -254,6 +255,7 @@ class _MapScreenState extends State<MapScreen> {
 
   /// `true` o `false` mentre si sceglie sulla mappa la partenza o l'arrivo.
   bool? _choosingOnMapFor;
+
   /// Senza servizio dati non si può segnalare: niente suggerimento.
   bool _showReportHint = Backend.available;
 
@@ -1279,18 +1281,18 @@ class _MapScreenState extends State<MapScreen> {
                 const SizedBox(height: 4),
                 Text(
                   'A ${_formatMeters(haversineDistance(_userLocation!, parking.position))} da te',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
                 ),
               ],
               const SizedBox(height: 6),
               Text(
                 'Dati di OpenStreetMap: controlla sul posto i cartelli e '
                 'gli orari.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colors.textTertiary,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: colors.textTertiary),
               ),
               const SizedBox(height: 14),
               SizedBox(
@@ -1320,7 +1322,11 @@ class _MapScreenState extends State<MapScreen> {
       _travelMode = TravelMode.car;
       _selectedPlace = null;
       _stops = [];
-      _setPoint(false, parking.position, parking.name ?? 'Parcheggio per disabili');
+      _setPoint(
+        false,
+        parking.position,
+        parking.name ?? 'Parcheggio per disabili',
+      );
     });
     _openDirections();
   }
@@ -1912,6 +1918,7 @@ class _MapScreenState extends State<MapScreen> {
     setState(() => _offlineProgress = (0, 0));
     final result = await _offlineRoute.saveRoute(
       points,
+      highDensity: isHighDensity(context),
       onProgress: (done, total) {
         if (mounted) setState(() => _offlineProgress = (done, total));
       },
@@ -3435,9 +3442,8 @@ class _MapScreenState extends State<MapScreen> {
             ),
       ];
     }
-    final split = route != null &&
-            route.usesCar &&
-            identical(route.points, _routePoints)
+    final split =
+        route != null && route.usesCar && identical(route.points, _routePoints)
         ? route.driveEndIndex
         : 0;
     if (split <= 0) {
@@ -3475,11 +3481,13 @@ class _MapScreenState extends State<MapScreen> {
 
     final layers = <Widget>[
       TileLayer(
-        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        urlTemplate: tileTemplateFor(
+          isDark ? Brightness.dark : Brightness.light,
+        ),
         userAgentPackageName: 'it.enactusunibs.freeway',
-        // Usa tile native anche sui display ad alta densità: la modalità
-        // retina simulata richiede il livello successivo, assente oltre 19.
-        maxNativeZoom: _maxZoom.toInt(),
+        // Sui telefoni ad alta densità tile @2x: la mappa resta nitida.
+        retinaMode: isHighDensity(context),
+        maxNativeZoom: kMaxNativeTileZoom,
         maxZoom: _maxZoom,
         // Annulla il download delle tile uscite dallo schermo: mappa più
         // reattiva sul web e meno richieste ai server di OpenStreetMap.
@@ -3487,7 +3495,6 @@ class _MapScreenState extends State<MapScreen> {
         // senza rete; le altre arrivano dalla rete annullando quelle uscite
         // dallo schermo.
         tileProvider: RouteTileProvider(_offlineRoute),
-        tileBuilder: isDark ? darkTileBuilder : lightTileBuilder,
       ),
     ];
 

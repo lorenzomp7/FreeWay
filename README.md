@@ -20,9 +20,10 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
 ## Funzionalità
 
 - Accesso con email e password, con Google oppure come ospite (Firebase Auth).
-- Mappa OpenStreetMap con tema chiaro e scuro e posizione dell'utente (GPS, con
-  stima tramite IP se il GPS non è disponibile). Lo zoom arriva al livello
-  19 con le tile native di OpenStreetMap.
+- Mappa con i dati di OpenStreetMap e le immagini di CARTO (Voyager nel tema
+  chiaro, Dark Matter nel tema scuro), a doppia risoluzione sui telefoni per
+  restare nitida, e posizione dell'utente (GPS, con stima tramite IP se il GPS
+  non è disponibile). Lo zoom arriva al livello 19.
 - Ricerca con gli stessi passaggi di Google Maps:
   1. toccando la casella compaiono le ricerche recenti, salvate sul
      dispositivo (si possono togliere una a una);
@@ -216,10 +217,10 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   la condivisione finisce all'arrivo, con "Interrompi la condivisione" o dopo
   4 ore, e non contiene nome né email.
 - "Salva per l'uso senza rete" nella scheda dei percorsi: salva nel browser
-  (Cache Storage) le tile di OpenStreetMap di un corridoio di 120 m intorno
-  al tragitto, agli zoom 15 e 16 e al massimo 160 tile, e le tiene una
-  settimana. I limiti servono a rispettare le regole d'uso delle tile di
-  OpenStreetMap, che vietano di scaricare grandi aree. Se la rete cade
+  (Cache Storage) le tile della mappa, nello stile chiaro e in quello scuro,
+  di un corridoio di 120 m intorno al tragitto, agli zoom 15 e 16 e al
+  massimo 160 tile per stile, e le tiene una settimana. I limiti servono a
+  non scaricare grandi aree dai server delle tile. Se la rete cade
   durante la navigazione l'app lo dice (anche a voce), la mappa resta
   visibile, la navigazione continua sul percorso e il ricalcolo riparte
   quando torna la rete. L'app va aperta con la rete: il service worker

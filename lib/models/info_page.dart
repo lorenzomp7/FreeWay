@@ -24,6 +24,7 @@ class InfoPage {
 /// Da compilare qui; restano vuoti finché non si decide.
 const String kPrivacyController = '';
 const String kPrivacyContact = '';
+
 /// Informativa sul trattamento dei dati (artt. 13 e 14 GDPR), in breve.
 const InfoPage privacyPage = InfoPage(
   title: 'Privacy',
@@ -54,7 +55,7 @@ const InfoPage privacyPage = InfoPage(
         '(sedia a rotelle, a piedi, in auto) non vengono salvati sui nostri '
         'server. Le coordinate dei '
         'punti cercati e dei percorsi vengono inviate ai servizi di mappa: '
-        'OpenStreetMap, Photon (Komoot), Nominatim, Overpass, '
+        'CARTO (immagini della mappa), Photon (Komoot), Nominatim, Overpass, '
         'OpenRouteService, Valhalla e OSRM (FOSSGIS), Transitous (solo '
         'con "Mezzi pubblici"), Open-Meteo; senza GPS '
         'la posizione è stimata dall’indirizzo IP (ipwho.is, ipapi.co).',
@@ -84,8 +85,9 @@ const List<InfoPage> infoPages = [
           "dell'Università degli Studi di Brescia: Lorenzo Mainetti (Team "
           'leader), Chiara Leggerini (Project manager), Michela Lanzini, Matteo '
           'Boniotti, Anita Paiardi e Andrea Menardo.',
-      'Codice sorgente e contatti: github.com/lorenzomp7/FreeWay. Mappe © '
-          'OpenStreetMap; orari dei mezzi pubblici da Transitous '
+      'Codice sorgente e contatti: github.com/lorenzomp7/FreeWay. Dati delle '
+          'mappe © OpenStreetMap, immagini della mappa © CARTO; orari dei '
+          'mezzi pubblici da Transitous '
           '(transitous.org/sources), un servizio gratuito gestito da '
           'volontari.',
     ],
