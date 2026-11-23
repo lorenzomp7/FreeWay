@@ -150,6 +150,34 @@ class ObstacleService {
     });
   }
 
+  /// "L'ostacolo non c'è più": la segnalazione diventa risolta e sparisce
+  /// dalla mappa, ma resta salvata e chi l'ha fatta tiene i punti. Aggiorna
+  /// anche `limiti/{uid}` (le regole lo chiedono sulle segnalazioni altrui).
+  /// Se le regole pubblicate non conoscono ancora le segnalazioni risolte, la
+  /// segnalazione si rimuove come prima.
+  Future<void> resolve(
+    String id,
+    String userId, {
+    bool hasPhoto = false,
+  }) async {
+    final batch = _firestore.batch()
+      ..update(_collection.doc(id), {
+        'resolvedAt': FieldValue.serverTimestamp(),
+        'resolvedBy': userId,
+      })
+      ..set(
+        _limits(userId),
+        {'lastRemovalAt': FieldValue.serverTimestamp()},
+        SetOptions(merge: true),
+      );
+    try {
+      await batch.commit();
+    } on FirebaseException catch (error) {
+      if (error.code != 'permission-denied') rethrow;
+      await remove(id, userId, hasPhoto: hasPhoto);
+    }
+  }
+
   /// Rimuove una segnalazione aggiornando `limiti/{uid}`; con regole più
   /// vecchie che non conoscono `limiti` ripiega sulla sola rimozione.
   Future<void> remove(String id, String userId, {bool hasPhoto = false}) async {

@@ -26,6 +26,7 @@ enum ContributorLevel {
 /// Stato di una propria segnalazione.
 enum ReportStatus {
   visible('Visibile sulla mappa'),
+  resolved('Risolta: l\'ostacolo non c\'è più'),
   expired('Nascosta: nessuno la conferma da tempo'),
   dismissed('Nascosta: altre persone dicono che non c\'è più');
 
@@ -34,6 +35,7 @@ enum ReportStatus {
   final String label;
 
   static ReportStatus of(Obstacle obstacle, DateTime now) {
+    if (obstacle.isResolved) return resolved;
     if (obstacle.isDismissedByVotes) return dismissed;
     if (obstacle.isExpired(now)) return expired;
     return visible;

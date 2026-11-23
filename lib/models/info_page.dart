@@ -24,6 +24,7 @@ class InfoPage {
 /// Da compilare qui; restano vuoti finché non si decide.
 const String kPrivacyController = '';
 const String kPrivacyContact = '';
+
 /// Informativa sul trattamento dei dati (artt. 13 e 14 GDPR), in breve.
 const InfoPage privacyPage = InfoPage(
   title: 'Privacy',
@@ -54,9 +55,11 @@ const InfoPage privacyPage = InfoPage(
         '(sedia a rotelle, a piedi, in auto) non vengono salvati sui nostri '
         'server. Le coordinate dei '
         'punti cercati e dei percorsi vengono inviate ai servizi di mappa: '
-        'OpenStreetMap, Photon (Komoot), Nominatim, Overpass, '
+        'OpenStreetMap e CARTO (immagini della mappa), Photon (Komoot), '
+        'Nominatim, Overpass, '
         'OpenRouteService, Valhalla e OSRM (FOSSGIS), Transitous (solo '
-        'con "Mezzi pubblici"), Open-Meteo; senza GPS '
+        'con "Mezzi pubblici"), Open-Meteo, TomTom (traffico, attraverso '
+        'un nostro servizio intermedio che non salva nulla); senza GPS '
         'la posizione è stimata dall’indirizzo IP (ipwho.is, ipapi.co).',
     'Sul dispositivo restano ricerche recenti, luoghi salvati, opzioni del '
         'percorso, impostazioni della voce, il viaggio in corso (per 3 ore), '
@@ -84,8 +87,10 @@ const List<InfoPage> infoPages = [
           "dell'Università degli Studi di Brescia: Lorenzo Mainetti (Team "
           'leader), Chiara Leggerini (Project manager), Michela Lanzini, Matteo '
           'Boniotti, Anita Paiardi e Andrea Menardo.',
-      'Codice sorgente e contatti: github.com/lorenzomp7/FreeWay. Mappe © '
-          'OpenStreetMap; orari dei mezzi pubblici da Transitous '
+      'Codice sorgente e contatti: github.com/lorenzomp7/FreeWay. Dati delle '
+          'mappe © OpenStreetMap, immagini della mappa © OpenStreetMap o © '
+          'CARTO; orari dei '
+          'mezzi pubblici da Transitous '
           '(transitous.org/sources), un servizio gratuito gestito da '
           'volontari.',
     ],

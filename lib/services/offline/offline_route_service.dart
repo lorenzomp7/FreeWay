@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert' show jsonDecode, jsonEncode;
 import 'dart:math' as math;
-import 'dart:ui' show Codec, ImmutableBuffer;
+import 'dart:ui' show Brightness, Codec, ImmutableBuffer;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
@@ -12,36 +12,35 @@ import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../geo_utils.dart';
+import '../map_tiles.dart';
 import 'tile_store.dart';
-
-/// Indirizzo delle tile di OpenStreetMap usato dalla mappa.
-const String kOsmTileTemplate =
-    'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-
-String osmTileUrl(int z, int x, int y) =>
-    'https://tile.openstreetmap.org/$z/$x/$y.png';
 
 /// Esito di "Salva per l'uso senza rete".
 enum OfflineSaveResult { saved, partial, tooLong, failed }
 
 /// "Salva per l'uso senza rete", come "Download offline map" di Google Maps
 /// ma ridotto al tragitto: si salvano le tile di un corridoio intorno al
-/// percorso agli zoom 15 e 16. Le regole d'uso delle tile di OpenStreetMap
-/// vietano di scaricare grandi aree, soprattutto dallo zoom 17 in su: per
-/// questo il corridoio è stretto, gli zoom sono bassi, c'è un tetto di tile e
-/// il download parte solo su richiesta.
+/// percorso agli zoom 15 e 16; con le tile CARTO nello stile chiaro e in
+/// quello scuro, così la mappa resta visibile se il telefono cambia tema.
+/// Per non pesare sui
+/// server delle tile il corridoio è stretto, gli zoom sono bassi, c'è un
+/// tetto di tile e il download parte solo su richiesta.
 class OfflineRouteService {
   OfflineRouteService({
     TileStore? store,
     http.Client? client,
     Future<SharedPreferences> Function()? preferences,
     DateTime Function()? clock,
+    this.tiles = const MapTiles(),
   }) : store = store ?? TileStore(),
        _client = client ?? http.Client(),
        _preferences = preferences ?? SharedPreferences.getInstance,
        _clock = clock ?? DateTime.now;
 
   final TileStore store;
+
+  /// Le tile che mostra la mappa: si salvano proprio quelle.
+  final MapTiles tiles;
   final http.Client _client;
   final Future<SharedPreferences> Function() _preferences;
   final DateTime Function() _clock;
@@ -54,10 +53,11 @@ class OfflineRouteService {
   /// Distanza dal percorso coperta dalle tile salvate.
   static const double corridorMeters = 120;
 
-  /// Tetto di tile per un percorso: basta per qualche chilometro a piedi.
+  /// Tetto di tile per un percorso, per ciascuno stile: basta per qualche
+  /// chilometro a piedi.
   static const int maxTiles = 160;
 
-  /// Le tile salvate si tengono una settimana, come chiede OpenStreetMap.
+  /// Le tile salvate si tengono una settimana.
   static const Duration lifetime = Duration(days: 7);
 
   static const String _indexKey = 'freeway.offline_tiles';
@@ -98,19 +98,27 @@ class OfflineRouteService {
   }
 
   /// Salva le tile del percorso. Prende il posto del percorso salvato prima.
+  /// Con [highDensity] salva le tile `@2x`, le stesse che la mappa chiede su
+  /// uno schermo ad alta densità.
   Future<OfflineSaveResult> saveRoute(
     List<LatLng> route, {
+    required bool highDensity,
     void Function(int done, int total)? onProgress,
   }) async {
-    final tiles = tilesForRoute(route);
-    if (tiles == null) return OfflineSaveResult.tooLong;
+    final corridor = tilesForRoute(route);
+    if (corridor == null) return OfflineSaveResult.tooLong;
     await clear();
-    final urls = [for (final t in tiles) osmTileUrl(t.$1, t.$2, t.$3)];
+    // Con le tile di OpenStreetMap lo stile è uno solo: niente doppioni.
+    final urls = {
+      for (final brightness in Brightness.values)
+        for (final t in corridor)
+          tiles.url(brightness, t.$1, t.$2, t.$3, highDensity: highDensity),
+    }.toList();
     var done = 0;
     var failures = 0;
     final saved = <String>[];
     onProgress?.call(0, urls.length);
-    // Poche richieste alla volta, per non pesare sui server di OSM.
+    // Poche richieste alla volta, per non pesare sui server delle tile.
     for (var i = 0; i < urls.length; i += 2) {
       await Future.wait([
         for (final url in urls.skip(i).take(2))

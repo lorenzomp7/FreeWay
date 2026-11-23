@@ -27,6 +27,7 @@ import '../services/entrance_report_service.dart';
 import '../services/geo_utils.dart';
 import '../services/geocoding_service.dart';
 import '../services/location_service.dart';
+import '../services/map_tiles.dart';
 import '../services/navigation_service.dart';
 import '../services/obstacle_alerts.dart';
 import '../services/nearby_accessible_service.dart';
@@ -48,6 +49,7 @@ import '../services/weather_service.dart';
 import '../services/speech_input.dart';
 import '../services/thanks_notifier.dart';
 import '../services/voice_report_matcher.dart';
+import '../services/traffic_service.dart';
 import '../services/tts_service.dart';
 import '../services/voice_guidance.dart';
 import '../theme/app_theme.dart';
@@ -87,6 +89,8 @@ class _MapScreenState extends State<MapScreen> {
       PlaceAccessibilityService();
   final AlongRouteService _alongRouteService = AlongRouteService();
   final WeatherService _weatherService = WeatherService();
+  final TrafficService _trafficService = TrafficService();
+  static const MapTiles _mapTiles = MapTiles();
   final DisabledParkingService _parkingService = DisabledParkingService();
 
   /// Livello della mappa con i parcheggi per disabili nella zona inquadrata.
@@ -254,6 +258,7 @@ class _MapScreenState extends State<MapScreen> {
 
   /// `true` o `false` mentre si sceglie sulla mappa la partenza o l'arrivo.
   bool? _choosingOnMapFor;
+
   /// Senza servizio dati non si può segnalare: niente suggerimento.
   bool _showReportHint = Backend.available;
 
@@ -408,6 +413,7 @@ class _MapScreenState extends State<MapScreen> {
     _accessibilityService.dispose();
     _alongRouteService.dispose();
     _weatherService.dispose();
+    _trafficService.dispose();
     _parkingService.dispose();
     _transitService.dispose();
     _parkingDebounce?.cancel();
@@ -1076,6 +1082,14 @@ class _MapScreenState extends State<MapScreen> {
     });
     try {
       final routes = await _getRoutes(start, end, mode);
+      // Traffico in tempo reale sulle strade principali del tragitto: avvisa
+      // e, a parità quasi di tempo, preferisce il percorso più tranquillo.
+      if (mode == TravelMode.walking || mode == TravelMode.wheelchair) {
+        await _trafficService.annotate(
+          routes,
+          walking: mode == TravelMode.walking,
+        );
+      }
       if (!mounted ||
           _startPoint != start ||
           _endPoint != end ||
@@ -1279,18 +1293,18 @@ class _MapScreenState extends State<MapScreen> {
                 const SizedBox(height: 4),
                 Text(
                   'A ${_formatMeters(haversineDistance(_userLocation!, parking.position))} da te',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
                 ),
               ],
               const SizedBox(height: 6),
               Text(
                 'Dati di OpenStreetMap: controlla sul posto i cartelli e '
                 'gli orari.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colors.textTertiary,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: colors.textTertiary),
               ),
               const SizedBox(height: 14),
               SizedBox(
@@ -1320,7 +1334,11 @@ class _MapScreenState extends State<MapScreen> {
       _travelMode = TravelMode.car;
       _selectedPlace = null;
       _stops = [];
-      _setPoint(false, parking.position, parking.name ?? 'Parcheggio per disabili');
+      _setPoint(
+        false,
+        parking.position,
+        parking.name ?? 'Parcheggio per disabili',
+      );
     });
     _openDirections();
   }
@@ -1912,6 +1930,7 @@ class _MapScreenState extends State<MapScreen> {
     setState(() => _offlineProgress = (0, 0));
     final result = await _offlineRoute.saveRoute(
       points,
+      highDensity: isHighDensity(context),
       onProgress: (done, total) {
         if (mounted) setState(() => _offlineProgress = (done, total));
       },
@@ -2493,7 +2512,59 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
     if (userId == null) return;
+    if (action == ObstacleAction.delete) {
+      await _deleteOwnReport(obstacle, userId);
+      return;
+    }
     await _removeObstacle(obstacle, userId);
+  }
+
+  /// La propria segnalazione era sbagliata: si cancella davvero e non conta
+  /// più nei punti (diverso da "L'ostacolo non c'è più", che la risolve).
+  Future<void> _deleteOwnReport(Obstacle obstacle, String userId) async {
+    if (!obstacle.isReportedBy(userId)) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Eliminare la segnalazione?'),
+        content: const Text(
+          'Usalo solo se la segnalazione era sbagliata: sparisce e non conta '
+          "più nei tuoi punti. Se l'ostacolo è stato tolto, scegli invece "
+          "\"L'ostacolo non c'è più\": i punti restano.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Annulla'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Elimina'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await _obstacleService?.remove(
+        obstacle.id,
+        userId,
+        hasPhoto: obstacle.hasPhoto,
+      );
+      if (!mounted) return;
+      _showSnack(
+        'Segnalazione eliminata.',
+        iconColor: AppColors.of(context).success,
+        icon: Icons.check_circle_rounded,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showError(
+        'Non è stato possibile eliminare la segnalazione. Riprova tra '
+        'qualche secondo.',
+        Icons.error_outline_rounded,
+      );
+    }
   }
 
   /// Un ospite può togliere solo le proprie segnalazioni (regole Firestore).
@@ -2519,7 +2590,7 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
     try {
-      await _obstacleService?.remove(
+      await _obstacleService?.resolve(
         obstacle.id,
         userId,
         hasPhoto: obstacle.hasPhoto,
@@ -3435,9 +3506,8 @@ class _MapScreenState extends State<MapScreen> {
             ),
       ];
     }
-    final split = route != null &&
-            route.usesCar &&
-            identical(route.points, _routePoints)
+    final split =
+        route != null && route.usesCar && identical(route.points, _routePoints)
         ? route.driveEndIndex
         : 0;
     if (split <= 0) {
@@ -3471,23 +3541,23 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Widget _buildMap(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final brightness = Theme.of(context).brightness;
 
     final layers = <Widget>[
       TileLayer(
-        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        urlTemplate: _mapTiles.templateFor(brightness),
         userAgentPackageName: 'it.enactusunibs.freeway',
-        // Usa tile native anche sui display ad alta densità: la modalità
-        // retina simulata richiede il livello successivo, assente oltre 19.
-        maxNativeZoom: _maxZoom.toInt(),
+        // Con le tile CARTO, sui telefoni ad alta densità quelle @2x.
+        retinaMode: _mapTiles.retinaFor(context),
+        maxNativeZoom: _mapTiles.maxNativeZoom,
         maxZoom: _maxZoom,
         // Annulla il download delle tile uscite dallo schermo: mappa più
-        // reattiva sul web e meno richieste ai server di OpenStreetMap.
+        // reattiva sul web e meno richieste ai server delle tile.
         // Le tile salvate per il percorso si leggono dall'archivio, anche
         // senza rete; le altre arrivano dalla rete annullando quelle uscite
         // dallo schermo.
+        tileBuilder: _mapTiles.builderFor(brightness),
         tileProvider: RouteTileProvider(_offlineRoute),
-        tileBuilder: isDark ? darkTileBuilder : lightTileBuilder,
       ),
     ];
 

@@ -7,6 +7,7 @@ import 'package:flutter_map_cancellable_tile_provider/flutter_map_cancellable_ti
 import 'package:latlong2/latlong.dart';
 
 import '../services/geocoding_service.dart' show formatDistance;
+import '../services/map_tiles.dart';
 import '../services/trip_share_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/map_widgets.dart';
@@ -41,6 +42,7 @@ class TripViewerScreen extends StatefulWidget {
 }
 
 class _TripViewerScreenState extends State<TripViewerScreen> {
+  static const MapTiles _tiles = MapTiles();
   final MapController _mapController = MapController();
   StreamSubscription<SharedTrip?>? _subscription;
   Timer? _ticker;
@@ -114,12 +116,17 @@ class _TripViewerScreenState extends State<TripViewerScreen> {
             children: [
               if (widget.showTiles)
                 TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  urlTemplate: _tiles.templateFor(
+                    isDark ? Brightness.dark : Brightness.light,
+                  ),
                   userAgentPackageName: 'it.enactusunibs.freeway',
-                  maxNativeZoom: 19,
+                  retinaMode: _tiles.retinaFor(context),
+                  maxNativeZoom: _tiles.maxNativeZoom,
+                  tileBuilder: _tiles.builderFor(
+                    isDark ? Brightness.dark : Brightness.light,
+                  ),
                   maxZoom: 19,
                   tileProvider: CancellableNetworkTileProvider(),
-                  tileBuilder: isDark ? darkTileBuilder : lightTileBuilder,
                 ),
               if (trip != null && !over)
                 MarkerLayer(

@@ -707,6 +707,8 @@ IconData routeWarningIcon(RouteWarningKind kind) {
       return Icons.grain_rounded;
     case RouteWarningKind.construction:
       return Icons.construction_rounded;
+    case RouteWarningKind.busyRoad:
+      return Icons.traffic_rounded;
   }
 }
 
