@@ -363,6 +363,16 @@ La chiave finisce nel JavaScript pubblicato, quindi chiunque può leggerla: usa
 un account dedicato al progetto. Il piano gratuito ha un limite giornaliero di
 richieste; superato quello, l'app torna da sola a OSRM.
 
+### Traffico in tempo reale (TomTom, facoltativo)
+
+Con il traffico attivo, i percorsi a piedi e in sedia a rotelle avvisano delle
+strade principali trafficate e, se c'è un'alternativa più tranquilla che non
+allunga di oltre il 15%, la propongono per prima ("Meno traffico"). La chiave
+di TomTom resta in un piccolo Cloudflare Worker (`tools/traffic-worker/`):
+la guida per crearlo e collegarlo con la variabile `TRAFFIC_URL` è in
+[tools/traffic-worker/README.md](tools/traffic-worker/README.md). Senza
+`TRAFFIC_URL` il traffico è spento.
+
 ## Regole di sicurezza di Firestore
 
 `firestore.rules` stabilisce chi può leggere e scrivere le segnalazioni:
@@ -400,9 +410,13 @@ richieste; superato quello, l'app torna da sola a OSRM.
   proprio uid da ciascuno di questi elenchi, senza cambiare altro, elencare e
   cancellare i propri viaggi condivisi e cancellare `limiti/{uid}` quando i
   tempi minimi sono già passati;
-- le proprie segnalazioni si rimuovono sempre, anche tutte insieme; chi ha un
-  account può rimuovere anche quelle degli altri ("L'ostacolo non c'è più"),
-  con il limite di frequenza;
+- "L'ostacolo non c'è più" non cancella la segnalazione ma la segna come
+  risolta (`resolvedAt`, `resolvedBy`, una sola volta): sparisce dalla mappa e
+  dai percorsi, ma chi l'ha fatta tiene i punti. Sulle proprie si può sempre,
+  su quelle degli altri serve un account e vale il limite di frequenza;
+- le proprie segnalazioni si cancellano sempre, anche tutte insieme ("Elimina
+  la segnalazione: era sbagliata", "Elimina account e dati"); chi ha un
+  account può cancellare anche quelle degli altri, con il limite di frequenza;
 - il resto del database è chiuso.
 
 Prima di segnalare, l'app avvisa se a meno di 25 m c'è già una segnalazione

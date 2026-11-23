@@ -36,15 +36,26 @@ enum RouteWarningKind {
   moderateSlope,
   roughSurface,
   construction,
+
+  /// Strade principali con traffico intenso in quel momento (TomTom).
+  busyRoad,
 }
 
 /// Una difficoltà sul percorso con i metri che copre, come gli avvisi
 /// "This route has stairs" o "Steep hill" delle indicazioni di Google Maps.
 class RouteWarning {
-  const RouteWarning(this.kind, this.meters, {this.detail = ''});
+  const RouteWarning(
+    this.kind,
+    this.meters, {
+    this.detail = '',
+    this.count = 0,
+  });
 
   final RouteWarningKind kind;
   final double meters;
+
+  /// Per il traffico: punti del percorso su strade trafficate.
+  final int count;
 
   /// Per il fondo stradale: i tipi trovati, per esempio "ghiaia, sterrato".
   final String detail;
@@ -52,7 +63,8 @@ class RouteWarning {
   /// Difficoltà che può rendere il percorso impraticabile in sedia a rotelle.
   bool get isHard =>
       kind != RouteWarningKind.moderateSlope &&
-      kind != RouteWarningKind.roughSurface;
+      kind != RouteWarningKind.roughSurface &&
+      kind != RouteWarningKind.busyRoad;
 
   String get _length => meters >= 1000
       ? '${(meters / 1000).toStringAsFixed(1).replaceAll('.', ',')} km'
@@ -73,6 +85,8 @@ class RouteWarning {
         return 'Fondo sconnesso';
       case RouteWarningKind.construction:
         return 'Lavori';
+      case RouteWarningKind.busyRoad:
+        return 'Traffico';
     }
   }
 
@@ -93,6 +107,11 @@ class RouteWarning {
             : 'Fondo sconnesso ($detail) per $_length';
       case RouteWarningKind.construction:
         return 'Tratto in costruzione per $_length';
+      case RouteWarningKind.busyRoad:
+        final where = count == 1 ? 'in 1 punto' : 'in $count punti';
+        return detail.isEmpty
+            ? 'Strade trafficate $where, adesso'
+            : 'Strade trafficate $where, adesso ($detail)';
     }
   }
 }
@@ -196,6 +215,11 @@ class RouteOption {
   }
 
   int get hardWarningCount => warnings.where((w) => w.isHard).length;
+
+  /// Punti su strade trafficate, dai dati del traffico in tempo reale.
+  int get busyRoadCount => warnings
+      .where((w) => w.kind == RouteWarningKind.busyRoad)
+      .fold(0, (sum, w) => sum + w.count);
 
   String get distanceText {
     if (distance >= 1000) return '${(distance / 1000).toStringAsFixed(1)} km';

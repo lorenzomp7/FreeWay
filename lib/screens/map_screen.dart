@@ -49,6 +49,7 @@ import '../services/weather_service.dart';
 import '../services/speech_input.dart';
 import '../services/thanks_notifier.dart';
 import '../services/voice_report_matcher.dart';
+import '../services/traffic_service.dart';
 import '../services/tts_service.dart';
 import '../services/voice_guidance.dart';
 import '../theme/app_theme.dart';
@@ -88,6 +89,7 @@ class _MapScreenState extends State<MapScreen> {
       PlaceAccessibilityService();
   final AlongRouteService _alongRouteService = AlongRouteService();
   final WeatherService _weatherService = WeatherService();
+  final TrafficService _trafficService = TrafficService();
   final DisabledParkingService _parkingService = DisabledParkingService();
 
   /// Livello della mappa con i parcheggi per disabili nella zona inquadrata.
@@ -410,6 +412,7 @@ class _MapScreenState extends State<MapScreen> {
     _accessibilityService.dispose();
     _alongRouteService.dispose();
     _weatherService.dispose();
+    _trafficService.dispose();
     _parkingService.dispose();
     _transitService.dispose();
     _parkingDebounce?.cancel();
@@ -1078,6 +1081,14 @@ class _MapScreenState extends State<MapScreen> {
     });
     try {
       final routes = await _getRoutes(start, end, mode);
+      // Traffico in tempo reale sulle strade principali del tragitto: avvisa
+      // e, a parità quasi di tempo, preferisce il percorso più tranquillo.
+      if (mode == TravelMode.walking || mode == TravelMode.wheelchair) {
+        await _trafficService.annotate(
+          routes,
+          walking: mode == TravelMode.walking,
+        );
+      }
       if (!mounted ||
           _startPoint != start ||
           _endPoint != end ||

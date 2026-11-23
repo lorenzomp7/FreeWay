@@ -57,7 +57,8 @@ const InfoPage privacyPage = InfoPage(
         'punti cercati e dei percorsi vengono inviate ai servizi di mappa: '
         'CARTO (immagini della mappa), Photon (Komoot), Nominatim, Overpass, '
         'OpenRouteService, Valhalla e OSRM (FOSSGIS), Transitous (solo '
-        'con "Mezzi pubblici"), Open-Meteo; senza GPS '
+        'con "Mezzi pubblici"), Open-Meteo, TomTom (traffico, attraverso '
+        'un nostro servizio intermedio che non salva nulla); senza GPS '
         'la posizione è stimata dall’indirizzo IP (ipwho.is, ipapi.co).',
     'Sul dispositivo restano ricerche recenti, luoghi salvati, opzioni del '
         'percorso, impostazioni della voce, il viaggio in corso (per 3 ore), '
