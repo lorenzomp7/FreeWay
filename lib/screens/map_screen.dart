@@ -90,6 +90,7 @@ class _MapScreenState extends State<MapScreen> {
   final AlongRouteService _alongRouteService = AlongRouteService();
   final WeatherService _weatherService = WeatherService();
   final TrafficService _trafficService = TrafficService();
+  static const MapTiles _mapTiles = MapTiles();
   final DisabledParkingService _parkingService = DisabledParkingService();
 
   /// Livello della mappa con i parcheggi per disabili nella zona inquadrata.
@@ -3540,23 +3541,22 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Widget _buildMap(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final brightness = Theme.of(context).brightness;
 
     final layers = <Widget>[
       TileLayer(
-        urlTemplate: tileTemplateFor(
-          isDark ? Brightness.dark : Brightness.light,
-        ),
+        urlTemplate: _mapTiles.templateFor(brightness),
         userAgentPackageName: 'it.enactusunibs.freeway',
-        // Sui telefoni ad alta densità tile @2x: la mappa resta nitida.
-        retinaMode: isHighDensity(context),
-        maxNativeZoom: kMaxNativeTileZoom,
+        // Con le tile CARTO, sui telefoni ad alta densità quelle @2x.
+        retinaMode: _mapTiles.retinaFor(context),
+        maxNativeZoom: _mapTiles.maxNativeZoom,
         maxZoom: _maxZoom,
         // Annulla il download delle tile uscite dallo schermo: mappa più
-        // reattiva sul web e meno richieste ai server di OpenStreetMap.
+        // reattiva sul web e meno richieste ai server delle tile.
         // Le tile salvate per il percorso si leggono dall'archivio, anche
         // senza rete; le altre arrivano dalla rete annullando quelle uscite
         // dallo schermo.
+        tileBuilder: _mapTiles.builderFor(brightness),
         tileProvider: RouteTileProvider(_offlineRoute),
       ),
     ];

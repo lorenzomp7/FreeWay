@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:freeway/services/map_tiles.dart';
 import 'package:freeway/services/offline/offline_route_service.dart';
 import 'package:freeway/services/offline/tile_store.dart';
 import 'package:http/http.dart' as http;
@@ -20,9 +21,11 @@ OfflineRouteService service(
   bool Function(Uri url)? fails,
   List<Uri>? requests,
   DateTime Function()? clock,
+  MapTiles tiles = const MapTiles(cartoKey: 'chiave-di-prova'),
 }) => OfflineRouteService(
   store: store,
   clock: clock,
+  tiles: tiles,
   client: MockClient((request) async {
     requests?.add(request.url);
     if (fails?.call(request.url) ?? false) return http.Response('', 503);
@@ -71,7 +74,7 @@ void main() {
     expect(progress.last, offline.saved.length);
     final url = offline.saved.first;
     expect(url, startsWith('https://a.basemaps.cartocdn.com/'));
-    expect(url, endsWith('@2x.png'));
+    expect(url, contains('@2x.png'));
     // Stile chiaro e scuro: la mappa resta visibile se cambia il tema.
     final tiles = OfflineRouteService.tilesForRoute(walk)!;
     expect(offline.saved.length, tiles.length * 2);
@@ -95,6 +98,23 @@ void main() {
     );
     await later.load();
     expect(later.hasSavedRoute, isFalse);
+  });
+
+  test('con le tile di OpenStreetMap si salva uno stile solo', () async {
+    final offline = service(
+      MemoryTileStore(),
+      tiles: const MapTiles(cartoKey: ''),
+    );
+    expect(
+      await offline.saveRoute(walk, highDensity: true),
+      OfflineSaveResult.saved,
+    );
+    final tiles = OfflineRouteService.tilesForRoute(walk)!;
+    expect(offline.saved, hasLength(tiles.length));
+    expect(
+      offline.saved.every((u) => u.startsWith('https://tile.openstreetmap.org/')),
+      isTrue,
+    );
   });
 
   test('se alcune tile non arrivano il salvataggio è parziale', () async {

@@ -20,10 +20,11 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
 ## Funzionalità
 
 - Accesso con email e password, con Google oppure come ospite (Firebase Auth).
-- Mappa con i dati di OpenStreetMap e le immagini di CARTO (Voyager nel tema
-  chiaro, Dark Matter nel tema scuro), a doppia risoluzione sui telefoni per
-  restare nitida, e posizione dell'utente (GPS, con stima tramite IP se il GPS
-  non è disponibile). Lo zoom arriva al livello 19.
+- Mappa con i dati di OpenStreetMap e posizione dell'utente (GPS, con stima
+  tramite IP se il GPS non è disponibile), con tema chiaro e scuro. Con la
+  chiave di CARTO (`CARTO_KEY`) le immagini sono Voyager e Dark Matter a
+  doppia risoluzione, nitide sui telefoni; senza, sono le tile di
+  OpenStreetMap. Lo zoom arriva al livello 19.
 - Ricerca con gli stessi passaggi di Google Maps:
   1. toccando la casella compaiono le ricerche recenti, salvate sul
      dispositivo (si possono togliere una a una);
@@ -362,6 +363,24 @@ flutter run -d chrome
 La chiave finisce nel JavaScript pubblicato, quindi chiunque può leggerla: usa
 un account dedicato al progetto. Il piano gratuito ha un limite giornaliero di
 richieste; superato quello, l'app torna da sola a OSRM.
+
+### Mappa nitida (CARTO, facoltativo)
+
+Le tile di OpenStreetMap sono immagini da 256 pixel e sui telefoni sembrano
+sgranate. Con una chiave di CARTO l'app usa Voyager (tema chiaro) e Dark Matter
+(tema scuro) in versione `@2x`. Senza chiave CARTO mostra una filigrana, quindi
+l'app resta sulle tile di OpenStreetMap.
+
+1. Crea un account su <https://carto.com/basemaps/apikey/> e una chiave per le
+   basemap. Secondo il README di CARTO (github.com/CartoDB/basemap-styles) è
+   gratuita per uso non commerciale fino a 5 milioni di tile al mese:
+   verifica le condizioni attuali su <https://carto.com/legal/basemap-terms/>.
+2. In locale: `flutter run -d chrome --dart-define=CARTO_KEY=la-tua-chiave`.
+3. Per GitHub Pages, aggiungila come secret `CARTO_KEY` in **Settings →
+   Secrets and variables → Actions**.
+
+Come quella di OpenRouteService, la chiave finisce nel JavaScript pubblicato:
+è pensata per i browser, ma usa un account dedicato al progetto.
 
 ### Traffico in tempo reale (TomTom, facoltativo)
 

@@ -20,8 +20,9 @@ enum OfflineSaveResult { saved, partial, tooLong, failed }
 
 /// "Salva per l'uso senza rete", come "Download offline map" di Google Maps
 /// ma ridotto al tragitto: si salvano le tile di un corridoio intorno al
-/// percorso agli zoom 15 e 16, nello stile chiaro e in quello scuro, così la
-/// mappa resta visibile anche se il telefono cambia tema. Per non pesare sui
+/// percorso agli zoom 15 e 16; con le tile CARTO nello stile chiaro e in
+/// quello scuro, così la mappa resta visibile se il telefono cambia tema.
+/// Per non pesare sui
 /// server delle tile il corridoio è stretto, gli zoom sono bassi, c'è un
 /// tetto di tile e il download parte solo su richiesta.
 class OfflineRouteService {
@@ -30,12 +31,16 @@ class OfflineRouteService {
     http.Client? client,
     Future<SharedPreferences> Function()? preferences,
     DateTime Function()? clock,
+    this.tiles = const MapTiles(),
   }) : store = store ?? TileStore(),
        _client = client ?? http.Client(),
        _preferences = preferences ?? SharedPreferences.getInstance,
        _clock = clock ?? DateTime.now;
 
   final TileStore store;
+
+  /// Le tile che mostra la mappa: si salvano proprio quelle.
+  final MapTiles tiles;
   final http.Client _client;
   final Future<SharedPreferences> Function() _preferences;
   final DateTime Function() _clock;
@@ -100,14 +105,15 @@ class OfflineRouteService {
     required bool highDensity,
     void Function(int done, int total)? onProgress,
   }) async {
-    final tiles = tilesForRoute(route);
-    if (tiles == null) return OfflineSaveResult.tooLong;
+    final corridor = tilesForRoute(route);
+    if (corridor == null) return OfflineSaveResult.tooLong;
     await clear();
-    final urls = [
+    // Con le tile di OpenStreetMap lo stile è uno solo: niente doppioni.
+    final urls = {
       for (final brightness in Brightness.values)
-        for (final t in tiles)
-          tileUrl(brightness, t.$1, t.$2, t.$3, highDensity: highDensity),
-    ];
+        for (final t in corridor)
+          tiles.url(brightness, t.$1, t.$2, t.$3, highDensity: highDensity),
+    }.toList();
     var done = 0;
     var failures = 0;
     final saved = <String>[];

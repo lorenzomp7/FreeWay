@@ -55,7 +55,8 @@ const InfoPage privacyPage = InfoPage(
         '(sedia a rotelle, a piedi, in auto) non vengono salvati sui nostri '
         'server. Le coordinate dei '
         'punti cercati e dei percorsi vengono inviate ai servizi di mappa: '
-        'CARTO (immagini della mappa), Photon (Komoot), Nominatim, Overpass, '
+        'OpenStreetMap e CARTO (immagini della mappa), Photon (Komoot), '
+        'Nominatim, Overpass, '
         'OpenRouteService, Valhalla e OSRM (FOSSGIS), Transitous (solo '
         'con "Mezzi pubblici"), Open-Meteo, TomTom (traffico, attraverso '
         'un nostro servizio intermedio che non salva nulla); senza GPS '
@@ -87,7 +88,8 @@ const List<InfoPage> infoPages = [
           'leader), Chiara Leggerini (Project manager), Michela Lanzini, Matteo '
           'Boniotti, Anita Paiardi e Andrea Menardo.',
       'Codice sorgente e contatti: github.com/lorenzomp7/FreeWay. Dati delle '
-          'mappe © OpenStreetMap, immagini della mappa © CARTO; orari dei '
+          'mappe © OpenStreetMap, immagini della mappa © OpenStreetMap o © '
+          'CARTO; orari dei '
           'mezzi pubblici da Transitous '
           '(transitous.org/sources), un servizio gratuito gestito da '
           'volontari.',

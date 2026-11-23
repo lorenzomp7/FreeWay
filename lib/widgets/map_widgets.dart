@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../services/map_tiles.dart';
 import '../theme/app_theme.dart';
 
-/// Attribuzione obbligatoria dei dati (OpenStreetMap) e delle tile (CARTO).
+/// Attribuzione obbligatoria dei dati (OpenStreetMap) e delle tile.
 class OsmAttribution extends StatelessWidget {
   const OsmAttribution({super.key});
 
@@ -19,7 +19,7 @@ class OsmAttribution extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
-        kMapAttribution,
+        const MapTiles().attribution,
         style: Theme.of(
           context,
         ).textTheme.labelSmall?.copyWith(fontSize: 9.5, letterSpacing: 0.1),

@@ -42,6 +42,7 @@ class TripViewerScreen extends StatefulWidget {
 }
 
 class _TripViewerScreenState extends State<TripViewerScreen> {
+  static const MapTiles _tiles = MapTiles();
   final MapController _mapController = MapController();
   StreamSubscription<SharedTrip?>? _subscription;
   Timer? _ticker;
@@ -115,12 +116,15 @@ class _TripViewerScreenState extends State<TripViewerScreen> {
             children: [
               if (widget.showTiles)
                 TileLayer(
-                  urlTemplate: tileTemplateFor(
+                  urlTemplate: _tiles.templateFor(
                     isDark ? Brightness.dark : Brightness.light,
                   ),
                   userAgentPackageName: 'it.enactusunibs.freeway',
-                  retinaMode: isHighDensity(context),
-                  maxNativeZoom: kMaxNativeTileZoom,
+                  retinaMode: _tiles.retinaFor(context),
+                  maxNativeZoom: _tiles.maxNativeZoom,
+                  tileBuilder: _tiles.builderFor(
+                    isDark ? Brightness.dark : Brightness.light,
+                  ),
                   maxZoom: 19,
                   tileProvider: CancellableNetworkTileProvider(),
                 ),
