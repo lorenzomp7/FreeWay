@@ -1,13 +1,13 @@
-"""Genera le icone del sito e dell'app installata dal logo della barra in alto.
+"""Genera le icone del sito e dell'app installata dal logo FreeWay.
 
-Disegna lo stesso badge di `LogoBadge` (lib/widgets/common.dart): quadrato
-arrotondato con il gradiente del marchio e l'icona Material `route_rounded`
-bianca. Uso, dalla cartella del progetto con Flutter installato:
+Usa il logo disegnato a mano (assets/logo.png) su fondo bianco. Uso, dalla
+cartella del progetto:
 
     python3 tool/make_icons.py
 
-Serve Pillow (`pip install pillow`). Il font delle icone si prende dalla cache
-di Flutter (`flutter precache` lo scarica).
+Serve Pillow (`pip install pillow`). `badge()` disegna invece il badge rosso
+della barra in alto (`LogoBadge`), se un giorno servisse: richiede il font
+delle icone dalla cache di Flutter (`flutter precache`).
 """
 
 from __future__ import annotations
@@ -86,26 +86,56 @@ def badge(size: int, font_path: Path, *, rounded: bool, glyph_ratio: float) -> I
     return img.resize((size, size), Image.LANCZOS)
 
 
+LOGO = ROOT / "assets" / "logo.png"
+
+
+def logo_on_white(size: int, *, logo_ratio: float, radius_ratio: float = 0.0) -> Image.Image:
+    """Il logo disegnato a mano (assets/logo.png) centrato su un quadrato
+    bianco; [logo_ratio] è la frazione del lato occupata dal lato lungo del
+    logo, [radius_ratio] arrotonda gli angoli (0 = quadrato pieno)."""
+    big = size * SUPERSAMPLE
+    logo = Image.open(LOGO).convert("RGBA")
+    white = Image.new("RGBA", logo.size, (255, 255, 255, 255))
+    logo = Image.alpha_composite(white, logo).convert("RGB")
+    # Toglie i margini bianchi attorno al disegno.
+    ink = Image.eval(logo.convert("L"), lambda v: 255 if v < 245 else 0)
+    box = ink.getbbox()
+    if box:
+        logo = logo.crop(box)
+    scale = big * logo_ratio / max(logo.size)
+    logo = logo.resize(
+        (round(logo.width * scale), round(logo.height * scale)), Image.LANCZOS
+    )
+    canvas = Image.new("RGBA", (big, big), (255, 255, 255, 255))
+    canvas.paste(logo, ((big - logo.width) // 2, (big - logo.height) // 2))
+    if radius_ratio > 0:
+        mask = Image.new("L", (big, big), 0)
+        ImageDraw.Draw(mask).rounded_rectangle(
+            (0, 0, big - 1, big - 1), radius=round(big * radius_ratio), fill=255
+        )
+        canvas.putalpha(mask)
+    return canvas.resize((size, size), Image.LANCZOS)
+
+
 def main() -> None:
-    font = material_font()
     icons = WEB / "icons"
     icons.mkdir(exist_ok=True)
-    # Icone normali: badge arrotondato come nell'app, su fondo trasparente.
+    # Icone normali: logo su un quadrato bianco arrotondato.
     for size in (192, 512):
-        badge(size, font, rounded=True, glyph_ratio=GLYPH_RATIO).save(
+        logo_on_white(size, logo_ratio=0.84, radius_ratio=RADIUS_RATIO).save(
             icons / f"Icon-{size}.png", optimize=True
         )
-    # Maskable: il sistema ritaglia la forma, quindi il fondo riempie tutto e
-    # l'icona resta nella zona sicura (cerchio dell'80% centrale).
+    # Maskable: il sistema ritaglia la forma (anche un cerchio), quindi il
+    # fondo riempie tutto e il logo resta nella zona sicura centrale.
     for size in (192, 512):
-        badge(size, font, rounded=False, glyph_ratio=0.5).save(
+        logo_on_white(size, logo_ratio=0.58).save(
             icons / f"Icon-maskable-{size}.png", optimize=True
         )
     # iOS arrotonda da sé gli angoli e non vuole trasparenze.
-    badge(180, font, rounded=False, glyph_ratio=0.58).convert("RGB").save(
+    logo_on_white(180, logo_ratio=0.8).convert("RGB").save(
         icons / "apple-touch-icon.png", optimize=True
     )
-    badge(64, font, rounded=True, glyph_ratio=GLYPH_RATIO).save(
+    logo_on_white(64, logo_ratio=0.9, radius_ratio=0.18).save(
         WEB / "favicon.png", optimize=True
     )
     print("Icone generate in", WEB)

@@ -7,5 +7,5 @@ compatibility_date = "2026-11-01"
 # Siti che possono usare il Worker, separati da virgole.
 ALLOWED_ORIGINS = "https://lorenzomp7.github.io,http://localhost:8080"
 
-# La chiave TomTom NON va qui: è un segreto.
-#   npx wrangler secret put TOMTOM_KEY
+# La chiave TomTom NON va qui: è un segreto. La salva il workflow
+# .github/workflows/traffic-worker.yml dal secret TOMTOM_KEY del repository.
