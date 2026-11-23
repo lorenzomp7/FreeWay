@@ -13,10 +13,9 @@ const String _cartoHost = 'https://a.basemaps.cartocdn.com';
 
 /// Le tile della mappa.
 ///
-/// Con la chiave di CARTO: Voyager (tema chiaro) e Dark Matter (tema scuro),
-/// disegnate dai dati di OpenStreetMap, con la versione `@2x` a 512 pixel per
-/// i telefoni ad alta densità, così la mappa resta nitida; il tema scuro è uno
-/// stile vero. Senza chiave CARTO mette una filigrana sulle tile, quindi si
+/// Con la chiave di CARTO: Voyager, disegnata dai dati di OpenStreetMap, con
+/// la versione `@2x` a 512 pixel per i telefoni ad alta densità, così la mappa
+/// resta nitida. Senza chiave CARTO mette una filigrana sulle tile, quindi si
 /// usano quelle di OpenStreetMap (256 pixel) con un filtro di colore per il
 /// tema scuro, come prima.
 class MapTiles {
@@ -27,9 +26,10 @@ class MapTiles {
   /// Tile nitide di CARTO disponibili.
   bool get isSharp => cartoKey.isNotEmpty;
 
-  /// Stile CARTO per il tema, come percorso sul server.
-  static String cartoStyleFor(Brightness brightness) =>
-      brightness == Brightness.dark ? 'dark_all' : 'rastertiles/voyager';
+  /// Stile CARTO, come percorso sul server: Voyager in entrambi i temi.
+  /// Dark Matter, provato per il tema scuro, era troppo scuro e poco
+  /// leggibile; [brightness] resta per poter tornare a due stili.
+  static String cartoStyleFor(Brightness brightness) => 'rastertiles/voyager';
 
   /// Modello per [TileLayer.urlTemplate]: con CARTO `{r}` diventa `@2x`
   /// quando la [TileLayer] ha `retinaMode` attivo.
@@ -58,8 +58,10 @@ class MapTiles {
   bool retinaFor(BuildContext context) =>
       isSharp && RetinaMode.isHighDensity(context);
 
-  /// Ultimo zoom con tile vere: oltre si ingrandiscono quelle di questo livello.
-  int get maxNativeZoom => isSharp ? 20 : 19;
+  /// Ultimo zoom con tile vere: oltre si ingrandiscono quelle di questo
+  /// livello. CARTO non serve sempre le tile oltre il 18 (la mappa restava
+  /// bianca allo zoom 19); le @2x del 18 bastano per restare nitida.
+  int get maxNativeZoom => isSharp ? 18 : 19;
 
   /// Filtro di colore delle tile: serve solo a quelle di OpenStreetMap.
   TileBuilder? builderFor(Brightness brightness) {
