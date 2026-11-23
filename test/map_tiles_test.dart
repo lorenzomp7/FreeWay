@@ -8,17 +8,19 @@ const osm = MapTiles(cartoKey: '');
 
 void main() {
   group('con la chiave CARTO', () {
-    test('stile chiaro Voyager e stile scuro Dark Matter, con la chiave', () {
+    test('Voyager in entrambi i temi, leggibile, con la chiave', () {
       expect(carto.isSharp, isTrue);
       expect(MapTiles.cartoStyleFor(Brightness.light), 'rastertiles/voyager');
-      expect(MapTiles.cartoStyleFor(Brightness.dark), 'dark_all');
+      expect(MapTiles.cartoStyleFor(Brightness.dark), 'rastertiles/voyager');
       expect(
         carto.templateFor(Brightness.dark),
-        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-        '?key=chiave-di-prova',
+        'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}'
+        '.png?key=chiave-di-prova',
       );
       expect(carto.builderFor(Brightness.dark), isNull);
-      expect(carto.maxNativeZoom, 20);
+      // Oltre il 18 CARTO non sempre risponde: si ingrandiscono le tile del
+      // 18, invece di lasciare la mappa bianca.
+      expect(carto.maxNativeZoom, 18);
       expect(carto.attribution, contains('CARTO'));
       expect(carto.attribution, contains('OpenStreetMap'));
     });

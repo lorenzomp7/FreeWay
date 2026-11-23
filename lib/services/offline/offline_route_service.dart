@@ -20,8 +20,7 @@ enum OfflineSaveResult { saved, partial, tooLong, failed }
 
 /// "Salva per l'uso senza rete", come "Download offline map" di Google Maps
 /// ma ridotto al tragitto: si salvano le tile di un corridoio intorno al
-/// percorso agli zoom 15 e 16; con le tile CARTO nello stile chiaro e in
-/// quello scuro, così la mappa resta visibile se il telefono cambia tema.
+/// percorso agli zoom 15 e 16, le stesse che mostra la mappa.
 /// Per non pesare sui
 /// server delle tile il corridoio è stretto, gli zoom sono bassi, c'è un
 /// tetto di tile e il download parte solo su richiesta.

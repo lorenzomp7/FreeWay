@@ -22,8 +22,8 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
 - Accesso con email e password, con Google oppure come ospite (Firebase Auth).
 - Mappa con i dati di OpenStreetMap e posizione dell'utente (GPS, con stima
   tramite IP se il GPS non è disponibile), con tema chiaro e scuro. Con la
-  chiave di CARTO (`CARTO_KEY`) le immagini sono Voyager e Dark Matter a
-  doppia risoluzione, nitide sui telefoni; senza, sono le tile di
+  chiave di CARTO (`CARTO_KEY`) le immagini sono Voyager (in entrambi i temi)
+  a doppia risoluzione, nitide sui telefoni; senza, sono le tile di
   OpenStreetMap. Lo zoom arriva al livello 19.
 - Ricerca con gli stessi passaggi di Google Maps:
   1. toccando la casella compaiono le ricerche recenti, salvate sul
@@ -218,9 +218,9 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   la condivisione finisce all'arrivo, con "Interrompi la condivisione" o dopo
   4 ore, e non contiene nome né email.
 - "Salva per l'uso senza rete" nella scheda dei percorsi: salva nel browser
-  (Cache Storage) le tile della mappa, nello stile chiaro e in quello scuro,
-  di un corridoio di 120 m intorno al tragitto, agli zoom 15 e 16 e al
-  massimo 160 tile per stile, e le tiene una settimana. I limiti servono a
+  (Cache Storage) le tile della mappa di un corridoio di 120 m intorno al
+  tragitto, agli zoom 15 e 16 e al massimo 160 tile, e le tiene una
+  settimana. I limiti servono a
   non scaricare grandi aree dai server delle tile. Se la rete cade
   durante la navigazione l'app lo dice (anche a voce), la mappa resta
   visibile, la navigazione continua sul percorso e il ricalcolo riparte
@@ -367,8 +367,9 @@ richieste; superato quello, l'app torna da sola a OSRM.
 ### Mappa nitida (CARTO, facoltativo)
 
 Le tile di OpenStreetMap sono immagini da 256 pixel e sui telefoni sembrano
-sgranate. Con una chiave di CARTO l'app usa Voyager (tema chiaro) e Dark Matter
-(tema scuro) in versione `@2x`. Senza chiave CARTO mostra una filigrana, quindi
+sgranate. Con una chiave di CARTO l'app usa Voyager in versione `@2x`, in
+entrambi i temi (Dark Matter era troppo scuro e poco leggibile); oltre lo
+zoom 18 ingrandisce le tile del 18. Senza chiave CARTO mostra una filigrana, quindi
 l'app resta sulle tile di OpenStreetMap.
 
 1. Crea un account su <https://carto.com/basemaps/apikey/> e una chiave per le

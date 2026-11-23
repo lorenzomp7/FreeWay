@@ -75,17 +75,10 @@ void main() {
     final url = offline.saved.first;
     expect(url, startsWith('https://a.basemaps.cartocdn.com/'));
     expect(url, contains('@2x.png'));
-    // Stile chiaro e scuro: la mappa resta visibile se cambia il tema.
+    // Uno stile solo per entrambi i temi: niente tile doppie.
     final tiles = OfflineRouteService.tilesForRoute(walk)!;
-    expect(offline.saved.length, tiles.length * 2);
-    expect(
-      offline.saved.where((u) => u.contains('/voyager/')),
-      hasLength(tiles.length),
-    );
-    expect(
-      offline.saved.where((u) => u.contains('/dark_all/')),
-      hasLength(tiles.length),
-    );
+    expect(offline.saved.length, tiles.length);
+    expect(offline.saved.every((u) => u.contains('/voyager/')), isTrue);
     expect(await store.get(url), [1, 2, 3]);
 
     final reloaded = service(store);
