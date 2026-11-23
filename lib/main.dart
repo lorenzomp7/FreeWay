@@ -52,13 +52,45 @@ Future<void> _activateAppCheck() async {
   }
 }
 
-class FreeWayApp extends StatelessWidget {
+/// Colore delle barre del telefono e del browser per il tema [brightness]:
+/// lo sfondo dell'app. Sul web Flutter lo scrive nel meta `theme-color`; senza
+/// questo userebbe il rosso del marchio e l'app installata avrebbe bordi rossi.
+@visibleForTesting
+Color systemBarColor(Brightness brightness) => brightness == Brightness.dark
+    ? AppColors.dark.background
+    : AppColors.light.background;
+
+class FreeWayApp extends StatefulWidget {
   const FreeWayApp({super.key});
 
   @override
+  State<FreeWayApp> createState() => _FreeWayAppState();
+}
+
+class _FreeWayAppState extends State<FreeWayApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // Il tema segue quello del telefono: cambia anche il colore delle barre.
+  @override
+  void didChangePlatformBrightness() => setState(() {});
+
+  @override
   Widget build(BuildContext context) {
+    final brightness =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness;
     return MaterialApp(
       title: 'FreeWay',
+      color: systemBarColor(brightness),
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(AppColors.light, Brightness.light),
       darkTheme: buildAppTheme(AppColors.dark, Brightness.dark),
