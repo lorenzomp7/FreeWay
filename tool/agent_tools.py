@@ -37,6 +37,9 @@ def setup(component):
         run('npm', 'ci', cwd=ROOT / 'tools/agents')
         if not os.getenv('FREEWAY_CHROMIUM_PATH'):
             run('npx', '--no-install', 'playwright', 'install', 'chromium', cwd=ROOT / 'tools/agents')
+            # agent-browser scarica il suo Chrome for Testing; con
+            # FREEWAY_CHROMIUM_PATH usa invece quello indicato.
+            run('npx', '--no-install', 'agent-browser', 'install', cwd=ROOT / 'tools/agents')
     if component in ('all', 'skills'):
         source = checkout('agent-skills')
         for host in ('.agents', '.claude'):
@@ -77,6 +80,7 @@ def doctor():
         'Flutter': shutil.which('flutter') is not None,
         'Node': shutil.which('node') is not None,
         'strumenti Node': (ROOT / 'tools/agents/node_modules/.bin/playwriter').exists(),
+        'agent-browser': (ROOT / 'tools/agents/node_modules/.bin/agent-browser').exists(),
         'skill Codex': (ROOT / '.agents/skills/code-review-and-quality/SKILL.md').exists(),
         'Vibetest installato': python_bin().exists(),
         'chiave per QA AI': bool(os.getenv('GOOGLE_API_KEY')),

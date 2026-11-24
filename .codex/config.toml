@@ -12,3 +12,8 @@ env_vars = ["GOOGLE_API_KEY", "FREEWAY_QA_MODEL"]
 [mcp_servers.container-use]
 command = "container-use"
 args = ["stdio"]
+
+# REA (analisi degli APK delle app di riferimento): vedi docs/app-analizzate/.
+[mcp_servers.rea]
+command = "npx"
+args = ["-y", "rea-agents@6.10.1", "mcp"]

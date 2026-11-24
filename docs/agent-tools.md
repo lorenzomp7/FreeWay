@@ -49,6 +49,85 @@ cd tools/agents
 npm run playwriter -- session list
 ```
 
+### agent-browser
+
+[agent-browser](https://github.com/vercel-labs/agent-browser) (Vercel Labs,
+Apache-2.0, versione fissata nel lockfile) è un browser senza interfaccia
+comandato da riga di comando: legge la pagina come albero di accessibilità con
+riferimenti (`@e1`…), clicca, scrive, fa screenshot e legge console ed errori.
+A differenza di Playwriter non ha bisogno del tuo Chrome: funziona nelle
+sessioni Claude Code nel cloud e nelle GitHub Actions. È lo strumento da usare
+per le verifiche nel browser fatte da un agente.
+
+`setup node` lo installa insieme agli altri pacchetti e scarica il suo Chrome
+for Testing; con `FREEWAY_CHROMIUM_PATH` usa invece il Chrome indicato (utile
+quando la rete blocca `googlechromelabs.github.io`). Prima di usarlo un agente
+legge la guida allegata, sempre della stessa versione:
+
+```bash
+cd tools/agents
+npm run browser -- skills get core
+npm run browser -- open http://127.0.0.1:8080/
+npm run browser -- snapshot -i
+```
+
+Flutter accetta il testo solo da tasti veri: per i campi usare `click` e poi
+`keyboard type`, non `fill`.
+
+**Prova fissa** `tools/agents/smoke-browser.sh` (anche `npm run smoke`), sulla
+build locale o su `FREEWAY_QA_URL`, a 1280×800 e 390×844:
+
+1. entra come ospite se compare la schermata di accesso;
+2. apre «Indicazioni», scrive partenza e arrivo (predefiniti: Piazza della
+   Loggia → Piazza della Vittoria, Brescia; cambiabili con
+   `FREEWAY_SMOKE_START` e `FREEWAY_SMOKE_END`) e sceglie «Sedia a rotelle»;
+3. aspetta «Avvia navigazione» e controlla che il percorso abbia il punteggio
+   di accessibilità (nn%);
+4. fallisce se la pagina ha eccezioni JS; gli errori in console vengono solo
+   elencati (tile o servizi esterni non raggiungibili non sono un difetto
+   dell'app).
+
+Gli screenshot finiscono in `tools/agents/browser-shots/` (esclusa da git). Non
+crea account e non scrive segnalazioni; le richieste a ORS rientrano nella
+quota gratuita. Nel workflow `agent-qa.yml` la prova gira dopo i test
+Playwright senza bloccare il job, perché dipende da Photon e dai servizi di
+percorso; gli screenshot sono nell'artefatto `browser-qa-report`. Per i casi
+fissi del punto 23 del Piano (confronto con openrouteservice) lo script serve
+quando si vuole vedere anche la mappa, non solo il JSON.
+
+### REA (Reverse Engineer Anything)
+
+[REA](https://github.com/morluto/rea) (MIT, pacchetto npm `rea-agents`, fissato
+a 6.10.1) analizza app senza sorgenti. Per gli APK legge manifest, permessi,
+servizi, ricevitori e librerie (con JADX), risorse (con Apktool), firma, e con
+`adb` scarica gli APK installati sul telefono. Serve a studiare le app di
+riferimento del Piano: elenco, regole e scheda tipo in
+[app-analizzate](app-analizzate/README.md). Costo: 0 € (REA, JADX, Apktool e
+adb sono gratuiti).
+
+Si usa in locale, con il telefono collegato via USB e il debug USB attivo: nel
+cloud non c'è `adb` e non ci sono APK. Come server MCP è già in
+`.mcp.optional.json` e `.codex/config.toml`; da terminale:
+
+```bash
+# Prerequisiti: Node 22+, Android platform-tools (adb) e, per leggere classi e
+# manifest, un JDK 17+ completo con il JAR jadx-headless-mcp 0.8.0 (link e
+# impronta SHA-256 nella guida Android di REA, docs/guides/android/).
+export REA_ADB_PATH=/percorso/assoluto/di/adb   # facoltativo se adb è nel PATH
+export REA_JADX_MCP_JAR=/percorso/jadx-headless-mcp-0.8.0-all.jar
+npx -y rea-agents@6.10.1 inspect-adb-client
+npx -y rea-agents@6.10.1 list-adb-devices
+npx -y rea-agents@6.10.1 resolve-adb-packages <dispositivo> streetco
+npx -y rea-agents@6.10.1 pull-adb-package <dispositivo> <pacchetto> --output-directory apk-analisi
+npx -y rea-agents@6.10.1 inspect-android-package apk-analisi/<pacchetto>/base.apk
+npx -y rea-agents@6.10.1 inspect-apk-signature apk-analisi/<pacchetto>/base.apk
+```
+
+`apk-analisi/` e i file `*.apk` sono esclusi da git: gli APK sono di terzi e
+non entrano mai nella repo. Si leggono dichiarazioni e nomi delle librerie, non
+si copia codice. Per una configurazione guidata del client c'è anche
+`npx rea-agents setup`, da lanciare fuori dalla repo.
+
 ### Vibetest Use
 
 Il server upstream contiene nomi di modelli sperimentali hardcoded. L'adattatore
@@ -130,9 +209,9 @@ npm run qa
 Playwright avvia il server locale e verifica la schermata di accesso su desktop
 e telefono: controlli accessibili, inserimento email, passaggio con Tab,
 pulsante ospite dentro la larghezza dello schermo e assenza di eccezioni JS.
-Non esegue accessi o scritture su Firestore. Non verifica ancora percorsi,
-ricerca o navigazione: per questi restano i test Flutter esistenti e le prove
-esplorative con browser collegato.
+Non esegue accessi o scritture su Firestore. Ricerca e percorso si provano con
+`tools/agents/smoke-browser.sh` (vedi agent-browser); la navigazione passo
+passo resta coperta dai test Flutter.
 
 `FREEWAY_QA_URL` permette di verificare un altro URL invece della build locale,
 anche in un sottopercorso come `https://lorenzomp7.github.io/FreeWay`: i test

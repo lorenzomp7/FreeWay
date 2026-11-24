@@ -21,6 +21,14 @@
       "args": [
         "stdio"
       ]
+    },
+    "rea": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "rea-agents@6.10.1",
+        "mcp"
+      ]
     }
   }
 }

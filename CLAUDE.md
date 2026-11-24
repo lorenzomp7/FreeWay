@@ -32,3 +32,4 @@ AGENTS.md (importato sopra) vale per tutti gli agenti; qui solo ciò che riguard
 ### Server MCP
 
 - Nessun server MCP nelle sessioni cloud: Playwriter richiede il Chrome dell'utente con l'estensione, Vibetest la chiave Google, container-use Docker. Sono in `.mcp.optional.json` solo per un uso locale. I controlli nel browser girano nelle GitHub Actions delle pull request.
+- Nel cloud, per vedere la pagina, usa agent-browser da riga di comando (non è un MCP): `bash tools/agents/smoke-browser.sh` o i comandi in docs/agent-tools.md. Se la sessione non scarica Chrome for Testing, imposta `FREEWAY_CHROMIUM_PATH=/usr/bin/google-chrome`.
