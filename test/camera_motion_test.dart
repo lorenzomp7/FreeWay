@@ -96,4 +96,43 @@ void main() {
       );
     });
   });
+
+  group('interpolateRotation', () {
+    test('gira dalla parte più corta', () {
+      expect(interpolateRotation(350, 10, 0.5), closeTo(360, 1e-9));
+      expect(interpolateRotation(10, 350, 0.5), closeTo(0, 1e-9));
+      expect(interpolateRotation(-90, 0, 0.5), closeTo(-45, 1e-9));
+    });
+
+    test('agli estremi restituisce partenza e arrivo', () {
+      expect(interpolateRotation(120, 0, 0), 120);
+      // Arrivo equivalente a 0 (360°), dalla parte più corta.
+      expect(interpolateRotation(300, 0, 1) % 360, closeTo(0, 1e-9));
+      expect(interpolateRotation(300, 0, 1), closeTo(360, 1e-9));
+    });
+  });
+
+  test('isRotated: il nord in alto ammette mezzo grado', () {
+    expect(isRotated(0), isFalse);
+    expect(isRotated(0.3), isFalse);
+    expect(isRotated(-0.3), isFalse);
+    expect(isRotated(360), isFalse);
+    expect(isRotated(12), isTrue);
+    expect(isRotated(-90), isTrue);
+  });
+
+  group('zoomAfterScale', () {
+    test('scala 2 = un livello in più, 0,5 = uno in meno', () {
+      expect(zoomAfterScale(14, 2, 3, 19), closeTo(15, 1e-9));
+      expect(zoomAfterScale(14, 0.5, 3, 19), closeTo(13, 1e-9));
+      expect(zoomAfterScale(14, 1, 3, 19), closeTo(14, 1e-9));
+    });
+
+    test('resta tra lo zoom minimo e massimo e ignora scale non valide', () {
+      expect(zoomAfterScale(18.8, 4, 3, 19), 19);
+      expect(zoomAfterScale(3.2, 0.25, 3, 19), 3);
+      expect(zoomAfterScale(14, 0, 3, 19), 14);
+      expect(zoomAfterScale(14, double.nan, 3, 19), 14);
+    });
+  });
 }

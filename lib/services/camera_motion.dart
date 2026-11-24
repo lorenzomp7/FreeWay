@@ -84,3 +84,33 @@ bool shouldAnimateCamera(
   if (screen <= 0) return false;
   return pixels <= maxAnimatedScreens * screen;
 }
+
+/// Rotazione della mappa a metà strada tra [from] e [to] (gradi), girando
+/// dalla parte più corta: da 350° a 10° passa per 0°, non per 180°.
+double interpolateRotation(double from, double to, double t) {
+  if (t <= 0) return from;
+  var delta = (to - from) % 360;
+  if (delta > 180) delta -= 360;
+  if (t >= 1) return from + delta;
+  return from + delta * t;
+}
+
+/// Vero se la mappa, ruotata di [rotation] gradi, non ha il nord in alto
+/// (con una tolleranza di mezzo grado).
+bool isRotated(double rotation) {
+  final r = rotation % 360;
+  return r > 0.5 && r < 359.5;
+}
+
+/// Zoom dopo un pizzico sul touchpad o Ctrl + rotellina: il browser manda un
+/// fattore di scala (2 = il doppio) e un livello di zoom in più lo raddoppia.
+double zoomAfterScale(
+  double zoom,
+  double scale,
+  double minZoom,
+  double maxZoom,
+) {
+  if (!scale.isFinite || scale <= 0) return zoom;
+  final next = zoom + math.log(scale) / math.ln2;
+  return next.clamp(minZoom, maxZoom).toDouble();
+}
