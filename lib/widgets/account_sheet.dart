@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../models/info_page.dart';
 import '../services/account_data_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/motion.dart';
 import 'info_sheet.dart';
 
 /// Apre la scheda "I tuoi dati": informativa, copia dei dati ed
@@ -15,6 +16,7 @@ Future<void> showAccountSheet(
 }) {
   return showModalBottomSheet<void>(
     context: context,
+    sheetAnimationStyle: AppMotion.routeStyle(context),
     isScrollControlled: true,
     showDragHandle: true,
     builder: (_) => AccountSheet(service: service ?? AccountDataService()),
@@ -64,6 +66,7 @@ class _AccountSheetState extends State<AccountSheet> {
   Future<void> _delete() async {
     final confirmed = await showDialog<bool>(
       context: context,
+      animationStyle: AppMotion.routeStyle(context),
       builder: (context) => AlertDialog(
         title: const Text('Eliminare account e dati?'),
         content: const Text(

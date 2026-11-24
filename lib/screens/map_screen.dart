@@ -32,6 +32,7 @@ import '../services/navigation_service.dart';
 import '../services/obstacle_alerts.dart';
 import '../services/nearby_accessible_service.dart';
 import '../services/obstacle_service.dart';
+import '../services/camera_motion.dart';
 import '../services/compass/compass.dart';
 import '../services/heading.dart';
 import '../services/offline/connectivity.dart';
@@ -68,6 +69,7 @@ import '../widgets/search_panel.dart';
 import '../widgets/top_bar.dart';
 import '../widgets/trip_share_widgets.dart';
 import '../widgets/voice_settings_sheet.dart';
+import '../theme/motion.dart';
 
 /// Schermata principale: mappa, ricerca percorso, ostacoli e navigazione.
 class MapScreen extends StatefulWidget {
@@ -77,8 +79,12 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+class _MapScreenState extends State<MapScreen>
+    with TickerProviderStateMixin {
   final MapController _mapController = MapController();
+
+  /// Spostamento animato della mappa in corso, se c'è.
+  AnimationController? _cameraAnimation;
   final LocationService _locationService = LocationService();
   final RoutingService _routingService = RoutingService();
 
@@ -385,6 +391,8 @@ class _MapScreenState extends State<MapScreen> {
     });
     _mapController.mapEventStream.listen((event) {
       if (!mounted) return;
+      // Se l'utente tocca la mappa, l'animazione si ferma e comanda lui.
+      if (_userGestures.contains(event.source)) _cameraAnimation?.stop();
       _center = event.camera.center;
       _mapRotation = event.camera.rotation;
       _zoom = event.camera.zoom;
@@ -393,6 +401,7 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   void dispose() {
+    _cameraAnimation?.stop();
     if (_isNavigating) _keepScreenOn(false);
     _ttsService.stop();
     _ttsService.reset();
@@ -624,7 +633,7 @@ class _MapScreenState extends State<MapScreen> {
     if (!isStart) _loadAccessibility(place, point);
 
     if (_stage == SearchPhase.place) {
-      _mapController.move(point, 17);
+      _animateCamera(point, 17);
     } else if (_startPoint != null && _endPoint != null) {
       _calculateRoute();
     } else {
@@ -774,7 +783,7 @@ class _MapScreenState extends State<MapScreen> {
       _along = {};
     });
     final end = _endPoint;
-    if (end != null) _mapController.move(end, 17);
+    if (end != null) _animateCamera(end, 17);
   }
 
   /// Chiude la scheda del luogo e torna alla casella di ricerca vuota.
@@ -964,7 +973,7 @@ class _MapScreenState extends State<MapScreen> {
     FocusScope.of(context).unfocus();
     final current = isStart ? _startPoint : _endPoint;
     setState(() => _choosingOnMapFor = isStart);
-    if (current != null) _mapController.move(current, 17);
+    if (current != null) _animateCamera(current, 17);
   }
 
   Future<void> _confirmChooseOnMap() async {
@@ -1267,6 +1276,7 @@ class _MapScreenState extends State<MapScreen> {
     final colors = AppColors.of(context);
     showModalBottomSheet<void>(
       context: context,
+      sheetAnimationStyle: AppMotion.routeStyle(context),
       showDragHandle: true,
       builder: (context) => SafeArea(
         child: Padding(
@@ -1497,7 +1507,7 @@ class _MapScreenState extends State<MapScreen> {
     final height = MediaQuery.sizeOf(context).height;
     final bottom = math.min(_routeSheetHeight + 110, height * 0.62);
     final top = math.min(200.0, height * 0.25);
-    _mapController.fitCamera(
+    _animateFit(
       CameraFit.bounds(
         bounds: LatLngBounds.fromPoints(points),
         padding: EdgeInsets.fromLTRB(48, top, 48, bottom),
@@ -1654,6 +1664,8 @@ class _MapScreenState extends State<MapScreen> {
     final turn = angleDifference(_mapRotation, target).abs() >= 3;
     try {
       if (center != null) {
+        // In navigazione la mappa segue la posizione: niente animazioni.
+        _cameraAnimation?.stop();
         _mapController.moveAndRotate(
           center,
           zoom ?? _mapController.camera.zoom,
@@ -2100,7 +2112,7 @@ class _MapScreenState extends State<MapScreen> {
         )) {
       // Resta la posizione precedente, più precisa e ancora recente.
       final kept = _userLocation;
-      if (kept != null) _mapController.move(kept, 16);
+      if (kept != null) _animateCamera(kept, 16);
       return;
     }
     if (position != null) {
@@ -2108,7 +2120,7 @@ class _MapScreenState extends State<MapScreen> {
         _userLocation = _center = position;
         _userAccuracy = result.accuracy;
       });
-      _mapController.move(_center, 16);
+      _animateCamera(_center, 16);
       if (showErrors && result.isApproximate) {
         _showError(
           'Posizione approssimativa, stimata dalla rete. Il cerchio azzurro '
@@ -2460,7 +2472,7 @@ class _MapScreenState extends State<MapScreen> {
         await _reportHere();
       case WeeklyReviewAction.verify:
         if (suggestion == null) return;
-        _mapController.move(suggestion.obstacle.position, 18);
+        _animateCamera(suggestion.obstacle.position, 18);
         await _openObstacle(suggestion.obstacle);
       case WeeklyReviewAction.showAll:
         await _openContributions();
@@ -2477,7 +2489,7 @@ class _MapScreenState extends State<MapScreen> {
       suggestion: _verifySuggestion(userId),
     );
     if (picked == null || !mounted) return;
-    _mapController.move(picked.position, 18);
+    _animateCamera(picked.position, 18);
     if (_obstacles.any((o) => o.id == picked.id)) {
       await _openObstacle(picked);
     } else {
@@ -2525,6 +2537,7 @@ class _MapScreenState extends State<MapScreen> {
     if (!obstacle.isReportedBy(userId)) return;
     final confirmed = await showDialog<bool>(
       context: context,
+      animationStyle: AppMotion.routeStyle(context),
       builder: (context) => AlertDialog(
         title: const Text('Eliminare la segnalazione?'),
         content: const Text(
@@ -2968,6 +2981,74 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  // --- Movimenti della mappa ---------------------------------------------
+
+  /// Gesti con cui l'utente muove la mappa: fermano l'animazione in corso.
+  static const Set<MapEventSource> _userGestures = {
+    MapEventSource.dragStart,
+    MapEventSource.multiFingerGestureStart,
+    MapEventSource.doubleTap,
+    MapEventSource.doubleTapHold,
+    MapEventSource.scrollWheel,
+    MapEventSource.keyboard,
+    MapEventSource.cursorKeyboardRotation,
+  };
+
+  /// Porta la mappa su [center] a [zoom] con un movimento breve
+  /// ([AppMotion.camera]). Salta direttamente se l'utente ha chiesto di
+  /// ridurre le animazioni o se la meta è lontana (vedi
+  /// [shouldAnimateCamera]).
+  void _animateCamera(LatLng center, double zoom) {
+    _cameraAnimation?.stop();
+    MapCamera? camera;
+    try {
+      camera = _mapController.camera;
+    } catch (_) {
+      // La mappa non è ancora pronta: niente da animare.
+    }
+    if (camera == null) return;
+    final from = CameraStep(camera.center, camera.zoom);
+    final to = CameraStep(center, zoom);
+    final size = camera.nonRotatedSize;
+    if (!mounted ||
+        AppMotion.reduced(context) ||
+        !shouldAnimateCamera(from, to, size.width, size.height)) {
+      _mapController.move(center, zoom);
+      return;
+    }
+    final controller = AnimationController(
+      vsync: this,
+      duration: AppMotion.camera,
+    );
+    final progress = CurvedAnimation(
+      parent: controller,
+      curve: AppMotion.curve,
+    );
+    controller.addListener(() {
+      final step = interpolateCamera(from, to, progress.value);
+      _mapController.move(step.center, step.zoom);
+    });
+    _cameraAnimation = controller;
+    // Finita o fermata (nuovo movimento, gesto, chiusura), si libera.
+    controller.forward().whenCompleteOrCancel(() {
+      if (identical(_cameraAnimation, controller)) _cameraAnimation = null;
+      progress.dispose();
+      controller.dispose();
+    });
+  }
+
+  /// Come [_animateCamera], verso l'inquadratura che mostra [fit].
+  void _animateFit(CameraFit fit) {
+    MapCamera? target;
+    try {
+      target = fit.fit(_mapController.camera);
+    } catch (_) {
+      // La mappa non è ancora pronta.
+    }
+    if (target == null) return;
+    _animateCamera(target.center, target.zoom);
+  }
+
   // --- Zoom ----------------------------------------------------------------
 
   static const double _minZoom = 3;
@@ -2975,12 +3056,12 @@ class _MapScreenState extends State<MapScreen> {
 
   void _zoomIn() {
     _zoom = (_zoom + 1).clamp(_minZoom, _maxZoom).toDouble();
-    _mapController.move(_center, _zoom);
+    _animateCamera(_center, _zoom);
   }
 
   void _zoomOut() {
     _zoom = (_zoom - 1).clamp(_minZoom, _maxZoom).toDouble();
-    _mapController.move(_center, _zoom);
+    _animateCamera(_center, _zoom);
   }
 
   int get _selectedRouteWarningCount => _selectedRouteIndex < _routes.length
@@ -3126,7 +3207,8 @@ class _MapScreenState extends State<MapScreen> {
                     child: SizedBox(
                       width: double.infinity,
                       child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 240),
+                        duration: AppMotion.of(context, AppMotion.standard),
+                        switchInCurve: AppMotion.curve,
                         child: search,
                       ),
                     ),
@@ -3262,8 +3344,8 @@ class _MapScreenState extends State<MapScreen> {
       AnimatedPositioned(
         right: 12,
         bottom: controlsBottom,
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOutCubic,
+        duration: AppMotion.of(context, AppMotion.standard),
+        curve: AppMotion.curve,
         child: MapControls(
           // Il pulsante della bussola compare quando serve: in navigazione,
           // con la bussola che risponde o con la mappa già ruotata.

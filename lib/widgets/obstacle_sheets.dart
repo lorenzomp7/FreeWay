@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/obstacle.dart';
 import '../services/obstacle_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/motion.dart';
 import 'common.dart';
 
 /// Tipo di ostacolo scelto e, se c'è, la foto.
@@ -108,6 +109,7 @@ Future<DuplicateChoice?> showDuplicateDialog(
       : ' (${timeAgo(existing.reportedAt!)})';
   return showDialog<DuplicateChoice>(
     context: context,
+    animationStyle: AppMotion.routeStyle(context),
     builder: (context) => AlertDialog(
       title: const Text('Ostacolo già segnalato'),
       content: Text(
@@ -385,7 +387,8 @@ class ObstacleOption extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         onTap: onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+          duration: AppMotion.of(context, AppMotion.quick),
+          curve: AppMotion.curve,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
             color: isSelected ? colors.primarySoft : colors.surfaceMuted,
@@ -409,7 +412,8 @@ class ObstacleOption extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
+                duration: AppMotion.of(context, AppMotion.quick),
+                curve: AppMotion.curve,
                 width: 20,
                 height: 20,
                 decoration: BoxDecoration(

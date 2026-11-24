@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../theme/motion.dart';
 
 /// Apre un bottom sheet con lo stile dell'app.
 Future<T?> showAppBottomSheet<T>(
@@ -10,6 +11,7 @@ Future<T?> showAppBottomSheet<T>(
   final colors = AppColors.of(context);
   return showModalBottomSheet<T>(
     context: context,
+    sheetAnimationStyle: AppMotion.routeStyle(context),
     isScrollControlled: true,
     backgroundColor: colors.surface,
     barrierColor: colors.scrim,

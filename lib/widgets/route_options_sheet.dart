@@ -7,6 +7,7 @@ import '../services/open_link.dart';
 import '../services/opening_hours.dart' show formatClock;
 import '../services/transit_service.dart' show TransitService;
 import '../theme/app_theme.dart';
+import '../theme/motion.dart';
 
 /// Pannello in basso con i percorsi trovati e il pulsante "Avvia navigazione".
 class RouteOptionsSheet extends StatelessWidget {
@@ -424,7 +425,8 @@ class RouteCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
+        duration: AppMotion.of(context, AppMotion.quick),
+        curve: AppMotion.curve,
         width: 208,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(

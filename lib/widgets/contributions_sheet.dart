@@ -4,6 +4,7 @@ import '../models/contributions.dart';
 import '../models/obstacle.dart';
 import '../services/geocoding_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/motion.dart';
 import 'obstacle_sheets.dart' show timeAgo;
 
 /// Apre "Le tue segnalazioni". Toccando una segnalazione (o "Verifica"
@@ -16,6 +17,7 @@ Future<Obstacle?> showContributionsSheet(
 }) {
   return showModalBottomSheet<Obstacle>(
     context: context,
+    sheetAnimationStyle: AppMotion.routeStyle(context),
     isScrollControlled: true,
     showDragHandle: true,
     builder: (context) => DraggableScrollableSheet(

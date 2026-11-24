@@ -5,6 +5,7 @@ import '../models/route_preferences.dart';
 import '../services/geocoding_service.dart' show formatDistance;
 import '../services/instruction_translator.dart';
 import '../theme/app_theme.dart';
+import '../theme/motion.dart';
 
 /// "Opzioni del percorso": pendenza massima, cordoli, fondo e velocità.
 /// Restituisce le nuove scelte, o `null` se si chiude senza salvare.
@@ -15,6 +16,7 @@ Future<RoutePreferences?> showRoutePreferencesSheet(
 }) {
   return showModalBottomSheet<RoutePreferences>(
     context: context,
+    sheetAnimationStyle: AppMotion.routeStyle(context),
     isScrollControlled: true,
     showDragHandle: true,
     builder: (context) => RoutePreferencesSheet(
@@ -154,6 +156,7 @@ Future<void> showRouteStepsSheet(
 }) {
   return showModalBottomSheet<void>(
     context: context,
+    sheetAnimationStyle: AppMotion.routeStyle(context),
     isScrollControlled: true,
     showDragHandle: true,
     builder: (context) => DraggableScrollableSheet(

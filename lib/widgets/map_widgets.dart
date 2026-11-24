@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../services/map_tiles.dart';
 import '../theme/app_theme.dart';
+import '../theme/motion.dart';
 
 /// Attribuzione obbligatoria dei dati (OpenStreetMap) e delle tile.
 class OsmAttribution extends StatelessWidget {
@@ -255,7 +256,8 @@ class CategoryFilterBar extends StatelessWidget {
           return GestureDetector(
             onTap: () => onSelected(category),
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
+              duration: AppMotion.of(context, AppMotion.quick),
+              curve: AppMotion.curve,
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(
                 color: isSelected ? AppPalette.primary : colors.surface,

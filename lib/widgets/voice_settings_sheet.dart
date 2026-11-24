@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/tts_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/motion.dart';
 
 /// Impostazioni della voce di navigazione: lingua, voce attiva, volume e
 /// velocità, con una frase di prova. Le scelte si applicano subito.
@@ -14,6 +15,7 @@ Future<void> showVoiceSettingsSheet(
 }) {
   return showModalBottomSheet<void>(
     context: context,
+    sheetAnimationStyle: AppMotion.routeStyle(context),
     backgroundColor: AppColors.of(context).surface,
     showDragHandle: true,
     builder: (context) => VoiceSettingsSheet(

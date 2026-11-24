@@ -6,6 +6,7 @@ import '../firebase_options.dart';
 import '../theme/app_theme.dart';
 import '../widgets/common.dart';
 import '../widgets/info_sheet.dart';
+import '../theme/motion.dart';
 
 /// Accesso con email/password, Google oppure come ospite.
 class LoginScreen extends StatefulWidget {
@@ -449,8 +450,8 @@ class _AuthModeToggle extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: onChanged == null ? null : () => onChanged!(value),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        curve: Curves.easeOut,
+        duration: AppMotion.of(context, AppMotion.quick),
+        curve: AppMotion.curve,
         height: 40,
         alignment: Alignment.center,
         decoration: BoxDecoration(
