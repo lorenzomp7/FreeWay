@@ -212,7 +212,10 @@ if os.environ.get("GITHUB_ACTIONS"):
     pointer pointermove $((mx + 200)) $((my + 160)) false 0
     if "${ab[@]}" wait --fn "$(has_text_js 'Mappa ruotata')" >/dev/null; then
       "${ab[@]}" screenshot "$OUT/$label-3-ruotata.png" >/dev/null
-      "${ab[@]}" find role button click --name "Mappa ruotata" >/dev/null
+      # Il nome completo è «Mappa ruotata. Tocca per riportare il nord in
+      # alto»: find --name vuole il testo esatto, il selettore basta l'inizio.
+      "${ab[@]}" click '[aria-label^="Mappa ruotata"]' >/dev/null ||
+        fail "$label" "non trovo il pulsante della bussola"
       "${ab[@]}" wait 1500 >/dev/null
       if "${ab[@]}" eval "$(has_text_js 'Mappa ruotata')" | grep -q true; then
         fail "$label" "la bussola non riporta il nord in alto"
