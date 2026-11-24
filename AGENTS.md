@@ -41,6 +41,10 @@ comandi davvero eseguiti e i loro esiti; se Flutter non è disponibile dillo.
 - Non cambiare `firestore.rules` senza test che coprano il nuovo caso.
 - Non usare dati reali di utenti o foto reali nei test: solo dati di prova.
 - Testi dell'interfaccia in italiano.
+- Animazioni: durate e curva da `AppMotion` (`lib/theme/motion.dart`), mai
+  valori sparsi; con «Riduci movimento» attivo devono sparire
+  (`AppMotion.of`, `AppMotion.routeStyle` per sheet e dialog). La mappa si
+  sposta con `_animateCamera`/`_animateFit`, non con `move` diretto.
 
 ## Skill e strumenti per agenti
 

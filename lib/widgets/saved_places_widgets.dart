@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/saved_places_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/motion.dart';
 
 IconData savedKindIcon(SavedKind kind) => switch (kind) {
   SavedKind.home => Icons.home_rounded,
@@ -38,6 +39,7 @@ Future<SaveChoice?> showSavePlaceSheet(
 }) {
   return showModalBottomSheet<SaveChoice>(
     context: context,
+    sheetAnimationStyle: AppMotion.routeStyle(context),
     isScrollControlled: true,
     showDragHandle: true,
     builder: (context) => SavePlaceSheet(

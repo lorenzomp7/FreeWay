@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/motion.dart';
+
 /// Chiede conferma prima di condividere la posizione, dicendo chiaramente chi
 /// la vede e per quanto.
 Future<bool> showShareTripConsent(
@@ -8,6 +10,7 @@ Future<bool> showShareTripConsent(
 ) async {
   final result = await showDialog<bool>(
     context: context,
+    animationStyle: AppMotion.routeStyle(context),
     builder: (context) => AlertDialog(
       icon: const Icon(Icons.share_location_rounded),
       title: const Text('Condividi il viaggio'),
@@ -38,6 +41,7 @@ enum ShareTripAction { copyLink, stop }
 Future<ShareTripAction?> showShareTripOptions(BuildContext context) {
   return showModalBottomSheet<ShareTripAction>(
     context: context,
+    sheetAnimationStyle: AppMotion.routeStyle(context),
     showDragHandle: true,
     builder: (context) => SafeArea(
       child: Column(

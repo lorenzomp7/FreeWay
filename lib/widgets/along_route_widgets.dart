@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/along_route_service.dart';
 import '../services/geocoding_service.dart' show formatDistance;
 import '../theme/app_theme.dart';
+import '../theme/motion.dart';
 import 'route_options_sheet.dart' show alongRouteIcon;
 
 Color alongRouteColor(AlongRouteCategory category) => switch (category) {
@@ -112,6 +113,7 @@ Future<bool?> showAlongPlaceSheet(
   final textTheme = Theme.of(context).textTheme;
   return showModalBottomSheet<bool>(
     context: context,
+    sheetAnimationStyle: AppMotion.routeStyle(context),
     backgroundColor: colors.surface,
     showDragHandle: true,
     builder: (context) => SafeArea(
