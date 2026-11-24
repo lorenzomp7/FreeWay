@@ -108,8 +108,15 @@ run_case() {
   # 2. Indicazioni: partenza e arrivo, Invio sceglie il primo risultato.
   "${ab[@]}" find role button click --name "Indicazioni" >/dev/null ||
     { fail "$label" "pulsante «Indicazioni» non trovato"; return; }
-  "${ab[@]}" wait --fn "$(has_text_js 'Scegli il punto di partenza')" >/dev/null ||
+  "${ab[@]}" wait --fn "$(has_text_js 'Scegli la destinazione')" >/dev/null ||
     { fail "$label" "i campi partenza/arrivo non compaiono"; return; }
+  # Se il browser conosce la posizione (GPS o stima da IP) la partenza è già
+  # «La tua posizione»: la si cancella per usare sempre lo stesso indirizzo.
+  if ! "${ab[@]}" eval "$(has_text_js 'Scegli il punto di partenza')" 2>/dev/null | grep -q true; then
+    "${ab[@]}" find role button click --name "Cancella" >/dev/null
+    "${ab[@]}" wait --fn "$(has_text_js 'Scegli il punto di partenza')" >/dev/null ||
+      { fail "$label" "non riesco a svuotare la partenza"; return; }
+  fi
   type_into "$s" "Scegli il punto di partenza" "$START_ADDR" ||
     { fail "$label" "non riesco a scrivere la partenza"; return; }
   "${ab[@]}" wait 2500 >/dev/null
