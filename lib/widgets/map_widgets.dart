@@ -35,6 +35,7 @@ class MapControls extends StatelessWidget {
     super.key,
     required this.onZoomIn,
     required this.onZoomOut,
+    this.zoomLevel,
     required this.onLocate,
     required this.isLocating,
     this.onReport,
@@ -56,6 +57,10 @@ class MapControls extends StatelessWidget {
 
   final VoidCallback onZoomIn;
   final VoidCallback onZoomOut;
+
+  /// Livello di zoom arrotondato, letto dal lettore di schermo con i
+  /// pulsanti + e − (e dalla prova nel browser).
+  final int? zoomLevel;
   final VoidCallback onLocate;
   final bool isLocating;
 
@@ -86,21 +91,25 @@ class MapControls extends StatelessWidget {
         Container(
           clipBehavior: Clip.antiAlias,
           decoration: decoration(),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              MapControlButton(
-                icon: Icons.add_rounded,
-                onPressed: onZoomIn,
-                tooltip: 'Ingrandisci',
-              ),
-              Divider(height: 1, thickness: 1, color: colors.border),
-              MapControlButton(
-                icon: Icons.remove_rounded,
-                onPressed: onZoomOut,
-                tooltip: 'Riduci',
-              ),
-            ],
+          child: Semantics(
+            container: true,
+            label: zoomLevel == null ? null : 'Livello di zoom $zoomLevel',
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                MapControlButton(
+                  icon: Icons.add_rounded,
+                  onPressed: onZoomIn,
+                  tooltip: 'Ingrandisci',
+                ),
+                Divider(height: 1, thickness: 1, color: colors.border),
+                MapControlButton(
+                  icon: Icons.remove_rounded,
+                  onPressed: onZoomOut,
+                  tooltip: 'Riduci',
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 8),
@@ -615,12 +624,17 @@ class CompassButton extends StatelessWidget {
     super.key,
     required this.mapRotation,
     required this.headingUp,
+    this.rotated = false,
     required this.onPressed,
   });
 
   /// Rotazione della mappa in gradi (quella di flutter_map).
   final double mapRotation;
   final bool headingUp;
+
+  /// Mappa girata a mano, senza seguire la direzione dell'utente: il tocco
+  /// riporta il nord in alto.
+  final bool rotated;
   final VoidCallback onPressed;
 
   @override
@@ -628,6 +642,8 @@ class CompassButton extends StatelessWidget {
     final colors = AppColors.of(context);
     final label = headingUp
         ? 'Mappa orientata nella tua direzione. Tocca per tenere il nord in alto'
+        : rotated
+        ? 'Mappa ruotata. Tocca per riportare il nord in alto'
         : 'Mappa con il nord in alto. Tocca per orientarla nella tua direzione';
     return Semantics(
       button: true,
@@ -636,7 +652,9 @@ class CompassButton extends StatelessWidget {
       excludeSemantics: true,
       onTap: onPressed,
       child: Tooltip(
-        message: headingUp ? 'Nord in alto' : 'Orienta nella tua direzione',
+        message: headingUp || rotated
+            ? 'Nord in alto'
+            : 'Orienta nella tua direzione',
         child: Material(
           color: colors.surface,
           shape: CircleBorder(side: BorderSide(color: colors.border)),

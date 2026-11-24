@@ -3,7 +3,9 @@ import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
@@ -33,6 +35,7 @@ import '../services/obstacle_alerts.dart';
 import '../services/nearby_accessible_service.dart';
 import '../services/obstacle_service.dart';
 import '../services/camera_motion.dart';
+import '../services/two_finger_tap.dart';
 import '../services/compass/compass.dart';
 import '../services/heading.dart';
 import '../services/offline/connectivity.dart';
@@ -85,6 +88,15 @@ class _MapScreenState extends State<MapScreen>
 
   /// Spostamento animato della mappa in corso, se c'è.
   AnimationController? _cameraAnimation;
+
+  /// Tocco con due dita sullo schermo: allontana la mappa di un livello.
+  final TwoFingerTapDetector _twoFingerTap = TwoFingerTapDetector();
+
+  /// Livello di zoom arrotondato, mostrato al lettore di schermo.
+  int _zoomLevel = 13;
+
+  /// Focus della mappa: con un clic sulla mappa i tasti + e − la zoomano.
+  final FocusNode _mapFocus = FocusNode(debugLabel: 'mappa');
   final LocationService _locationService = LocationService();
   final RoutingService _routingService = RoutingService();
 
@@ -394,14 +406,15 @@ class _MapScreenState extends State<MapScreen>
       // Se l'utente tocca la mappa, l'animazione si ferma e comanda lui.
       if (_userGestures.contains(event.source)) _cameraAnimation?.stop();
       _center = event.camera.center;
-      _mapRotation = event.camera.rotation;
       _zoom = event.camera.zoom;
+      _onMapRotated(event);
     });
   }
 
   @override
   void dispose() {
     _cameraAnimation?.stop();
+    _mapFocus.dispose();
     if (_isNavigating) _keepScreenOn(false);
     _ttsService.stop();
     _ttsService.reset();
@@ -1705,7 +1718,11 @@ class _MapScreenState extends State<MapScreen>
       }
     }
     setState(() => _headingUp = enable);
-    _applyMapRotation();
+    if (enable) {
+      _applyMapRotation();
+    } else {
+      _animateRotationTo(0);
+    }
     // La rotazione gira intorno al centro: il percorso va rimesso in vista.
     if (_routes.isNotEmpty && !_isNavigating) _fitRoute();
     SharedPreferences.getInstance()
@@ -3049,6 +3066,154 @@ class _MapScreenState extends State<MapScreen>
     _animateCamera(target.center, target.zoom);
   }
 
+  /// Gira la mappa fino a [target] gradi dalla parte più corta, con la
+  /// stessa durata e curva degli altri movimenti; subito se l'utente ha
+  /// chiesto di ridurre le animazioni.
+  void _animateRotationTo(double target) {
+    _cameraAnimation?.stop();
+    double from;
+    try {
+      from = _mapController.camera.rotation;
+    } catch (_) {
+      return;
+    }
+    void apply(double angle) {
+      try {
+        _mapController.rotate(angle);
+      } catch (_) {
+        // La mappa non è ancora pronta.
+      }
+    }
+
+    if (!mounted || AppMotion.reduced(context) || !isRotated(from - target)) {
+      apply(target);
+      return;
+    }
+    final controller = AnimationController(
+      vsync: this,
+      duration: AppMotion.camera,
+    );
+    final progress = CurvedAnimation(
+      parent: controller,
+      curve: AppMotion.curve,
+    );
+    controller.addListener(
+      () => apply(interpolateRotation(from, target, progress.value)),
+    );
+    _cameraAnimation = controller;
+    controller.forward().whenCompleteOrCancel(() {
+      if (identical(_cameraAnimation, controller)) _cameraAnimation = null;
+      progress.dispose();
+      controller.dispose();
+    });
+  }
+
+  /// Bussola: con la mappa orientata nella direzione dell'utente torna al
+  /// nord; con la mappa girata a mano la riporta al nord; con il nord già in
+  /// alto orienta la mappa nella direzione dell'utente (se c'è la bussola).
+  void _onCompassPressed() {
+    if (_headingUp) {
+      _toggleHeadingUp();
+    } else if (isRotated(_mapRotation)) {
+      _animateRotationTo(0);
+    } else {
+      _toggleHeadingUp();
+    }
+  }
+
+  /// Aggiorna rotazione e livello di zoom noti. Se l'utente la gira con le
+  /// dita o con Ctrl + trascinamento, la mappa smette di seguire la sua
+  /// direzione, come su Google Maps (in navigazione resta com'è).
+  void _onMapRotated(MapEvent event) {
+    final rotation = event.camera.rotation;
+    final userTurned =
+        event is MapEventRotate &&
+        event.source != MapEventSource.mapController;
+    final level = event.camera.zoom.round();
+    final changed =
+        (rotation - _mapRotation).abs() >= 1 ||
+        isRotated(rotation) != isRotated(_mapRotation) ||
+        level != _zoomLevel;
+    _mapRotation = rotation;
+    _zoomLevel = level;
+    if (userTurned && _headingUp && !_isNavigating) {
+      setState(() => _headingUp = false);
+      SharedPreferences.getInstance()
+          .then((prefs) => prefs.setBool(_headingUpKey, false))
+          .catchError((_) => false);
+    } else if (changed) {
+      // L'ago della bussola, la sua comparsa e il livello di zoom letto dal
+      // lettore di schermo seguono la mappa. Gli eventi della mappa possono
+      // arrivare durante il disegno di un frame: allora si aggiorna dopo.
+      if (SchedulerBinding.instance.schedulerPhase ==
+          SchedulerPhase.persistentCallbacks) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() {});
+        });
+      } else {
+        setState(() {});
+      }
+    }
+  }
+
+  /// Pizzico con due dita sul touchpad o Ctrl + rotellina: il browser li
+  /// manda come scala (flutter_map gestisce solo la rotellina normale).
+  /// Lo zoom tiene fermo il punto sotto il cursore.
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScaleEvent) return;
+    GestureBinding.instance.pointerSignalResolver.register(event, (resolved) {
+      final scale = (resolved as PointerScaleEvent).scale;
+      MapCamera camera;
+      try {
+        camera = _mapController.camera;
+      } catch (_) {
+        return;
+      }
+      final zoom = zoomAfterScale(camera.zoom, scale, _minZoom, _maxZoom);
+      if (zoom == camera.zoom) return;
+      _cameraAnimation?.stop();
+      _mapController.move(
+        camera.focusedZoomCenter(resolved.localPosition, zoom),
+        zoom,
+      );
+    });
+  }
+
+  /// Tocchi sullo schermo per il tocco con due dita (allontana).
+  void _onPointerDown(PointerDownEvent event) {
+    if (!_mapFocus.hasFocus) _mapFocus.requestFocus();
+    if (event.kind != PointerDeviceKind.touch) return;
+    _twoFingerTap.down(event.pointer, event.localPosition, event.timeStamp);
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    if (event.kind != PointerDeviceKind.touch) return;
+    _twoFingerTap.move(event.pointer, event.localPosition);
+  }
+
+  void _onPointerUp(PointerUpEvent event) {
+    if (event.kind != PointerDeviceKind.touch) return;
+    final focus = _twoFingerTap.up(event.pointer, event.timeStamp);
+    if (focus == null) return;
+    MapCamera camera;
+    try {
+      camera = _mapController.camera;
+    } catch (_) {
+      return;
+    }
+    final zoom = (camera.zoom - 1).clamp(_minZoom, _maxZoom).toDouble();
+    _animateCamera(camera.focusedZoomCenter(focus, zoom), zoom);
+  }
+
+  /// Tasti + e − (anche del tastierino) quando la mappa ha il focus; le
+  /// frecce la spostano già (flutter_map). Si guarda il carattere, non il
+  /// tasto: «+» è in posti diversi sulle tastiere italiana e americana.
+  static final Map<ShortcutActivator, Intent> _zoomKeys = {
+    const CharacterActivator('+'): const _ZoomIntent(1),
+    const CharacterActivator('='): const _ZoomIntent(1),
+    const CharacterActivator('-'): const _ZoomIntent(-1),
+  };
+
   // --- Zoom ----------------------------------------------------------------
 
   static const double _minZoom = 3;
@@ -3351,15 +3516,20 @@ class _MapScreenState extends State<MapScreen>
           // con la bussola che risponde o con la mappa già ruotata.
           compass:
               choosing == null &&
-                  (_isNavigating || _deviceHeading != null || _headingUp)
+                  (_isNavigating ||
+                      _deviceHeading != null ||
+                      _headingUp ||
+                      isRotated(_mapRotation))
               ? CompassButton(
                   mapRotation: _mapRotation,
                   headingUp: _headingUp,
-                  onPressed: _toggleHeadingUp,
+                  rotated: isRotated(_mapRotation),
+                  onPressed: _onCompassPressed,
                 )
               : null,
           onZoomIn: _zoomIn,
           onZoomOut: _zoomOut,
+          zoomLevel: _zoomLevel,
           onLocate: () => _locateUser(showErrors: true),
           isLocating: _isLocatingUser,
           onReport: _isNavigating || choosing != null || !Backend.available
@@ -3828,7 +3998,7 @@ class _MapScreenState extends State<MapScreen>
       ),
     );
 
-    return FlutterMap(
+    final map = FlutterMap(
       mapController: _mapController,
       options: MapOptions(
         initialCenter: _center,
@@ -3845,11 +4015,43 @@ class _MapScreenState extends State<MapScreen>
           _reportObstacle(point);
         },
         onPositionChanged: (_, _) => _onMapMoved(),
+        // Rotazione con due dita solo dopo 20° di torsione: se il pizzico
+        // per lo zoom parte prima, quel gesto resta uno zoom (come su Google
+        // Maps). Su PC si ruota con Ctrl + trascinamento.
         interactionOptions: const InteractionOptions(
-          flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+          enableMultiFingerGestureRace: true,
+          rotationThreshold: 20,
         ),
       ),
       children: layers,
     );
+    return Listener(
+      onPointerSignal: _onPointerSignal,
+      onPointerDown: _onPointerDown,
+      onPointerMove: _onPointerMove,
+      onPointerUp: _onPointerUp,
+      onPointerCancel: (event) => _twoFingerTap.cancel(event.pointer),
+      child: Shortcuts(
+        shortcuts: _zoomKeys,
+        child: Actions(
+          actions: {
+            _ZoomIntent: CallbackAction<_ZoomIntent>(
+              onInvoke: (intent) {
+                intent.levels > 0 ? _zoomIn() : _zoomOut();
+                return null;
+              },
+            ),
+          },
+          child: Focus(focusNode: _mapFocus, child: map),
+        ),
+      ),
+    );
   }
+}
+
+/// Zoom da tastiera: un livello avanti (+1) o indietro (-1).
+class _ZoomIntent extends Intent {
+  const _ZoomIntent(this.levels);
+
+  final int levels;
 }

@@ -70,6 +70,11 @@ has_text_js() {
 ".some(e => e.getAttribute(\"aria-label\").includes(t)); })()" % t)' "$1"
 }
 
+# Livello di zoom della mappa, dall'etichetta accessibile dei pulsanti + e −.
+map_zoom() {
+  "$AB" --session "$1" eval "(() => { const t = [...document.querySelectorAll('[aria-label]')].map(e => e.getAttribute('aria-label')).join(' ') + ' ' + document.body.innerText; const m = t.match(/Livello di zoom (\\d+)/); return m ? m[1] : ''; })()" 2>/dev/null | tr -dc '0-9'
+}
+
 # Scrive in un campo di testo Flutter: clic, poi tasti veri (fill non basta).
 type_into() {
   local session=$1 name=$2 text=$3
@@ -169,7 +174,58 @@ if os.environ.get("GITHUB_ACTIONS"):
     print(f"::notice title=tempi {label}::{line}")
 ' "$label" "$t_open" "${t_ready:-}" "${t_route_start:-}" "${t_route_end:-}" "$OUT/misure-$label.json"
 
-  # 5. Zoom al minimo con il percorso sulla mappa: a zoom 3 flutter_map
+  # 5. Solo su desktop: Ctrl + rotellina (lo stesso evento del pizzico sul
+  #    touchpad), tasto «−» e rotazione con Ctrl + trascinamento, poi la
+  #    bussola che riporta il nord.
+  if [ "$label" = desktop ]; then
+    local mx=1000 my=300 z0 z1 z2
+    z0=$(map_zoom "$s")
+    "${ab[@]}" eval "document.elementFromPoint($mx, $my).dispatchEvent(new WheelEvent('wheel', {ctrlKey: true, deltaY: 400, clientX: $mx, clientY: $my, bubbles: true, cancelable: true})); true" >/dev/null
+    "${ab[@]}" wait 2000 >/dev/null
+    z1=$(map_zoom "$s")
+    echo "   zoom: percorso $z0, dopo Ctrl+rotellina $z1"
+    [ "$z1" -lt "$z0" ] 2>/dev/null ||
+      fail "$label" "Ctrl + rotellina (pizzico sul touchpad) non cambia lo zoom ($z0 → $z1)"
+    "${ab[@]}" mouse move "$mx" "$my" >/dev/null
+    "${ab[@]}" mouse down >/dev/null
+    "${ab[@]}" mouse up >/dev/null
+    "${ab[@]}" press - >/dev/null
+    "${ab[@]}" press - >/dev/null
+    "${ab[@]}" wait 2000 >/dev/null
+    z2=$(map_zoom "$s")
+    echo "   dopo due «−»: $z2"
+    [ "$z2" -lt "$z1" ] 2>/dev/null ||
+      fail "$label" "il tasto «−» non cambia lo zoom ($z1 → $z2)"
+    # Ctrl + trascinamento con eventi del browser che hanno ctrlKey: Flutter
+    # ricava lo stato di Ctrl anche dai movimenti del mouse, e quelli di
+    # agent-browser non lo portano (Ctrl risulterebbe subito rilasciato).
+    pointer() {
+      "${ab[@]}" eval "document.elementFromPoint($2, $3).dispatchEvent(new PointerEvent('$1', {clientX: $2, clientY: $3, ctrlKey: $4, buttons: $5, button: 0, pointerId: 1, pointerType: 'mouse', isPrimary: true, bubbles: true, cancelable: true})); true" >/dev/null
+      "${ab[@]}" wait 60 >/dev/null
+    }
+    pointer pointermove "$mx" "$my" true 0
+    pointer pointerdown "$mx" "$my" true 1
+    for step in 1 2 3 4 5 6 7 8; do
+      pointer pointermove $((mx + step * 25)) $((my + step * 20)) true 1
+    done
+    pointer pointerup $((mx + 200)) $((my + 160)) true 0
+    pointer pointermove $((mx + 200)) $((my + 160)) false 0
+    if "${ab[@]}" wait --fn "$(has_text_js 'Mappa ruotata')" >/dev/null; then
+      "${ab[@]}" screenshot "$OUT/$label-3-ruotata.png" >/dev/null
+      # Il nome completo è «Mappa ruotata. Tocca per riportare il nord in
+      # alto»: find --name vuole il testo esatto, il selettore basta l'inizio.
+      "${ab[@]}" click '[aria-label^="Mappa ruotata"]' >/dev/null ||
+        fail "$label" "non trovo il pulsante della bussola"
+      "${ab[@]}" wait 1500 >/dev/null
+      if "${ab[@]}" eval "$(has_text_js 'Mappa ruotata')" | grep -q true; then
+        fail "$label" "la bussola non riporta il nord in alto"
+      fi
+    else
+      fail "$label" "Ctrl + trascinamento non ruota la mappa (bussola assente)"
+    fi
+  fi
+
+  # 6. Zoom al minimo con il percorso sulla mappa: a zoom 3 flutter_map
   #    ripete percorso e cerchio di incertezza su più copie del mondo.
   for _ in $(seq 1 17); do
     "${ab[@]}" find role button click --name "Riduci" >/dev/null 2>&1 || break
@@ -177,7 +233,7 @@ if os.environ.get("GITHUB_ACTIONS"):
   done
   "${ab[@]}" screenshot "$OUT/$label-3-zoom-minimo.png" >/dev/null
 
-  # 6. Eccezioni JS (fanno fallire) ed errori in console (solo segnalati).
+  # 7. Eccezioni JS (fanno fallire) ed errori in console (solo segnalati).
   local report
   report=$("${ab[@]}" errors --json 2>/dev/null)
   local page_errors

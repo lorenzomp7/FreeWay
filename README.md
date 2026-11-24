@@ -283,8 +283,16 @@ la pagina si ricarica. I file di avvio sono identificati dal commit.
   mappa gira nel verso del percorso, più stabile della bussola; le icone
   restano dritte. Nel browser si usa l'orientamento del dispositivo (su
   iPhone Safari chiede il permesso al primo tocco); la scelta resta sul
-  dispositivo. Il pulsante compare solo quando la bussola risponde o
-  durante la navigazione.
+  dispositivo. Il pulsante compare quando la bussola risponde, durante la
+  navigazione o con la mappa ruotata; con la mappa girata a mano un tocco
+  riporta il nord in alto.
+- Gesti come su Google Maps: zoom con pizzico (dita o touchpad del PC),
+  rotellina, Ctrl + rotellina, doppio tocco, doppio tocco tenuto e
+  trascinato, tocco con due dita per allontanare, tasti + e − dopo un clic
+  sulla mappa, frecce per spostarla. La mappa si ruota con due dita (dopo
+  20° di torsione, così un pizzico resta uno zoom) o con Ctrl +
+  trascinamento; un Ctrl + clic riporta il nord. Girarla a mano spegne
+  "direzione in alto", tranne in navigazione.
 - "Ascensore o rampa fuori servizio" tra gli ostacoli temporanei: sparisce
   dopo 2 giorni se nessuno conferma che è ancora fermo, e le domande
   diventano "È ancora fuori servizio?" con "Ancora fermo" e "Funziona di

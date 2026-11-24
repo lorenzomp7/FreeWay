@@ -81,4 +81,44 @@ void main() {
     expect(taps, 1);
     expect(find.bySemanticsLabel(RegExp('nord in alto')), findsOneWidget);
   });
+
+  testWidgets('bussola con la mappa girata a mano: riporta il nord', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Center(
+          child: CompassButton(
+            mapRotation: 35,
+            headingUp: false,
+            rotated: true,
+            onPressed: () {},
+          ),
+        ),
+      ),
+    );
+    expect(
+      find.bySemanticsLabel(
+        'Mappa ruotata. Tocca per riportare il nord in alto',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('i pulsanti di zoom dicono il livello di zoom', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MapControls(
+            onZoomIn: () {},
+            onZoomOut: () {},
+            zoomLevel: 16,
+            onLocate: () {},
+            isLocating: false,
+          ),
+        ),
+      ),
+    );
+    expect(find.bySemanticsLabel('Livello di zoom 16'), findsOneWidget);
+  });
 }
