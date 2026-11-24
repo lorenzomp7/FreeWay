@@ -169,7 +169,15 @@ if os.environ.get("GITHUB_ACTIONS"):
     print(f"::notice title=tempi {label}::{line}")
 ' "$label" "$t_open" "${t_ready:-}" "${t_route_start:-}" "${t_route_end:-}" "$OUT/misure-$label.json"
 
-  # 5. Eccezioni JS (fanno fallire) ed errori in console (solo segnalati).
+  # 5. Zoom al minimo con il percorso sulla mappa: a zoom 3 flutter_map
+  #    ripete percorso e cerchio di incertezza su più copie del mondo.
+  for _ in $(seq 1 17); do
+    "${ab[@]}" find role button click --name "Riduci" >/dev/null 2>&1 || break
+    "${ab[@]}" wait 600 >/dev/null
+  done
+  "${ab[@]}" screenshot "$OUT/$label-3-zoom-minimo.png" >/dev/null
+
+  # 6. Eccezioni JS (fanno fallire) ed errori in console (solo segnalati).
   local report
   report=$("${ab[@]}" errors --json 2>/dev/null)
   local page_errors
@@ -180,12 +188,17 @@ for e in d: print(e.get("text","").splitlines()[0])')
   if [ -n "$page_errors" ]; then
     fail "$label" "eccezioni JS: $(printf '%s' "$page_errors" | head -3 | tr '\n' ' ')"
   fi
-  "${ab[@]}" console --json 2>/dev/null | python3 -c 'import json,sys
+  "${ab[@]}" console --json 2>/dev/null | SMOKE_LABEL="$label" python3 -c 'import json,sys
 try: m=json.load(sys.stdin)["data"]["messages"]
 except Exception: m=[]
 err=[x for x in m if x.get("type") in ("error","assert")]
 print(f"   console: {len(err)} errori su {len(m)} messaggi")
-for x in err[:5]: print("   -", str(x.get("text",""))[:160])'
+for x in err[:5]: print("   -", str(x.get("text",""))[:160])
+import os
+if os.environ.get("GITHUB_ACTIONS"):
+    for x in err[:5]:
+        t = " ".join(str(x.get("text", "")).split())[:300]
+        print("::warning title=console " + os.environ.get("SMOKE_LABEL", "") + "::" + t)'
   "${ab[@]}" close >/dev/null
 }
 
