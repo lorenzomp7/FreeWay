@@ -196,14 +196,20 @@ if os.environ.get("GITHUB_ACTIONS"):
     echo "   dopo due «−»: $z2"
     [ "$z2" -lt "$z1" ] 2>/dev/null ||
       fail "$label" "il tasto «−» non cambia lo zoom ($z1 → $z2)"
-    "${ab[@]}" keydown Control >/dev/null
-    "${ab[@]}" mouse move "$mx" "$my" >/dev/null
-    "${ab[@]}" mouse down >/dev/null
-    for step in 1 2 3 4 5 6; do
-      "${ab[@]}" mouse move $((mx + step * 30)) $((my + step * 25)) >/dev/null
+    # Ctrl + trascinamento con eventi del browser che hanno ctrlKey: Flutter
+    # ricava lo stato di Ctrl anche dai movimenti del mouse, e quelli di
+    # agent-browser non lo portano (Ctrl risulterebbe subito rilasciato).
+    pointer() {
+      "${ab[@]}" eval "document.elementFromPoint($2, $3).dispatchEvent(new PointerEvent('$1', {clientX: $2, clientY: $3, ctrlKey: $4, buttons: $5, button: 0, pointerId: 1, pointerType: 'mouse', isPrimary: true, bubbles: true, cancelable: true})); true" >/dev/null
+      "${ab[@]}" wait 60 >/dev/null
+    }
+    pointer pointermove "$mx" "$my" true 0
+    pointer pointerdown "$mx" "$my" true 1
+    for step in 1 2 3 4 5 6 7 8; do
+      pointer pointermove $((mx + step * 25)) $((my + step * 20)) true 1
     done
-    "${ab[@]}" mouse up >/dev/null
-    "${ab[@]}" keyup Control >/dev/null
+    pointer pointerup $((mx + 200)) $((my + 160)) true 0
+    pointer pointermove $((mx + 200)) $((my + 160)) false 0
     if "${ab[@]}" wait --fn "$(has_text_js 'Mappa ruotata')" >/dev/null; then
       "${ab[@]}" screenshot "$OUT/$label-3-ruotata.png" >/dev/null
       "${ab[@]}" find role button click --name "Mappa ruotata" >/dev/null
