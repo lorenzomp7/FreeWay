@@ -87,6 +87,14 @@ build locale o su `FREEWAY_QA_URL`, a 1280×800 e 390×844:
    elencati (tile o servizi esterni non raggiungibili non sono un difetto
    dell'app).
 
+Per ogni misura registra anche i tempi in
+`tools/agents/browser-shots/misure-<desktop|telefono>.json`: dall'apertura
+alla mappa pronta, dall'Invio sulla destinazione al percorso calcolato, e i Web
+Vitals del browser (TTFB, FCP, LCP, CLS, INP). Servono a confrontare prima e
+dopo una modifica; dipendono anche dalla rete e dai servizi esterni, quindi non
+fanno fallire la prova. Nelle GitHub Actions compaiono anche come annotazioni
+«tempi desktop» e «tempi telefono» del job.
+
 Gli screenshot finiscono in `tools/agents/browser-shots/` (esclusa da git). Non
 crea account e non scrive segnalazioni; le richieste a ORS rientrano nella
 quota gratuita. Nel workflow `agent-qa.yml` la prova gira dopo i test

@@ -15,6 +15,9 @@
 # Non crea account e non scrive segnalazioni: usa la ricerca (Photon/Nominatim)
 # e il calcolo del percorso (ORS → Valhalla → OSRM) come un ospite qualsiasi.
 # Esce con 0 se la prova riesce su entrambe le misure, altrimenti con 1.
+# Registra anche i tempi (avvio, calcolo del percorso, Web Vitals) in
+# browser-shots/misure-<misura>.json, per confrontare prima e dopo una
+# modifica; i tempi non fanno fallire la prova.
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -50,6 +53,7 @@ trap '[ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null; "$AB" close --all 
 mkdir -p "$OUT"
 
 FAILED=0
+now_ms() { python3 -c 'import time; print(int(time.time() * 1000))'; }
 fail() {
   echo "ERRORE [$1]: $2"
   # Nelle GitHub Actions il messaggio compare come annotazione del job.
@@ -82,6 +86,8 @@ run_case() {
   echo "== $label (${width}x${height})"
 
   "${ab[@]}" set viewport "$width" "$height" >/dev/null
+  local t_open t_ready t_route_start t_route_end
+  t_open=$(now_ms)
   if ! "${ab[@]}" open "$URL" >/dev/null; then
     fail "$label" "la pagina $URL non si apre"; return
   fi
@@ -96,6 +102,7 @@ run_case() {
     "${ab[@]}" wait --fn "$(has_text_js 'Cerca un luogo')" >/dev/null ||
       { fail "$label" "dopo l'accesso come ospite la mappa non si apre"; return; }
   fi
+  t_ready=$(now_ms)
   "${ab[@]}" screenshot "$OUT/$label-1-mappa.png" >/dev/null
 
   # 2. Indicazioni: partenza e arrivo, Invio sceglie il primo risultato.
@@ -108,6 +115,8 @@ run_case() {
   "${ab[@]}" wait 2500 >/dev/null
   type_into "$s" "Scegli la destinazione" "$END_ADDR" ||
     { fail "$label" "non riesco a scrivere la destinazione"; return; }
+  # Da qui: ricerca della destinazione (Invio) e calcolo del percorso.
+  t_route_start=$(now_ms)
 
   # 3. Mezzo: sedia a rotelle (se è già scelto il clic non cambia nulla).
   "${ab[@]}" wait --fn "$(has_text_js 'Sedia a rotelle')" >/dev/null &&
@@ -115,6 +124,7 @@ run_case() {
 
   # 4. Percorso calcolato: opzioni con punteggio e pulsante di avvio.
   if "${ab[@]}" wait --fn "$(has_text_js 'Avvia navigazione')" >/dev/null; then
+    t_route_end=$(now_ms)
     "${ab[@]}" wait 1500 >/dev/null
     if ! "${ab[@]}" eval "/\\d+%/.test(document.body.innerText + [...document.querySelectorAll('[aria-label]')].map(e => e.getAttribute('aria-label')).join(' '))" | grep -q true; then
       fail "$label" "percorso senza punteggio di accessibilità (nn%)"
@@ -123,6 +133,34 @@ run_case() {
     fail "$label" "il percorso non è stato calcolato (manca «Avvia navigazione»)"
   fi
   "${ab[@]}" screenshot "$OUT/$label-2-percorso.png" >/dev/null
+
+  # Tempi: dall'apertura alla mappa pronta, dall'Invio sulla destinazione
+  # al percorso (ricerca, servizi di percorso, scelta del mezzo) e Web Vitals.
+  "${ab[@]}" vitals --json 2>/dev/null | python3 -c '
+import json, sys
+label, t_open, t_ready, r0, r1, out = sys.argv[1:7]
+try:
+    d = json.load(sys.stdin)["data"]
+except Exception:
+    d = {}
+ms = lambda a, b: int(b) - int(a) if a and b else None
+lcp = d.get("lcp") or {}
+m = {
+    "misura": label,
+    "avvio_fino_alla_mappa_ms": ms(t_open, t_ready),
+    "destinazione_fino_al_percorso_ms": ms(r0, r1),
+    "ttfb_ms": d.get("ttfb"), "fcp_ms": d.get("fcp"),
+    "lcp_ms": lcp.get("startTime"), "cls": (d.get("cls") or {}).get("score"),
+    "inp_ms": d.get("inp"),
+}
+json.dump(m, open(out, "w"), indent=2)
+line = ", ".join(f"{k}={v}" for k, v in m.items() if k != "misura")
+print("   tempi: " + line)
+# Nelle GitHub Actions i tempi si leggono anche tra le annotazioni del job.
+import os
+if os.environ.get("GITHUB_ACTIONS"):
+    print(f"::notice title=tempi {label}::{line}")
+' "$label" "$t_open" "${t_ready:-}" "${t_route_start:-}" "${t_route_end:-}" "$OUT/misure-$label.json"
 
   # 5. Eccezioni JS (fanno fallire) ed errori in console (solo segnalati).
   local report
