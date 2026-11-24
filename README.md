@@ -11,8 +11,8 @@ segnalare barriere architettoniche. È un progetto di Enactus UniBs 2024 / 2025.
 
 [Apri FreeWay su GitHub Pages](https://lorenzomp7.github.io/FreeWay/)
 
-Quando si condivide il link compare l'anteprima `assets/social-preview-1.png`
-(1280×640, copiata in `web/social-preview.png` e indicata in `og:image`). La
+Quando si condivide il link compare l'anteprima `assets/social-preview-2.png`
+(1280×640, copiata in `web/social-preview-2.png` e indicata in `og:image`). La
 stessa immagine va caricata a mano come «Social preview» della repo, in
 Settings → General: GitHub non permette di impostarla da API.
 
