@@ -49,6 +49,52 @@ cd tools/agents
 npm run playwriter -- session list
 ```
 
+### agent-browser
+
+[agent-browser](https://github.com/vercel-labs/agent-browser) (Vercel Labs,
+Apache-2.0, versione fissata nel lockfile) è un browser senza interfaccia
+comandato da riga di comando: legge la pagina come albero di accessibilità con
+riferimenti (`@e1`…), clicca, scrive, fa screenshot e legge console ed errori.
+A differenza di Playwriter non ha bisogno del tuo Chrome: funziona nelle
+sessioni Claude Code nel cloud e nelle GitHub Actions. È lo strumento da usare
+per le verifiche nel browser fatte da un agente.
+
+`setup node` lo installa insieme agli altri pacchetti e scarica il suo Chrome
+for Testing; con `FREEWAY_CHROMIUM_PATH` usa invece il Chrome indicato (utile
+quando la rete blocca `googlechromelabs.github.io`). Prima di usarlo un agente
+legge la guida allegata, sempre della stessa versione:
+
+```bash
+cd tools/agents
+npm run browser -- skills get core
+npm run browser -- open http://127.0.0.1:8080/
+npm run browser -- snapshot -i
+```
+
+Flutter accetta il testo solo da tasti veri: per i campi usare `click` e poi
+`keyboard type`, non `fill`.
+
+**Prova fissa** `tools/agents/smoke-browser.sh` (anche `npm run smoke`), sulla
+build locale o su `FREEWAY_QA_URL`, a 1280×800 e 390×844:
+
+1. entra come ospite se compare la schermata di accesso;
+2. apre «Indicazioni», scrive partenza e arrivo (predefiniti: Piazza della
+   Loggia → Piazza della Vittoria, Brescia; cambiabili con
+   `FREEWAY_SMOKE_START` e `FREEWAY_SMOKE_END`) e sceglie «Sedia a rotelle»;
+3. aspetta «Avvia navigazione» e controlla che il percorso abbia il punteggio
+   di accessibilità (nn%);
+4. fallisce se la pagina ha eccezioni JS; gli errori in console vengono solo
+   elencati (tile o servizi esterni non raggiungibili non sono un difetto
+   dell'app).
+
+Gli screenshot finiscono in `tools/agents/browser-shots/` (esclusa da git). Non
+crea account e non scrive segnalazioni; le richieste a ORS rientrano nella
+quota gratuita. Nel workflow `agent-qa.yml` la prova gira dopo i test
+Playwright senza bloccare il job, perché dipende da Photon e dai servizi di
+percorso; gli screenshot sono nell'artefatto `browser-qa-report`. Per i casi
+fissi del punto 23 del Piano (confronto con openrouteservice) lo script serve
+quando si vuole vedere anche la mappa, non solo il JSON.
+
 ### Vibetest Use
 
 Il server upstream contiene nomi di modelli sperimentali hardcoded. L'adattatore
@@ -130,9 +176,9 @@ npm run qa
 Playwright avvia il server locale e verifica la schermata di accesso su desktop
 e telefono: controlli accessibili, inserimento email, passaggio con Tab,
 pulsante ospite dentro la larghezza dello schermo e assenza di eccezioni JS.
-Non esegue accessi o scritture su Firestore. Non verifica ancora percorsi,
-ricerca o navigazione: per questi restano i test Flutter esistenti e le prove
-esplorative con browser collegato.
+Non esegue accessi o scritture su Firestore. Ricerca e percorso si provano con
+`tools/agents/smoke-browser.sh` (vedi agent-browser); la navigazione passo
+passo resta coperta dai test Flutter.
 
 `FREEWAY_QA_URL` permette di verificare un altro URL invece della build locale,
 anche in un sottopercorso come `https://lorenzomp7.github.io/FreeWay`: i test

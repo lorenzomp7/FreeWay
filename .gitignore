@@ -40,6 +40,7 @@ firestore-debug.log
 tools/agents/node_modules/
 tools/agents/test-results/
 tools/agents/playwright-report/
+tools/agents/browser-shots/
 .env
 .env.*
 !.env.example

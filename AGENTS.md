@@ -25,6 +25,7 @@ sito e le regole Firestore.
 | Un solo file di test | `flutter test test/<nome>_test.dart` |
 | Regole Firestore (serve Java per l'emulatore) | `cd firestore_tests && npm ci && npm test` |
 | QA nel browser (come in CI) | vedi `.github/workflows/agent-qa.yml` |
+| Prova ricerca e percorso nel browser | `bash tools/agents/smoke-browser.sh` (dopo `flutter build web`) |
 
 Esegui la verifica standard prima di dichiarare finito un cambio in `lib/`.
 Se modifichi `firestore.rules`, esegui anche i test delle regole. Riporta i
@@ -47,3 +48,5 @@ comandi davvero eseguiti e i loro esiti; se Flutter non è disponibile dillo.
 `addyosmani/agent-skills` sia in `.agents/skills` (Codex) sia in
 `.claude/skills` (Claude Code). Leggi solo quella utile al compito.
 Server MCP: vedi [docs/agent-tools.md](docs/agent-tools.md).
+Per verifiche nel browser usa agent-browser (`cd tools/agents && npm run browser
+-- skills get core` prima di cominciare): funziona anche nelle sessioni cloud.
