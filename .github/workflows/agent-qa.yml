@@ -27,6 +27,9 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos
       - run: flutter test
+      # Il decoder delle polilinee anche nel browser: sul web gli operatori
+      # sui bit si comportano diversamente che sulla VM di Dart.
+      - run: flutter test --platform chrome test/polyline_decode_test.dart
       - run: flutter build web --release --pwa-strategy=none --base-href /
       - run: npm ci
         working-directory: tools/agents

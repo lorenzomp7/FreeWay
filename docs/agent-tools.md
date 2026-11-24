@@ -83,9 +83,11 @@ build locale o su `FREEWAY_QA_URL`, a 1280×800 e 390×844:
    `FREEWAY_SMOKE_START` e `FREEWAY_SMOKE_END`) e sceglie «Sedia a rotelle»;
 3. aspetta «Avvia navigazione» e controlla che il percorso abbia il punteggio
    di accessibilità (nn%);
-4. fallisce se la pagina ha eccezioni JS; gli errori in console vengono solo
-   elencati (tile o servizi esterni non raggiungibili non sono un difetto
-   dell'app).
+4. porta la mappa allo zoom minimo con «Riduci», con il percorso disegnato;
+5. fallisce se la pagina ha eccezioni JS o se in console compaiono eccezioni
+   del framework Flutter («Another exception was thrown», «Assertion
+   failed»); gli altri errori di console vengono solo elencati (tile o servizi
+   esterni non raggiungibili non sono un difetto dell'app).
 
 Per ogni misura registra anche i tempi in
 `tools/agents/browser-shots/misure-<desktop|telefono>.json`: dall'apertura
@@ -113,28 +115,27 @@ riferimento del Piano: elenco, regole e scheda tipo in
 [app-analizzate](app-analizzate/README.md). Costo: 0 € (REA, JADX, Apktool e
 adb sono gratuiti).
 
-Si usa in locale, con il telefono collegato via USB e il debug USB attivo: nel
-cloud non c'è `adb` e non ci sono APK. Come server MCP è già in
-`.mcp.optional.json` e `.codex/config.toml`; da terminale:
+Dalla chat non serve fare nulla: in ogni sessione Claude Code (cloud e PC) c'è il server MCP
+`rea` dichiarato in `.mcp.json` (`node .claude/rea/rea.mjs`), con gli strumenti per APK, Flutter
+e adb. Claude installa JADX 0.7.1 e Apktool 3.0.2 da solo (skill `rea`): nel cloud l'avvio della
+sessione lo fa in background, su Linux/macOS `bash .claude/rea/installa.sh`, su Windows
+`.claude\rea\installa-windows.ps1` (registra REA anche in Claude Desktop). Basta mandare gli APK
+in chat; per prenderli dal telefono serve il PC con il debug USB attivo. Per Codex il server resta
+in `.codex/config.toml`. Da terminale, stessi comandi con la versione fissata:
 
 ```bash
-# Prerequisiti: Node 22+, Android platform-tools (adb) e, per leggere classi e
-# manifest, un JDK 17+ completo con il JAR jadx-headless-mcp 0.8.0 (link e
-# impronta SHA-256 nella guida Android di REA, docs/guides/android/).
-export REA_ADB_PATH=/percorso/assoluto/di/adb   # facoltativo se adb è nel PATH
-export REA_JADX_MCP_JAR=/percorso/jadx-headless-mcp-0.8.0-all.jar
-npx -y rea-agents@6.10.1 inspect-adb-client
-npx -y rea-agents@6.10.1 list-adb-devices
-npx -y rea-agents@6.10.1 resolve-adb-packages <dispositivo> streetco
-npx -y rea-agents@6.10.1 pull-adb-package <dispositivo> <pacchetto> --output-directory apk-analisi
-npx -y rea-agents@6.10.1 inspect-android-package apk-analisi/<pacchetto>/base.apk
-npx -y rea-agents@6.10.1 inspect-apk-signature apk-analisi/<pacchetto>/base.apk
+bash .claude/rea/installa.sh                    # una volta per macchina (JADX, Apktool, REA)
+node .claude/rea/check.mjs apk-analisi/<pacchetto>/base.apk   # server MCP e analisi di prova
+node .claude/rea/rea.mjs list-adb-devices
+node .claude/rea/rea.mjs resolve-adb-packages <dispositivo> streetco
+node .claude/rea/rea.mjs pull-adb-package <dispositivo> <pacchetto> --output-directory apk-analisi
+node .claude/rea/rea.mjs identify-flutter-build apk-analisi/<pacchetto>/base.apk
+node .claude/rea/rea.mjs inspect-apk-signature apk-analisi/<pacchetto>/base.apk
 ```
 
 `apk-analisi/` e i file `*.apk` sono esclusi da git: gli APK sono di terzi e
 non entrano mai nella repo. Si leggono dichiarazioni e nomi delle librerie, non
-si copia codice. Per una configurazione guidata del client c'è anche
-`npx rea-agents setup`, da lanciare fuori dalla repo.
+si copia codice. Gli strumenti stanno in `~/.cache/rea-tools`, fuori dalla repo.
 
 ### Vibetest Use
 
