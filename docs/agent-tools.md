@@ -83,9 +83,11 @@ build locale o su `FREEWAY_QA_URL`, a 1280×800 e 390×844:
    `FREEWAY_SMOKE_START` e `FREEWAY_SMOKE_END`) e sceglie «Sedia a rotelle»;
 3. aspetta «Avvia navigazione» e controlla che il percorso abbia il punteggio
    di accessibilità (nn%);
-4. fallisce se la pagina ha eccezioni JS; gli errori in console vengono solo
-   elencati (tile o servizi esterni non raggiungibili non sono un difetto
-   dell'app).
+4. porta la mappa allo zoom minimo con «Riduci», con il percorso disegnato;
+5. fallisce se la pagina ha eccezioni JS o se in console compaiono eccezioni
+   del framework Flutter («Another exception was thrown», «Assertion
+   failed»); gli altri errori di console vengono solo elencati (tile o servizi
+   esterni non raggiungibili non sono un difetto dell'app).
 
 Per ogni misura registra anche i tempi in
 `tools/agents/browser-shots/misure-<desktop|telefono>.json`: dall'apertura

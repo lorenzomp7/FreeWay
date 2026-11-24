@@ -188,6 +188,21 @@ for e in d: print(e.get("text","").splitlines()[0])')
   if [ -n "$page_errors" ]; then
     fail "$label" "eccezioni JS: $(printf '%s' "$page_errors" | head -3 | tr '\n' ' ')"
   fi
+  # Le eccezioni del framework Flutter (es. un layer della mappa che non si
+  # disegna) arrivano in console, non come eccezioni JS: fanno fallire.
+  local flutter_errors
+  flutter_errors=$("${ab[@]}" console --json 2>/dev/null | python3 -c 'import json,re,sys
+try: m=json.load(sys.stdin)["data"]["messages"]
+except Exception: m=[]
+pat=re.compile(r"Another exception was thrown|Assertion failed|EXCEPTION CAUGHT BY")
+seen=[]
+for x in m:
+    t=" ".join(str(x.get("text","")).split())
+    if pat.search(t) and t[:120] not in seen: seen.append(t[:120])
+print(" | ".join(seen[:3]))')
+  if [ -n "$flutter_errors" ]; then
+    fail "$label" "eccezioni Flutter in console: $flutter_errors"
+  fi
   "${ab[@]}" console --json 2>/dev/null | SMOKE_LABEL="$label" python3 -c 'import json,sys
 try: m=json.load(sys.stdin)["data"]["messages"]
 except Exception: m=[]
