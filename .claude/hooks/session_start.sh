@@ -15,4 +15,10 @@ export_env 'PATH="$HOME/flutter/bin:$HOME/.pub-cache/bin:$PATH"'
 export_env 'FLUTTER_SUPPRESS_ANALYTICS=true'
 background flutter .claude/hooks/flutter_sdk.sh 3.47.0
 note "Verifica standard (quando Flutter è pronto): flutter analyze --no-fatal-infos && flutter test"
+# REA (analisi degli APK dalla chat): JADX, Apktool e REA in ~/.cache/rea-tools, in background.
+note "$(bash "$ROOT/.claude/rea/installa.sh" --sfondo 2>&1 | tail -n 1). Prima di analizzare APK: bash .claude/rea/installa.sh --attendi (skill rea)"
+REA_DIR="${REA_TOOLS_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/rea-tools}"
+export_env "PATH=\"$REA_DIR/bin:\$PATH\""
+export_env "REA_JADX_MCP_JAR=\"$REA_DIR/jadx-headless-mcp-0.7.1-all.jar\""
+export_env "REA_APKTOOL_COMMAND=\"$REA_DIR/apktool\""
 finish reload
