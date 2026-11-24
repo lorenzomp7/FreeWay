@@ -661,6 +661,12 @@ class RoutingService {
 
   /// Decodifica una polilinea codificata (Valhalla usa la precisione 6,
   /// Transitous la indica nella risposta).
+  ///
+  /// Solo aritmetica, niente operatori sui bit per il segno: sul web `~x`
+  /// dà un intero senza segno a 32 bit (`~5` vale 4294967290, non -6), e
+  /// ogni differenza negativa spostava il punto di 4294,97 gradi. I percorsi
+  /// di Valhalla e dei mezzi pubblici finivano fuori dal mondo e flutter_map
+  /// segnalava «Infinite loop going beyond 30 for world width».
   static List<LatLng> decodePolyline(String encoded, int precision) {
     final factor = math.pow(10, precision).toDouble();
     final points = <LatLng>[];
@@ -669,15 +675,17 @@ class RoutingService {
     var lng = 0;
     int next() {
       var result = 0;
-      var shift = 0;
-      int byte;
+      var multiplier = 1;
+      int chunk;
       do {
         if (index >= encoded.length) throw const FormatException('polilinea');
-        byte = encoded.codeUnitAt(index++) - 63;
-        result |= (byte & 0x1f) << shift;
-        shift += 5;
-      } while (byte >= 0x20);
-      return (result & 1) != 0 ? ~(result >> 1) : result >> 1;
+        chunk = encoded.codeUnitAt(index++) - 63;
+        if (chunk < 0) throw const FormatException('polilinea');
+        result += (chunk % 32) * multiplier;
+        multiplier *= 32;
+      } while (chunk >= 32);
+      // Zig-zag: i dispari sono i negativi (1 → -1, 3 → -2, …).
+      return result.isOdd ? -((result + 1) ~/ 2) : result ~/ 2;
     }
 
     try {
