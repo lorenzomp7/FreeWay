@@ -51,3 +51,10 @@ __pycache__/
 # Claude Code: impostazioni personali e stato degli hook (non versionati)
 .claude/settings.local.json
 .claude/hooks/.state/
+
+# APK di terzi analizzati con REA: mai nella repo (vedi docs/app-analizzate/)
+*.apk
+*.apks
+*.aab
+*.xapk
+apk-analisi/

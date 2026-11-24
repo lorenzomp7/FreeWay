@@ -95,6 +95,39 @@ percorso; gli screenshot sono nell'artefatto `browser-qa-report`. Per i casi
 fissi del punto 23 del Piano (confronto con openrouteservice) lo script serve
 quando si vuole vedere anche la mappa, non solo il JSON.
 
+### REA (Reverse Engineer Anything)
+
+[REA](https://github.com/morluto/rea) (MIT, pacchetto npm `rea-agents`, fissato
+a 6.10.1) analizza app senza sorgenti. Per gli APK legge manifest, permessi,
+servizi, ricevitori e librerie (con JADX), risorse (con Apktool), firma, e con
+`adb` scarica gli APK installati sul telefono. Serve a studiare le app di
+riferimento del Piano: elenco, regole e scheda tipo in
+[app-analizzate](app-analizzate/README.md). Costo: 0 € (REA, JADX, Apktool e
+adb sono gratuiti).
+
+Si usa in locale, con il telefono collegato via USB e il debug USB attivo: nel
+cloud non c'è `adb` e non ci sono APK. Come server MCP è già in
+`.mcp.optional.json` e `.codex/config.toml`; da terminale:
+
+```bash
+# Prerequisiti: Node 22+, Android platform-tools (adb) e, per leggere classi e
+# manifest, un JDK 17+ completo con il JAR jadx-headless-mcp 0.8.0 (link e
+# impronta SHA-256 nella guida Android di REA, docs/guides/android/).
+export REA_ADB_PATH=/percorso/assoluto/di/adb   # facoltativo se adb è nel PATH
+export REA_JADX_MCP_JAR=/percorso/jadx-headless-mcp-0.8.0-all.jar
+npx -y rea-agents@6.10.1 inspect-adb-client
+npx -y rea-agents@6.10.1 list-adb-devices
+npx -y rea-agents@6.10.1 resolve-adb-packages <dispositivo> streetco
+npx -y rea-agents@6.10.1 pull-adb-package <dispositivo> <pacchetto> --output-directory apk-analisi
+npx -y rea-agents@6.10.1 inspect-android-package apk-analisi/<pacchetto>/base.apk
+npx -y rea-agents@6.10.1 inspect-apk-signature apk-analisi/<pacchetto>/base.apk
+```
+
+`apk-analisi/` e i file `*.apk` sono esclusi da git: gli APK sono di terzi e
+non entrano mai nella repo. Si leggono dichiarazioni e nomi delle librerie, non
+si copia codice. Per una configurazione guidata del client c'è anche
+`npx rea-agents setup`, da lanciare fuori dalla repo.
+
 ### Vibetest Use
 
 Il server upstream contiene nomi di modelli sperimentali hardcoded. L'adattatore
