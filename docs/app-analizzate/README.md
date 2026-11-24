@@ -20,17 +20,17 @@ e comandi in [agent-tools.md](../agent-tools.md#rea-reverse-engineer-anything).
 
 ## App da analizzare
 
-| App | Cosa cercare | Punti del Piano |
-|---|---|---|
-| Wheelmap | Segnalazione e voto dei luoghi; motore Flutter o nativo | 10 |
-| AccessNow | Fotocamera e foto degli ingressi; caricamento delle foto | 20, 29 |
-| MAPcesible | Motore di percorso e domini contattati | 2 |
-| StreetNav | Fotocamera, riconoscimento dell'ingresso, indicazioni degli ultimi metri | 20, 29 |
-| Streetco | Segnalazione rapida (quanti passaggi, cosa è facoltativo) | 10 |
-| WeGlad | Motore di percorso, profili di mobilità, segnalazioni | 2, 10 |
-| Kimap | Sensori e riconoscimento dell'attività per misurare il fondo | 25 |
-| Route4U | Accelerometro e riconoscimento dell'attività; percorsi senza dati | 2, 25 |
-| iminti Go! | Foto e immagini a livello di strada vicino a ingressi e ostacoli | 20, 29 |
+| App | Cosa cercare | Punti del Piano | Scheda |
+|---|---|---|---|
+| Wheelmap | Segnalazione e voto dei luoghi; motore Flutter o nativo | 10 | [scheda](wheelmap.md) (fonti pubbliche) |
+| AccessNow | Fotocamera e foto degli ingressi; caricamento delle foto | 20, 29 | [scheda](accessnow.md) (fonti pubbliche) |
+| MAPcesible | Motore di percorso e domini contattati | 2 | [scheda](mapcesible.md) (fonti pubbliche) |
+| StreetNav | Fotocamera, riconoscimento dell'ingresso, indicazioni degli ultimi metri | 20, 29 | [scheda](streetnav.md) (fonti pubbliche) |
+| Streetco | Segnalazione rapida (quanti passaggi, cosa è facoltativo) | 10 | [scheda](streetco.md) (fonti pubbliche) |
+| WeGlad | Motore di percorso, profili di mobilità, segnalazioni | 2, 10 | [scheda](weglad.md) (fonti pubbliche) |
+| Kimap | Sensori e riconoscimento dell'attività per misurare il fondo | 25 | [scheda](kimap.md) (fonti pubbliche) |
+| Route4U | Accelerometro e riconoscimento dell'attività; percorsi senza dati | 2, 25 | [scheda](route4u.md) (fonti pubbliche) |
+| iminti Go! | Foto e immagini a livello di strada vicino a ingressi e ostacoli | 20, 29 | [scheda](iminti-go.md) (fonti pubbliche) |
 
 Punti del Piano (foglio «Modifiche», FreeWay):
 
@@ -51,6 +51,9 @@ Per ogni app, in quest'ordine:
 4. Motore di percorso e domini (ORS, Valhalla, GraphHopper, servizi propri)
    → punto 2.
 5. Segnalazione rapida (attività, intent, scorciatoie, widget) → punto 10.
+
+Le nove schede sono compilate da **fonti pubbliche** (store, siti, articoli, codice aperto),
+con la fonte per ogni riga; quando c'è l'APK si aggiungono motore, minSdk e righe da manifest.
 
 ## Scheda tipo
 
