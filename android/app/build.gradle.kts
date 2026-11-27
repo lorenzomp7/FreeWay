@@ -30,6 +30,17 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        // Chiave di debug fissa inclusa nel repo: così ogni APK della CI si installa
+        // come aggiornamento del precedente (la chiave generata dal runner cambia ogni volta).
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
