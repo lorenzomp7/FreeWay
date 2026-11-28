@@ -41,6 +41,8 @@ flutter:
 
 flutter_launcher_icons:
   image_path: assets/logo.png
+  # Le icone Android (classica e adattiva) sono già in android/app/src/main/res,
+  # ricavate da assets/logo.png: se cambi il logo vanno rigenerate.
   android: false
   ios: false
   web:

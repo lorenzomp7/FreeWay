@@ -57,6 +57,16 @@ jobs:
           --dart-define=TRAFFIC_URL="$TRAFFIC_URL"
           --dart-define=CARTO_KEY="$CARTO_KEY"
 
+      # Blocca la build se l'APK non si chiama «FreeWay» o ha ancora l'icona
+      # predefinita di Flutter (era successo: nome «osm_routing_app»).
+      - name: Controlla nome e icona dell'APK
+        run: |
+          AAPT="$(ls "$ANDROID_HOME"/build-tools/*/aapt | sort -V | tail -1)"
+          INFO="$("$AAPT" dump badging build/app/outputs/flutter-apk/app-release.apk)"
+          echo "$INFO" | grep -E "^application-label|^application-icon" | head -8
+          echo "$INFO" | grep -qx "application-label:'FreeWay'"
+          "$AAPT" list build/app/outputs/flutter-apk/app-release.apk | grep -q "ic_launcher_foreground"
+
       - name: Rinomina APK
         run: cp build/app/outputs/flutter-apk/app-release.apk FreeWay.apk
 
