@@ -65,7 +65,9 @@ jobs:
           INFO="$("$AAPT" dump badging build/app/outputs/flutter-apk/app-release.apk)"
           echo "$INFO" | grep -E "^application-label|^application-icon" | head -8
           echo "$INFO" | grep -qx "application-label:'FreeWay'"
-          "$AAPT" list build/app/outputs/flutter-apk/app-release.apk | grep -q "ic_launcher_foreground"
+          # I file in res/ vengono rinominati dalla build: si guarda la tabella delle risorse.
+          "$AAPT" dump resources build/app/outputs/flutter-apk/app-release.apk > risorse.txt
+          grep -q "mipmap/ic_launcher_foreground" risorse.txt
 
       - name: Rinomina APK
         run: cp build/app/outputs/flutter-apk/app-release.apk FreeWay.apk
